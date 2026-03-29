@@ -55,12 +55,12 @@ async getAllServicios() {
   
   const allServicios: any[] = [];
   const API_DOMAIN = 'https://api.dzsalon.com';
-  let nextPage = `${API_DOMAIN}/api/servicios/?page=1&page_size=50`;
+  let nextPage: string | null = `${API_DOMAIN}/api/servicios/?page=1&page_size=50`;
   
   while (nextPage) {
     console.log('📡 Fetching:', nextPage);
     
-    const res = await fetch(nextPage);
+    const res: Response = await fetch(nextPage);
     if (!res.ok) throw new Error(`Error HTTP ${res.status}`);
     
     const data = await res.json();

@@ -84,9 +84,9 @@ export default function RegisterPage() {
     }
   };
 
-  // Obtener URLs
-  const heroImageUrl = api.getImageUrl(configuracion?.hero_imagen, configuracion?.hero_imagen_url);
-  const logoUrl = api.getImageUrl(configuracion?.logo_url, configuracion?.logo_url);
+  // ✅ DESPUÉS (agregar ?? null):
+const heroImageUrl = api.getImageUrl(configuracion?.hero_imagen ?? null, configuracion?.hero_imagen_url ?? null);
+const logoUrl = api.getImageUrl(configuracion?.logo_url ?? null, configuracion?.logo_url ?? null);
 
   return (
     <div className="min-h-screen relative flex items-center justify-center py-12 px-4">

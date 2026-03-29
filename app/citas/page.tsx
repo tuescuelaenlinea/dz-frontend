@@ -103,23 +103,23 @@ export default function CitasPage() {
   const canProceedToStep = (step: BookingStep): boolean => {
     switch (step) {
       case 2: return selectedService !== null;
-      case 3: return selectedService !== null && selectedDate !== null && selectedTime !== null;
+      case 3: return selectedService !== null && selectedDate !== null && selectedTime !== null;     
       case 4: return selectedService !== null && selectedDate !== null && selectedTime !== null && 
-               (clientData.cliente_nombre.trim() && clientData.cliente_telefono.trim());
+               (clientData.cliente_nombre.trim().length > 0 && clientData.cliente_telefono.trim().length > 0);
       default: return true;
     }
   };
 
   const handleNext = () => {
-    if (canProceedToStep((currentStep + 1) as BookingStep)) {
-      setCurrentStep(prev => Math.min(prev + 1, 4) as BookingStep);
+    if (canProceedToStep((Number(currentStep) + 1) as BookingStep)) {
+      setCurrentStep(prev => Math.min(Number(prev) + 1, 4) as BookingStep);
       setError(null);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
   const handleBack = () => {
-    setCurrentStep(prev => Math.max(prev - 1, 1) as BookingStep);
+    setCurrentStep(prev => Math.max(Number(prev) - 1, 1) as BookingStep);
     setError(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -280,8 +280,8 @@ export default function CitasPage() {
       <div className="mb-8">
         <div className="flex items-center justify-between">
           {steps.map((step, index) => {
-            const isActive = currentStep === step.num;
-            const isCompleted = currentStep > step.num;
+            const isActive = Number(currentStep) === step.num;
+            const isCompleted = Number(currentStep) > step.num;
             
             return (
               <div key={step.num} className="flex-1 flex items-center">
@@ -303,7 +303,7 @@ export default function CitasPage() {
                 </div>
                 {index < steps.length - 1 && (
                   <div className={`flex-1 h-1 mx-2 rounded ${
-                    currentStep > step.num ? 'bg-green-600' : 'bg-gray-200'
+                    Number(currentStep) > step.num ? 'bg-green-600' : 'bg-gray-200'
                   }`} />
                 )}
               </div>
@@ -372,14 +372,19 @@ export default function CitasPage() {
             <h2 className="text-xl font-bold text-gray-900 mb-6">
               4️⃣ Confirma tu reserva
             </h2>
-            <BookingSummary
-              servicio={selectedService}
-              fecha={selectedDate}
-              hora={selectedTime}
-              mode={mode}
-              adicionalDomicilio={selectedService?.adicional_domicilio}
-              clienteData={clientData}
-            />
+            // ✅ DESPUÉS (transformar las propiedades):
+<BookingSummary
+  servicio={selectedService}
+  fecha={selectedDate}
+  hora={selectedTime}
+  mode={mode}
+  adicionalDomicilio={selectedService?.adicional_domicilio}
+  clienteData={{
+    nombre: clientData.cliente_nombre,
+    telefono: clientData.cliente_telefono,
+    email: clientData.cliente_email,
+  }}
+/>
           </section>
         );
         

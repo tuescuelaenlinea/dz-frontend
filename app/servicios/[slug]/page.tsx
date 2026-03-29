@@ -38,86 +38,76 @@ export default function ServicioDetallePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        console.log('🔍 Buscando servicio con slug:', slug);
-        
-        // Opción 1: Intentar con endpoint por slug (si existe)
-        try {
-          const servData = await api.getServicioBySlug?.(slug);
-          if (servData) {
-            setServicio(servData);
-            await loadRelatedServices(servData.categoria, servData.slug);
-            setLoading(false);
-            return;
-          }
-        } catch (slugErr) {
-          console.log('⚠️ Endpoint por slug no disponible, usando fallback...');
-        }
-        
-        // Opción 2: Fallback - Cargar todos y filtrar por slug
-        const allServicios = await (api.getAllServicios 
-          ? api.getAllServicios() 
-          : api.getServicios());
-        
-        const serviciosList = Array.isArray(allServicios) 
-          ? allServicios 
-          : (allServicios.results || allServicios);
-        
-        console.log(`📦 Total servicios cargados: ${serviciosList.length}`);
-        
-        // Buscar por slug (case-insensitive)
-        const servicioEncontrado = serviciosList.find(
-          (s: Servicio) => s.slug?.toLowerCase() === slug.toLowerCase()
-        );
-        
-        if (!servicioEncontrado) {
-          console.error('❌ Servicio no encontrado:', slug);
-          setError(`Servicio "${slug}" no encontrado`);
-          setLoading(false);
-          return;
-        }
-        
-        console.log('✅ Servicio encontrado:', servicioEncontrado.nombre);
-        setServicio(servicioEncontrado);
-        
-        // Cargar relacionados
-        await loadRelatedServices(servicioEncontrado.categoria, servicioEncontrado.slug);
-        
-        setLoading(false);
-      } catch (err) {
-        console.error('❌ Error detallado:', err);
-        setError('Error al cargar el servicio');
-        setLoading(false);
-      }
+ useEffect(() => {
+  // ← Definir loadRelatedServices ANTES de usarla
+  async function loadRelatedServices(categoriaId: number, currentSlug: string) {
+    try {
+      const allServicios = await (api.getAllServicios 
+        ? api.getAllServicios() 
+        : api.getServicios());
+      
+      const serviciosList = Array.isArray(allServicios) 
+        ? allServicios 
+        : (allServicios.results || allServicios);
+      
+      const relacionados = serviciosList
+        .filter((s: Servicio) => 
+          s.categoria === categoriaId && 
+          s.slug?.toLowerCase() !== currentSlug.toLowerCase()
+        )
+        .slice(0, 3);
+      
+      // Aquí podrías setear un estado si necesitas mostrar relacionados
+      // setRelatedServices(relacionados);
+    } catch (err) {
+      console.warn('⚠️ No se pudieron cargar servicios relacionados:', err);
     }
+  }
 
-    async function loadRelatedServices(categoriaId: number, currentSlug: string) {
-      try {
-        const allServicios = await (api.getAllServicios 
-          ? api.getAllServicios() 
-          : api.getServicios());
-        
-        const serviciosList = Array.isArray(allServicios) 
-          ? allServicios 
-          : (allServicios.results || allServicios);
-        
-        const relacionados = serviciosList
-          .filter((s: Servicio) => 
-            s.categoria === categoriaId && 
-            s.slug?.toLowerCase() !== currentSlug.toLowerCase()
-          )
-          .slice(0, 3);
-        
-        setServiciosRelacionados(relacionados);
-      } catch (err) {
-        console.warn('⚠️ No se pudieron cargar servicios relacionados:', err);
+  // ← Función principal de carga
+  async function loadData() {
+    try {
+      console.log('🔍 Buscando servicio con slug:', slug);
+      
+      // Cargar todos los servicios y filtrar por slug
+      const allServicios = await (api.getAllServicios 
+        ? api.getAllServicios() 
+        : api.getServicios());
+      
+      const serviciosList = Array.isArray(allServicios) 
+        ? allServicios 
+        : (allServicios.results || allServicios);
+      
+      console.log(`📦 Total servicios cargados: ${serviciosList.length}`);
+      
+      // Buscar por slug (case-insensitive)
+      const servicioEncontrado = serviciosList.find(
+        (s: Servicio) => s.slug?.toLowerCase() === slug.toLowerCase()
+      );
+      
+      if (!servicioEncontrado) {
+        console.error('❌ Servicio no encontrado:', slug);
+        setError(`Servicio "${slug}" no encontrado`);
+        setLoading(false);
+        return;
       }
+      
+      console.log('✅ Servicio encontrado:', servicioEncontrado.nombre);
+      setServicio(servicioEncontrado);
+      
+      // ← Ahora sí podemos llamar a loadRelatedServices
+      await loadRelatedServices(servicioEncontrado.categoria, servicioEncontrado.slug);
+      
+      setLoading(false);
+    } catch (err) {
+      console.error('❌ Error:', err);
+      setError('Error al cargar el servicio');
+      setLoading(false);
     }
-
-    loadData();
-  }, [slug]);
+  }
+  
+  loadData();
+}, [slug]);
 
   if (loading) {
     return (

@@ -130,18 +130,16 @@ export default function Home() {
     return `${API_DOMAIN}${imagePath}`;
   };
 
-  const heroDesktopImage = getImageUrl(
-    configuracion?.hero_imagen, 
-    configuracion?.hero_imagen_url
-  );
-  const heroMobileImage = getImageUrl(
-    configuracion?.hero_imagen_mobile, 
-    configuracion?.hero_imagen_mobile_url
-  );
-  const logoUrl = getImageUrl(
-    configuracion?.logo,
-    configuracion?.logo_url
-  );
+
+const heroDesktopImage = getImageUrl(
+  configuracion?.hero_imagen ?? null,
+  configuracion?.hero_imagen_url ?? null
+);
+const heroMobileImage = getImageUrl(
+  configuracion?.hero_imagen_mobile ?? null,
+  configuracion?.hero_imagen_mobile_url ?? null
+);
+ const logoUrl = getImageUrl(configuracion?.logo ?? null, configuracion?.logo_url ?? null);
 
   if (loading) {
     return (
