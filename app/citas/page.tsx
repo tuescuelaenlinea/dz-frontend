@@ -315,7 +315,7 @@ export default function CitasPage() {
     );
   };
 
-  // ← NUEVO: Renderizar contenido del paso actual
+  
   const renderStepContent = () => {
     switch (currentStep) {
       case 1:
@@ -373,7 +373,7 @@ export default function CitasPage() {
             <h2 className="text-xl font-bold text-gray-900 mb-6">
               4️⃣ Confirma tu reserva
             </h2>
-            // ✅ DESPUÉS (transformar las propiedades):
+           
 <BookingSummary
   servicio={selectedService}
   fecha={selectedDate}
