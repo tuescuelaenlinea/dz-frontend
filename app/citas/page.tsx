@@ -1,7 +1,7 @@
 // app/citas/page.tsx
 'use client';
 export const dynamic = 'force-dynamic';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
@@ -29,6 +29,24 @@ interface Servicio {
 
 // Tipos para los pasos del wizard
 type BookingStep = 1 | 2 | 3 | 4 | 'success';
+
+// ← NUEVO: Componente interno que usa useSearchParams
+function CitasContent() {
+  const { user, isAuthenticated, token } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();  // ← Ahora está dentro de CitasContent
+  
+  // ← TODO el código original de CitasPage va aquí:
+  // - estados, useEffects, funciones, renderStepContent, etc.
+  // - el return final con el JSX
+  
+  return (
+    <div className="min-h-screen bg-gray-50 py-12">
+      {/* ... todo el JSX original ... */}
+    </div>
+  );
+}
+
 
 export default function CitasPage() {
   const { user, isAuthenticated, token } = useAuth();
