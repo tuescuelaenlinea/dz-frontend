@@ -1,0 +1,25 @@
+
+> dz-frontend@0.1.0 build
+> next build
+
+▲ Next.js 16.2.1 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 8.7s
+  Running TypeScript ...
+  Finished TypeScript in 7.7s ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/10) ...
+⨯ useSearchParams() should be wrapped in a suspense boundary at page "/citas". Read more: https://nextjs.org/docs/messages/missing-suspense-with-csr-bailout
+    at S (D:\HAWIS\PROYECTOS\dzsalon\frontend\dz-frontend\.next\server\chunks\ssr\node_modules_next_0w2y7fz._.js:2:2692)
+    at r (D:\HAWIS\PROYECTOS\dzsalon\frontend\dz-frontend\.next\server\chunks\ssr\node_modules_next_0w2y7fz._.js:4:6760)
+    at D:\HAWIS\PROYECTOS\dzsalon\frontend\dz-frontend\.next\server\chunks\ssr\app_citas_page_tsx_0mw37ji._.js:1:13217
+    at an (D:\HAWIS\PROYECTOS\dzsalon\frontend\dz-frontend\node_modules\next\dist\compiled\next-server\app-page-turbo.runtime.prod.js:2:84267)
+    at ai (D:\HAWIS\PROYECTOS\dzsalon\frontend\dz-frontend\node_modules\next\dist\compiled\next-server\app-page-turbo.runtime.prod.js:2:86086)
+    at al (D:\HAWIS\PROYECTOS\dzsalon\frontend\dz-frontend\node_modules\next\dist\compiled\next-server\app-page-turbo.runtime.prod.js:2:107860)
+    at ao (D:\HAWIS\PROYECTOS\dzsalon\frontend\dz-frontend\node_modules\next\dist\compiled\next-server\app-page-turbo.runtime.prod.js:2:105275)
+    at aa (D:\HAWIS\PROYECTOS\dzsalon\frontend\dz-frontend\node_modules\next\dist\compiled\next-server\app-page-turbo.runtime.prod.js:2:84619)
+    at ai (D:\HAWIS\PROYECTOS\dzsalon\frontend\dz-frontend\node_modules\next\dist\compiled\next-server\app-page-turbo.runtime.prod.js:2:86135)
+    at ai (D:\HAWIS\PROYECTOS\dzsalon\frontend\dz-frontend\node_modules\next\dist\compiled\next-server\app-page-turbo.runtime.prod.js:2:104615)
+⨯ Next.js build worker exited with code: 1 and signal: null
