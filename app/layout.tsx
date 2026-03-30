@@ -4,7 +4,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
-import { AuthProvider } from "@/contexts/AuthContext";  // ← AGREGAR ESTA LÍNEA
+import { AuthProvider } from "@/contexts/AuthContext";
+import WhatsAppButton from "@/components/WhatsAppButton";  // ← AGREGADO: Import del botón
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -37,13 +38,14 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen flex flex-col`}>
-        {/* ← ENVOLVER TODO CON AuthProvider */}
         <AuthProvider>
           <Navbar />
           <main className="flex-grow">
             {children}
           </main>
           <Footer />
+          {/* ← AGREGADO: Botón flotante de WhatsApp en todas las páginas */}
+          <WhatsAppButton />
         </AuthProvider>
       </body>
     </html>
