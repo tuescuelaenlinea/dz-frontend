@@ -8,7 +8,7 @@ import dynamic from 'next/dynamic';
 const CitasContent = dynamic(
   () => import('./CitasContent').then(mod => mod.default),
   {
-    ssr: false,  // ← Clave: nunca renderizar en servidor
+    ssr: false,
     loading: () => (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600"></div>

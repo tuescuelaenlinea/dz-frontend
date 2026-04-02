@@ -22,6 +22,11 @@ export const metadata: Metadata = {
   description: "Transforma tu belleza con los mejores tratamientos estéticos, peluquería, spa y más. Reserva tu cita hoy mismo.",
   keywords: "salón de belleza, spa, peluquería, estética, Dorian Zambrano, tratamientos faciales, manicura, pedicura",
   authors: [{ name: "Dorian Zambrano" }],
+  icons: {
+    icon: '/favicon.png',  // ← PNG funciona perfectamente
+    shortcut: '/favicon.png',
+    apple: '/apple-touch-icon.png',  // Para iOS (180x180px)
+  },
   openGraph: {
     title: "DZ Salón - Dorian Zambrano",
     description: "Transforma tu belleza con los mejores tratamientos estéticos y de spa",

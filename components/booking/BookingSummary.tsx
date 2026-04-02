@@ -1,4 +1,3 @@
-// components/booking/BookingSummary.tsx
 'use client';
 import { api } from '@/lib/api';
 
@@ -13,8 +12,19 @@ interface Servicio {
   imagen_url: string | null;
 }
 
+// ← CAMBIO 1: Interface para Profesional
+interface Profesional {
+  id: number;
+  nombre: string;
+  titulo: string;
+  especialidad: string;
+}
+
 interface BookingSummaryProps {
   servicio: Servicio | null;
+  // ← CAMBIO 2: Agregar props de profesional
+  profesional?: number | null;
+  profesionalData?: Profesional | null;
   fecha: Date | null;
   hora: string | null;
   mode: 'salon' | 'domicilio';
@@ -28,6 +38,8 @@ interface BookingSummaryProps {
 
 export default function BookingSummary({
   servicio,
+  profesional,
+  profesionalData,
   fecha,
   hora,
   mode,
@@ -79,6 +91,24 @@ export default function BookingSummary({
           )}
         </div>
       </div>
+      
+      {/* ← CAMBIO 3: Profesional seleccionado */}
+      {profesionalData && (
+        <div className="flex items-center gap-4 bg-blue-50 rounded-lg p-3">
+          <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold">
+            {profesionalData.titulo?.charAt(0) || 'P'}
+          </div>
+          <div>
+            <p className="text-gray-500 text-xs">👨‍⚕️ Profesional</p>
+            <p className="font-medium text-gray-900">
+              {profesionalData.titulo} {profesionalData.nombre}
+            </p>
+            {profesionalData.especialidad && (
+              <p className="text-xs text-gray-500">{profesionalData.especialidad}</p>
+            )}
+          </div>
+        </div>
+      )}
       
       {/* Fecha y hora */}
       <div className="grid grid-cols-2 gap-4 text-sm">
