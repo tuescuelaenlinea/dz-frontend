@@ -4,11 +4,12 @@ import { useState, useRef } from 'react';
 
 interface UploadReceiptProps {
   citaId: number;
+  pagoId: number; 
   onSuccess: () => void;
   onCancel: () => void;
 }
 
-export default function UploadReceipt({ citaId, onSuccess, onCancel }: UploadReceiptProps) {
+export default function UploadReceipt({ citaId, pagoId, onSuccess, onCancel }: UploadReceiptProps) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -127,44 +128,46 @@ export default function UploadReceipt({ citaId, onSuccess, onCancel }: UploadRec
   }
 
   const handleUpload = async () => {
-    if (!file) {
-      setError('Por favor selecciona un archivo');
-      return;
+  if (!file) {
+    setError('Por favor selecciona un archivo');
+    return;
+  }
+  
+  setUploading(true);
+  setError(null);
+  
+  try {
+    const formData = new FormData();
+    formData.append('comprobante', file);
+    
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
+    
+    // ← CAMBIO #3: Usar pagoId en lugar de citaId
+    const res = await fetch(`${apiUrl}/pagos/${pagoId}/subir-comprobante/`, {
+      method: 'POST',
+      body: formData,
+    });
+    
+    const data = await res.json();
+    
+    if (!res.ok) {
+      throw new Error(data.error || 'Error al subir comprobante');
     }
     
-    setUploading(true);
-    setError(null);
+    alert('✅ Comprobante subido exitosamente! Tu cita está pendiente de verificación.');
     
-    try {
-      const formData = new FormData();
-      formData.append('comprobante', file);
-      
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
-      const res = await fetch(`${apiUrl}/citas/${citaId}/subir-comprobante/`, {
-        method: 'POST',
-        body: formData,
-      });
-      
-      const data = await res.json();
-      
-      if (!res.ok) {
-        throw new Error(data.error || 'Error al subir comprobante');
-      }
-      
-      alert('✅ Comprobante subido exitosamente! Tu cita está pendiente de verificación.');
-      
-      // ← Preparar WhatsApp (PERO NO ABRIRLO)
-      await prepararWhatsAppParaProfesional(citaId);
-      
-      onSuccess();
-      
-    } catch (err: any) {
-      console.error('❌ Error en handleUpload:', err);
-      setError(err.message || 'Error al subir el comprobante');
-    } finally {
-      setUploading(false);
-    }
-  };
+    // ← Preparar WhatsApp (usando citaId, que sí es correcto aquí)
+    await prepararWhatsAppParaProfesional(citaId);
+    
+    onSuccess();
+    
+  } catch (err: any) {
+    console.error('❌ Error en handleUpload:', err);
+    setError(err.message || 'Error al subir el comprobante');
+  } finally {
+    setUploading(false);
+  }
+};
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">

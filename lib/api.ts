@@ -228,6 +228,22 @@ export const api = {
   },
 
   // ==========================================
+  // ← NUEVA: PAGOS DE UNA CITA
+  // ==========================================
+  /**
+   * Obtener historial de pagos de una cita específica
+   * GET /api/citas/{id}/pagos/
+   */
+  async getCitaPagos(citaId: number) {
+    const token = this.getToken();
+    const res = await fetch(`${API_URL}/citas/${citaId}/pagos/`, {
+      headers: this.getAuthHeaders(),
+    });
+    if (!res.ok) throw new Error('Error al cargar pagos de la cita');
+    return res.json();
+  },
+
+  // ==========================================
   // AUTENTICACIÓN
   // ==========================================
   async login(username: string, password: string) {
@@ -401,4 +417,28 @@ export const api = {
     if (!res.ok) throw new Error('Error cargando disponibilidad');
     return await res.json();
   },
+
+  // ==========================================
+// ← NUEVAS: VALIDACIÓN DE DISPONIBILIDAD
+// ==========================================
+
+/**
+ * Validar si un horario específico está disponible antes de crear cita
+ */
+async validarDisponibilidadCita(data: {
+  profesional_id: number;
+  fecha: string;
+  hora_inicio: string;
+  hora_fin: string;
+  cita_id_editar?: number | null;
+}) {
+  const res = await fetch(`${API_URL}/validar-disponibilidad/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  
+  if (!res.ok) throw new Error('Error validando disponibilidad');
+  return await res.json();
+},
 };
