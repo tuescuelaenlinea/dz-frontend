@@ -54,7 +54,10 @@ interface Profesional {
   telefono_whatsapp: string;
   email_notificaciones: string;
   activo_reservas: boolean;
-  servicios?: number[];
+  serviciosCount?: number;
+  servicios?: Array<{id: number; nombre: string}>;  // ← Si el backend devuelve la lista
+  horarios?: Array<{dia_semana: string; hora_inicio: string; hora_fin: string}>;
+  citas_pendientes?: number;
 }
 
 export default function AdminProfesionalesPage() {
@@ -117,37 +120,73 @@ export default function AdminProfesionalesPage() {
   }, [filtroEspecialidad, filtroActivo, busqueda]);
 
   const cargarProfesionales = async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('admin_token');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
-      
-      // ← AGREGAR TIPO EXPLÍCITO: Response
-      const res: Response = await fetch(`${apiUrl}/profesionales/?ordering=orden,nombre`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+  try {
+    setLoading(true);
+    const token = localStorage.getItem('admin_token');
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+    
+    console.log('🔄 Cargando profesionales...');
+    
+    const res: Response = await fetch(`${apiUrl}/profesionales/?ordering=orden,nombre`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
 
-      if (!res.ok) {
-        if (res.status === 401) {
-          router.push('/admin/login');
-          return;
-        }
-        throw new Error('Error al cargar profesionales');
+    if (!res.ok) {
+      if (res.status === 401) {
+        router.push('/admin/login');
+        return;
       }
-
-      const data = await res.json();
-      const profesionalesList = Array.isArray(data) ? data : (data.results || []);
-      setProfesionales(profesionalesList);
-    } catch (err: any) {
-      console.error('Error cargando profesionales:', err);
-      setError(err.message || 'Error al cargar profesionales');
-    } finally {
-      setLoading(false);
+      throw new Error('Error al cargar profesionales');
     }
-  };
+
+    const data = await res.json();
+    let profesionalesList = Array.isArray(data) ? data : (data.results || []);
+    
+    console.log(`📦 Profesionales cargados: ${profesionalesList.length}`);
+    
+    // ← AGREGAR: Cargar conteo de servicios para cada profesional
+    console.log('📊 Cargando conteo de servicios para cada profesional...');
+    
+    const profesionalesConServicios = await Promise.all(
+      profesionalesList.map(async (prof: Profesional) => {
+        try {
+          const serviciosRes = await fetch(
+            `${apiUrl}/servicios-profesionales/?profesional=${prof.id}&activo=true`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+          );
+          
+          if (serviciosRes.ok) {
+            const serviciosData = await serviciosRes.json();
+            const serviciosCount = serviciosData.count || serviciosData.length || 0;
+            
+            // ← AGREGAR el conteo al objeto profesional
+            return {
+              ...prof,
+              servicios: Array.from({ length: serviciosCount }, (_, i) => i), // Array dummy para el count
+              serviciosCount: serviciosCount, // ← Campo adicional para el conteo real
+            };
+          }
+        } catch (err) {
+          console.error(`❌ Error cargando servicios para ${prof.nombre}:`, err);
+        }
+        
+        return { ...prof, servicios: [], serviciosCount: 0 };
+      })
+    );
+    
+    console.log('✅ Profesionales con conteo de servicios:', profesionalesConServicios.length);
+    setProfesionales(profesionalesConServicios);
+    
+  } catch (err: any) {
+    console.error('❌ Error cargando profesionales:', err);
+    setError(err.message || 'Error al cargar profesionales');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const cargarCategorias = async () => {
     try {
@@ -173,24 +212,105 @@ export default function AdminProfesionalesPage() {
     return `$${num.toLocaleString('es-CO', { minimumFractionDigits: 0 })}`;
   };
 
-  const cargarServicios = async () => {
-    try {
-      const token = localStorage.getItem('admin_token');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
-      
-      // ← AGREGAR TIPO EXPLÍCITO: Response
-      const res: Response = await fetch(`${apiUrl}/servicios/?disponible=true`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setServicios(Array.isArray(data) ? data : (data.results || []));
-      }
-    } catch (err) {
-      console.error('Error cargando servicios:', err);
+ const cargarServicios = async () => {
+  try {
+    const token = localStorage.getItem('admin_token');
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+    
+    if (!token) {
+      console.error('❌ No hay token');
+      router.push('/admin/login');
+      return;
     }
-  };
+    
+    console.log('🔄 Cargando servicios para asignación...');
+    console.log('🔗 API URL:', apiUrl);
+    
+    let todosLosServicios: Servicio[] = [];
+    let url: string = `${apiUrl}/servicios/?disponible=true&ordering=nombre&page_size=1000`;
+    let pageCount = 0;
+    const maxPages = 20;
+    
+    while (url && pageCount < maxPages) {
+      pageCount++;
+      console.log(`\n📡 === Página ${pageCount} ===`);
+      console.log('🔗 URL:', url);
+      
+      try {
+        const res: Response = await fetch(url, {
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        console.log('📥 Status:', res.status, res.ok ? '✅' : '❌');
+
+        if (!res.ok) {
+          console.error(`❌ Error HTTP ${res.status}:`, res.statusText);
+          if (res.status === 401) {
+            router.push('/admin/login');
+            return;
+          }
+          break;
+        }
+
+        const data = await res.json();
+        console.log('📦 Data received:', {
+          count: data.count,
+          results_length: data.results?.length,
+          has_next: !!data.next,
+          next_url: data.next
+        });
+        
+        // Si es respuesta paginada
+        if (data.results && Array.isArray(data.results)) {
+          console.log(`✅ Agregando ${data.results.length} servicios`);
+          todosLosServicios = [...todosLosServicios, ...data.results];
+          console.log(`📊 Total acumulado: ${todosLosServicios.length}`);
+          
+          // Si hay siguiente página, corregir URL si es necesario
+          if (data.next) {
+            // Corregir URL: reemplazar IP/HTTPS incorrecta por apiUrl
+            const nextUrl = data.next as string;
+            const baseUrl = apiUrl.replace('/api', '');
+            
+            url = nextUrl
+              .replace('https://179.43.112.64', baseUrl)
+              .replace('http://179.43.112.64:8080', baseUrl)
+              .replace('https://api.dzsalon.com', baseUrl);
+            
+            console.log('🔗 Next URL corregida:', url);
+          } else {
+            console.log('✅ No hay más páginas (next es null)');
+            url = '';
+          }
+        } 
+        // Si es array directo
+        else if (Array.isArray(data)) {
+          console.log(`✅ Array directo con ${data.length} servicios`);
+          todosLosServicios = data;
+          url = '';
+        }
+        // Formato inesperado
+        else {
+          console.warn('⚠️ Formato inesperado:', data);
+          url = '';
+        }
+        
+      } catch (fetchError: any) {
+        console.error('❌ Error en fetch:', fetchError);
+        break;
+      }
+    }
+    
+    console.log(`\n🎉 === Carga Completa ===`);
+    console.log(`✅ Total de servicios cargados: ${todosLosServicios.length}`);
+    setServicios(todosLosServicios);
+  } catch (err) {
+    console.error('❌ Error general cargando servicios:', err);
+  }
+};
 
   const abrirModalCrear = () => {
     setModoEdicion(false);
@@ -240,34 +360,77 @@ export default function AdminProfesionalesPage() {
     setModalAbierto(true);
   };
 
-  const abrirModalAsignarServicios = async (profesional: Profesional) => {
-    setProfesionalSeleccionado(profesional);
+const abrirModalAsignarServicios = async (profesional: Profesional) => {
+  console.log('\n=== 🎯 ABRIR MODAL ASIGNACIÓN ===');
+  console.log('Profesional:', profesional.nombre, '| ID:', profesional.id);
+  
+  setProfesionalSeleccionado(profesional);
+  setFiltroServicioCategoria('todas');
+  
+  // ← PROFESIONAL NUEVO: Sin servicios asignados
+  if (!profesional.id || profesional.id === 0) {
+    console.log('✅ Profesional nuevo → 0 servicios seleccionados');
+    setServiciosSeleccionados([]);
+    setModalServiciosAbierto(true);
+    return;
+  }
+  
+  try {
+    const token = localStorage.getItem('admin_token');
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
     
-    try {
-      const token = localStorage.getItem('admin_token');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+    console.log(`\n🔄 Cargando servicios ASIGNADOS al profesional ${profesional.id}...`);
+    
+    // ← IMPORTANTE: Solo cargar los servicios YA ASIGNADOS
+    let idsAsignados: number[] = [];
+    let url = `${apiUrl}/servicios-profesionales/?profesional=${profesional.id}&activo=true&page_size=100`;
+    
+    while (url) {
+      const correctedUrl = url
+        .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
+        .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''));
       
-      const res: Response = await fetch(`${apiUrl}/servicios-profesionales/?profesional=${profesional.id}&activo=true`, {
+      const res = await fetch(correctedUrl, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       
-      if (res.ok) {
-        const data = await res.json();
-        const serviciosAsignados = Array.isArray(data) ? data : (data.results || []);
-        const serviciosIds = serviciosAsignados.map((sp: any) => sp.servicio);
-        setServiciosSeleccionados(serviciosIds);
-        console.log(`✅ Servicios asignados a ${profesional.nombre}:`, serviciosIds);
-      } else {
-        console.warn('⚠️ No se pudieron cargar los servicios asignados');
-        setServiciosSeleccionados(profesional.servicios || []);
+      if (!res.ok) {
+        console.error('❌ Error:', res.status);
+        break;
       }
-    } catch (err) {
-      console.error('❌ Error cargando servicios:', err);
-      setServiciosSeleccionados(profesional.servicios || []);
+      
+      const data = await res.json();
+      
+      if (data.results && Array.isArray(data.results)) {
+        // ← EXTRAER SOLO los IDs de servicios asignados (NO todos los servicios)
+        const idsPage = data.results.map((sp: any) => sp.servicio);
+        console.log(`📄 Página: ${idsPage.length} IDs asignados`, idsPage.slice(0, 10));
+        
+        idsAsignados = [...idsAsignados, ...idsPage];
+        
+        url = data.next ? data.next
+          .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
+          .replace('http://179.43.112.64:8080', apiUrl.replace('/api', '')) : '';
+      } else {
+        url = '';
+      }
     }
     
-    setModalServiciosAbierto(true);
-  };
+    // ← ELIMINAR duplicados y establecer SOLO los asignados
+    const unicos = [...new Set(idsAsignados)];
+    console.log(`✅ Servicios ASIGNADOS al profesional: ${unicos.length}`);
+    console.log('📋 IDs:', unicos);
+    
+    // ← ESTABLECER solo los asignados (NO todos los servicios disponibles)
+    setServiciosSeleccionados(unicos);
+    
+  } catch (err) {
+    console.error('❌ Error:', err);
+    setServiciosSeleccionados([]);  // ← En error, vacío (NO todos)
+  }
+  
+  setModalServiciosAbierto(true);
+};
 
   const handleInputChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -305,7 +468,7 @@ export default function AdminProfesionalesPage() {
       Object.entries(formData).forEach(([key, value]) => {
         if (value !== null && value !== undefined) {
           if (key === 'servicios' && Array.isArray(value)) {
-            value.forEach((id: number) => datosFormData.append('servicios', id.toString()));
+            value.forEach((servicio: any) => datosFormData.append('servicios', servicio.id.toString())); 
           } else {
             datosFormData.append(key, value.toString());
           }
@@ -347,60 +510,146 @@ export default function AdminProfesionalesPage() {
     }
   };
 
-  const guardarServiciosAsignados = async () => {
-    if (!profesionalSeleccionado) return;
+const guardarServiciosAsignados = async () => {
+  if (!profesionalSeleccionado) return;
 
-    try {
-      setGuardando(true);
-      const token = localStorage.getItem('admin_token');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+  try {
+    setGuardando(true);
+    const token = localStorage.getItem('admin_token');
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+    
+    console.log('💾 Guardando servicios...');
+    console.log('  Prof ID:', profesionalSeleccionado.id);
+    console.log('  Servicios seleccionados:', serviciosSeleccionados.length);
+    
+    // ← 1. OBTENER TODOS los servicios actualmente asignados (con paginación)
+    console.log('🔄 Obteniendo servicios actuales...');
+    let todosLosIdsActuales: number[] = [];
+    let url: string = `${apiUrl}/servicios-profesionales/?profesional=${profesionalSeleccionado.id}&page_size=100`;
+    
+    while (url) {
+      // Corregir URL si es necesario
+      const correctedUrl = url
+        .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
+        .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''));
       
-      console.log('💾 Guardando servicios...');
-      console.log('  Prof ID:', profesionalSeleccionado.id);
-      console.log('  Servicios:', serviciosSeleccionados);
-      
-      const resActual: Response = await fetch(`${apiUrl}/servicios-profesionales/?profesional=${profesionalSeleccionado.id}`, {
+      const resActual: Response = await fetch(correctedUrl, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       
-      const actuales = await resActual.json();
-      const actualesArray = Array.isArray(actuales) ? actuales : (actuales.results || []);
-      const idsActuales = actualesArray.map((sp: any) => sp.id);
-      
-      console.log('  Servicios actuales a eliminar:', idsActuales);
-      
-      for (const spId of idsActuales) {
-        await fetch(`${apiUrl}/servicios-profesionales/${spId}/`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
+      if (!resActual.ok) {
+        console.error('❌ Error obteniendo servicios actuales:', resActual.status);
+        break;
       }
       
-      for (const servicioId of serviciosSeleccionados) {
-        await fetch(`${apiUrl}/servicios-profesionales/`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            profesional: profesionalSeleccionado.id,
-            servicio: servicioId,
-            activo: true,
-          }),
-        });
+      const data = await resActual.json();
+      
+      if (data.results && Array.isArray(data.results)) {
+        const idsPage = data.results.map((sp: any) => sp.id);
+        todosLosIdsActuales = [...todosLosIdsActuales, ...idsPage];
+        console.log(`  Página cargada: ${idsPage.length} IDs. Total: ${todosLosIdsActuales.length}`);
+        
+        if (data.next) {
+          url = data.next
+            .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
+            .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''));
+        } else {
+          url = '';
+        }
+      } else if (Array.isArray(data)) {
+        todosLosIdsActuales = data.map((sp: any) => sp.id);
+        url = '';
+      } else {
+        url = '';
       }
-
-      alert(`✅ Servicios actualizados exitosamente\n📊 Total: ${serviciosSeleccionados.length} servicios`);
-      setModalServiciosAbierto(false);
-      cargarProfesionales();
-    } catch (err: any) {
-      console.error('❌ Error asignando servicios:', err);
-      alert(`❌ Error: ${err.message}`);
-    } finally {
-      setGuardando(false);
     }
-  };
+    
+    console.log('  Total de servicios actuales a eliminar:', todosLosIdsActuales.length);
+    
+    // ← 2. ELIMINAR TODOS los servicios actuales
+    console.log('🗑️ Eliminando servicios antiguos...');
+    let deleteSuccess = 0;
+    let deleteError = 0;
+    
+    for (const spId of todosLosIdsActuales) {
+      const deleteRes = await fetch(`${apiUrl}/servicios-profesionales/${spId}/`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      
+      if (deleteRes.ok || deleteRes.status === 404) {
+        deleteSuccess++;
+      } else {
+        deleteError++;
+        console.error(`❌ Error eliminando ${spId}:`, deleteRes.status);
+      }
+    }
+    
+    console.log(`  Eliminados: ${deleteSuccess}, Errores: ${deleteError}`);
+    
+    // ← 3. CREAR nuevos servicios seleccionados
+    console.log('✨ Creando nuevos servicios...');
+    let successCount = 0;
+    let errorCount = 0;
+    const erroresDetallados: string[] = [];
+    
+    for (const servicioId of serviciosSeleccionados) {
+      const postRes = await fetch(`${apiUrl}/servicios-profesionales/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          profesional: profesionalSeleccionado.id,
+          servicio: servicioId,
+          activo: true,
+        }),
+      });
+      
+      if (postRes.ok) {
+        successCount++;
+      } else {
+        errorCount++;
+        const errorData = await postRes.json().catch(() => ({}));
+        console.error(`❌ Error creando servicio ${servicioId}:`, postRes.status, errorData);
+        
+        // Guardar primeros 5 errores detallados
+        if (erroresDetallados.length < 5) {
+          erroresDetallados.push(`Servicio ${servicioId}: ${JSON.stringify(errorData)}`);
+        }
+      }
+    }
+    
+    console.log(`\n✅ Guardado completado:`);
+    console.log(`  - Eliminados: ${deleteSuccess}`);
+    console.log(`  - Creados: ${successCount}`);
+    console.log(`  - Errores: ${errorCount}`);
+    
+    // Mostrar mensaje al usuario
+    let mensaje = `✅ Servicios actualizados exitosamente\n\n`;
+    mensaje += `📊 Resumen:\n`;
+    mensaje += `  • Servicios guardados: ${successCount}\n`;
+    
+    if (errorCount > 0) {
+      mensaje += `  • Errores: ${errorCount}\n\n`;
+      mensaje += `⚠️ Algunos servicios no se pudieron guardar.`;
+    }
+    
+    alert(mensaje);
+    
+    // Cerrar modal y recargar
+    setModalServiciosAbierto(false);
+    cargarProfesionales();
+    
+  } catch (err: any) {
+    console.error('❌ Error asignando servicios:', err);
+    alert(`❌ Error: ${err.message}`);
+  } finally {
+    setGuardando(false);
+  }
+
+};
 
   const eliminarProfesional = async (profesional: Profesional) => {
     if (!confirm(`¿Eliminar a "${profesional.nombre}"? Esta acción no se puede deshacer.`)) {
@@ -477,23 +726,40 @@ export default function AdminProfesionalesPage() {
   };
 
   // ← FUNCIÓN PARA CONSTRUIR URL ABSOLUTA DE IMÁGENES
-  const getCorrectImageUrl = (url: string | null | undefined): string | null => {
-    if (!url) return null;
-    
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      return url.replace('https://179.43.112.64', 'https://api.dzsalon.com')
-                .replace('http://127.0.0.1:8080', process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://127.0.0.1:8080');
-    }
-    
-    if (url.startsWith('/media/')) {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
-      const baseUrl = apiUrl.replace('/api', '');
-      return `${baseUrl}${url}`;
-    }
-    
-    console.warn('⚠️ URL de imagen no reconocida:', url);
-    return null;
-  };
+// ← FUNCIÓN PARA CORREGIR URLs DE IMÁGENES (IP → DOMINIO)
+const getCorrectImageUrl = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  
+  // Dominios correctos para producción
+  const PRODUCTION_DOMAIN = 'https://api.dzsalon.com';
+  const LOCAL_DOMAIN = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:8080';
+  
+  // Si ya es URL absoluta con dominio correcto, retornarla
+  if (url.startsWith(PRODUCTION_DOMAIN)) {
+    return url;
+  }
+  
+  // Si es URL absoluta con IP o localhost, corregirla
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url
+      .replace('https://179.43.112.64', PRODUCTION_DOMAIN)
+      .replace('http://179.43.112.64:8080', LOCAL_DOMAIN)
+      .replace('http://127.0.0.1:8080', LOCAL_DOMAIN)
+      .replace('http://localhost:8080', LOCAL_DOMAIN);
+  }
+  
+  // Si es URL relativa (empieza con /media/), construir URL absoluta
+  if (url.startsWith('/media/')) {
+    const baseUrl = process.env.NODE_ENV === 'production' 
+      ? PRODUCTION_DOMAIN 
+      : LOCAL_DOMAIN;
+    return `${baseUrl}${url}`;
+  }
+  
+  // Fallback: retornar null
+  console.warn('⚠️ URL de imagen no reconocida:', url);
+  return null;
+};
 
   // ← Filtros de servicios con tipos explícitos
   const serviciosFiltradosPorCategoria = servicios.filter((s: Servicio) => {
@@ -600,7 +866,7 @@ export default function AdminProfesionalesPage() {
               ) : (
                 profesionalesPaginados.map((prof: Profesional) => (
                   <tr key={prof.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 whitespace-nowrap">
+                   <td className="px-4 py-3 whitespace-nowrap">
                       {prof.foto_url ? (
                         <img 
                           src={getCorrectImageUrl(prof.foto_url) || ''} 
@@ -610,6 +876,7 @@ export default function AdminProfesionalesPage() {
                             console.error('❌ Error cargando foto:', prof.foto_url);
                             (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="2"%3E%3Ccircle cx="12" cy="8" r="4"%3E%3C/circle%3E%3Cpath d="M20 21a8 8 0 10-16 0"%3E%3C/path%3E%3C/svg%3E';
                           }}
+                          loading="lazy"
                         />
                       ) : (
                         <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
@@ -632,7 +899,7 @@ export default function AdminProfesionalesPage() {
                         onClick={() => abrirModalAsignarServicios(prof)}
                         className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
                       >
-                        🛠️ {prof.servicios?.length || 0} servicios
+                        🛠️ {prof.serviciosCount || prof.servicios?.length || 0} servicios
                       </button>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -730,33 +997,34 @@ export default function AdminProfesionalesPage() {
                   <textarea value={formData.bio} onChange={(e) => handleInputChange('bio', e.target.value)} rows={3} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Descripción profesional..." />
                 </div>
                 {/* Foto de Perfil */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Foto de Perfil</label>
-                  {fotoPreview && (
-                    <div className="mb-2">
-                      <img 
-                        src={fotoPreview} 
-                        alt="Vista previa" 
-                        className="w-24 h-24 object-cover rounded-full border-2 border-gray-200"
-                        onError={(e) => {
-                          console.error('❌ Error cargando vista previa:', fotoPreview);
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                      {!modoEdicion && <p className="text-xs text-gray-500 mt-1">Se mostrará al crear el profesional</p>}
-                      {modoEdicion && <p className="text-xs text-gray-500 mt-1">Foto actual. Sube una nueva para reemplazarla.</p>}
-                    </div>
-                  )}
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    onChange={handleFotoChange} 
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
-                  {modoEdicion && !fotoPreview && (
-                    <p className="text-xs text-orange-600 mt-1">⚠️ Este profesional no tiene foto. Sube una nueva.</p>
-                  )}
-                </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Foto de Perfil</label>
+                    {fotoPreview && (
+                      <div className="mb-2">
+                        <img 
+                          src={getCorrectImageUrl(fotoPreview) || ''} 
+                          alt="Vista previa" 
+                          className="w-24 h-24 object-cover rounded-full border-2 border-gray-200"
+                          onError={(e) => {
+                            console.error('❌ Error cargando vista previa:', fotoPreview);
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                          loading="lazy"
+                        />
+                        {!modoEdicion && <p className="text-xs text-gray-500 mt-1">Se mostrará al crear el profesional</p>}
+                        {modoEdicion && <p className="text-xs text-gray-500 mt-1">Foto actual. Sube una nueva para reemplazarla.</p>}
+                      </div>
+                    )}
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={handleFotoChange} 
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                    {modoEdicion && !fotoPreview && (
+                      <p className="text-xs text-orange-600 mt-1">⚠️ Este profesional no tiene foto. Sube una nueva.</p>
+                    )}
+                  </div>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t">
                 <label className="flex items-center gap-2"><input type="checkbox" checked={formData.es_medico} onChange={(e) => handleInputChange('es_medico', e.target.checked)} className="w-4 h-4 text-blue-600 rounded" /><span className="text-sm">🩺 Médico</span></label>

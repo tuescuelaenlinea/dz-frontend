@@ -90,14 +90,38 @@ export default function AdminServiciosPage() {
     setPaginaActual(1);
   }, [filtroCategoria, filtroDisponible, busqueda]);
 
-  const cargarServicios = async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('admin_token');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
+const cargarServicios = async () => {
+  try {
+    setLoading(true);
+    const token = localStorage.getItem('admin_token');
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+    
+    if (!token) {
+      router.push('/admin/login');
+      return;
+    }
+    
+    console.log('🔄 Cargando servicios con paginación corregida...');
+    
+    let todosLosServicios: Servicio[] = [];
+    
+    // ← URL INICIAL CON PAGE_SIZE GRANDE (aunque el backend lo ignore)
+    let url: string = `${apiUrl}/servicios/?ordering=nombre&page_size=1000`;
+    let pageCount = 0;
+    const maxPages = 20; // Límite de seguridad
+    
+    while (url && pageCount < maxPages) {
+      pageCount++;
+      console.log(`📡 Página ${pageCount}:`, url);
       
-      // ← AGREGAR TIPO EXPLÍCITO: Response
-      const res: Response = await fetch(`${apiUrl}/servicios/?ordering=nombre`, {
+      // ← CORREGIR URL: Reemplazar HTTPS/IP por la apiUrl correcta
+      const correctedUrl = url
+        .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
+        .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''));
+      
+      console.log(`🔗 URL corregida:`, correctedUrl);
+      
+      const res: Response = await fetch(correctedUrl, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -105,31 +129,59 @@ export default function AdminServiciosPage() {
       });
 
       if (!res.ok) {
+        console.error(`❌ Error HTTP ${res.status}:`, res.statusText);
         if (res.status === 401) {
           router.push('/admin/login');
           return;
         }
-        throw new Error('Error al cargar servicios');
+        throw new Error(`Error ${res.status}: ${res.statusText}`);
       }
 
       const data = await res.json();
-      const serviciosList = Array.isArray(data) ? data : (data.results || []);
       
-      console.log('📦 Servicios cargados:', serviciosList.length);
-      if (serviciosList.length > 0) {
-        console.log('🖼️ Primer servicio:', serviciosList[0]);
-        console.log('🖼️ Imagen URL:', serviciosList[0].imagen_url);
+      // Si es respuesta paginada
+      if (data.results && Array.isArray(data.results)) {
+        todosLosServicios = [...todosLosServicios, ...data.results];
+        console.log(`📄 Página ${pageCount} cargada. Total acumulado: ${todosLosServicios.length}`);
+        
+        // ← CORREGIR LA URL DE 'next' ANTES DE USARLA
+        if (data.next) {
+          url = data.next
+            .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
+            .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''));
+          console.log(`🔗 Siguiente página corregida:`, url);
+        } else {
+          url = ''; // No hay más páginas
+          console.log('✅ No hay más páginas');
+        }
+      } 
+      // Si es array directo (no paginado)
+      else if (Array.isArray(data)) {
+        todosLosServicios = data;
+        console.log(`✅ Carga completa (array directo): ${todosLosServicios.length} servicios`);
+        break;
       }
-      
-      setServicios(serviciosList);
-    } catch (err: any) {
-      console.error('Error cargando servicios:', err);
-      setError(err.message || 'Error al cargar servicios');
-    } finally {
-      setLoading(false);
+      // Formato inesperado
+      else {
+        console.warn('⚠️ Formato de respuesta inesperado:', data);
+        break;
+      }
     }
-  };
-
+    
+    if (pageCount >= maxPages) {
+      console.warn(`⚠️ Se alcanzó el límite de ${maxPages} páginas`);
+    }
+    
+    console.log(`✅ Total final de servicios cargados: ${todosLosServicios.length}`);
+    setServicios(todosLosServicios);
+    
+  } catch (err: any) {
+    console.error('❌ Error cargando servicios:', err);
+    setError(err.message || 'Error al cargar servicios');
+  } finally {
+    setLoading(false);
+  }
+};
   const cargarCategorias = async () => {
     try {
       const token = localStorage.getItem('admin_token');

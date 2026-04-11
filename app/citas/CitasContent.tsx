@@ -280,13 +280,26 @@ export default function CitasContent() {
       }
     }, [searchParams]);
 
-  const getBoldPaymentUrl = () => {
-    const defaultUrl = 'https://checkout.bold.co/payment/LNK_LWD70PVJ5I';
-    if (configuracion?.bold_payment_activo && configuracion?.bold_payment_link) {
-      return configuracion.bold_payment_link;
-    }
-    return defaultUrl;
-  };
+  // const getBoldPaymentUrl = () => {
+  //   const defaultUrl = 'https://checkout.bold.co/payment/LNK_LWD70PVJ5I';
+  //   if (configuracion?.bold_payment_activo && configuracion?.bold_payment_link) {
+  //     return configuracion.bold_payment_link;
+  //   }
+  //   return defaultUrl;
+  // };
+
+const getBoldPaymentUrl = () => {
+  // ← ELIMINAR el defaultUrl hardcodeado
+  // const defaultUrl = 'https://checkout.bold.co/payment/LNK_LWD70PVJ5I';
+  
+  // ← Solo retornar si está configurado en BD
+  if (configuracion?.bold_payment_activo && configuracion?.bold_payment_link) {
+    return configuracion.bold_payment_link;
+  }
+  
+  // ← Si no está configurado, retornar null (Bold no disponible)
+  return null;
+};
 
   // Cargar servicio desde URL (para nuevas reservas)
   useEffect(() => {
