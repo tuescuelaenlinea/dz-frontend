@@ -105,7 +105,7 @@ export default function PaymentMethodSelector({ onSelect, total }: PaymentMethod
             </svg>
           </div>
           <div className="flex-1">
-            <h4 className="font-semibold text-gray-900">Pagar y confirmar después</h4>
+            <h4 className="font-semibold text-gray-900">Reserva y paga después</h4>
             <p className="text-sm text-gray-600 mt-1">
               Reserva ahora y paga más tarde.
             </p>

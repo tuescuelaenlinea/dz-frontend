@@ -60,8 +60,9 @@ export default function BankAccountsModal({
 
   if (!isOpen) return null;
 
-  // ← Filtrar solo cuentas activas
-  const activeAccounts = accounts.filter(acc => acc.activo !== false);
+  // ← FIX: Validar que accounts sea array antes de filtrar
+  const accountsArray = Array.isArray(accounts) ? accounts : [];
+  const activeAccounts = accountsArray.filter(acc => acc.activo !== false);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

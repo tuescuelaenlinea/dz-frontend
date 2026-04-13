@@ -136,19 +136,34 @@ export default function CitasContent() {
     loadConfig();
   }, []);
 
-  // ← CARGAR CUENTAS BANCARIAS
-  useEffect(() => {
-    async function loadCuentasBancarias() {
-      try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api'}/cuentas-bancarias/`);
-        const data = await res.json();
-        setCuentasBancarias(data);
-      } catch (err) {
-        console.error('Error cargando cuentas bancarias:', err);
+// ← CARGAR CUENTAS BANCARIAS (CORREGIDO)
+useEffect(() => {
+  async function loadCuentasBancarias() {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
+      const res = await fetch(`${apiUrl}/cuentas-bancarias/`);
+      
+      if (!res.ok) {
+        throw new Error(`Error ${res.status}: ${res.statusText}`);
       }
+      
+      const data = await res.json();
+      
+      // ← MANEJAR RESPUESTA PAGINADA O ARRAY DIRECTO
+      const cuentas = data.results || (Array.isArray(data) ? data : []);
+      
+      // ← FILTRAR SOLO CUENTAS ACTIVAS (doble seguridad)
+      const cuentasActivas = cuentas.filter((c: any) => c.activo === true);
+      
+      setCuentasBancarias(cuentasActivas);
+      
+    } catch (err) {
+      console.error('Error cargando cuentas bancarias:', err);
+      setCuentasBancarias([]); // ← Asegurar array vacío en caso de error
     }
-    loadCuentasBancarias();
-  }, []);
+  }
+  loadCuentasBancarias();
+}, []);
 
   // Cargar datos del profesional seleccionado
   useEffect(() => {
