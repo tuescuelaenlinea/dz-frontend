@@ -400,14 +400,14 @@ const abrirModalAsignarServicios = async (profesional: Profesional) => {
     let url = `${apiUrl}/servicios-profesionales/?profesional=${profesional.id}&activo=true&page_size=100`;
     
     while (url) {
-      const correctedUrl = url
+      /*const correctedUrl = url
         .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
         .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''))
         .replace('https://127.0.0.1', apiUrl.replace('/api', ''))      // ← AGREGAR
         .replace('http://127.0.0.1:8080', apiUrl.replace('/api', ''))  // ← AGREGAR
-        .replace('https://api.dzsalon.com', apiUrl.replace('/api', ''));
+        .replace('https://api.dzsalon.com', apiUrl.replace('/api', ''));*/
       
-      const res = await fetch(correctedUrl, {
+      const res = await fetch(Url, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       
@@ -544,14 +544,14 @@ const guardarServiciosAsignados = async () => {
     
     while (url) {
       // Corregir URL si es necesario
-      const correctedUrl = url
+      /*const correctedUrl = url
         .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
         .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''))
         .replace('https://127.0.0.1', apiUrl.replace('/api', ''))      // ← AGREGAR
         .replace('http://127.0.0.1:8080', apiUrl.replace('/api', ''))  // ← AGREGAR
-        .replace('https://api.dzsalon.com', apiUrl.replace('/api', ''));
+        .replace('https://api.dzsalon.com', apiUrl.replace('/api', ''));*/
       
-      const resActual: Response = await fetch(correctedUrl, {
+      const resActual: Response = await fetch(Url, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       
