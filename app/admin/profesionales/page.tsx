@@ -407,7 +407,7 @@ const abrirModalAsignarServicios = async (profesional: Profesional) => {
         .replace('http://127.0.0.1:8080', apiUrl.replace('/api', ''))  // ← AGREGAR
         .replace('https://api.dzsalon.com', apiUrl.replace('/api', ''));*/
       
-      const res = await fetch(Url, {
+      const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       
@@ -551,7 +551,7 @@ const guardarServiciosAsignados = async () => {
         .replace('http://127.0.0.1:8080', apiUrl.replace('/api', ''))  // ← AGREGAR
         .replace('https://api.dzsalon.com', apiUrl.replace('/api', ''));*/
       
-      const resActual: Response = await fetch(Url, {
+      const resActual: Response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       
