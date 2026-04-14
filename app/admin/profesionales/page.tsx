@@ -59,7 +59,28 @@ interface Profesional {
   horarios?: Array<{dia_semana: string; hora_inicio: string; hora_fin: string}>;
   citas_pendientes?: number;
 }
+// ← AGREGAR ESTA FUNCIÓN (fuera del componente AdminProfesionalesPage):
 
+/**
+ * Corrige URLs de paginación del backend usando URL API
+ * Ej: 'https://127.0.0.1/api/servicios/?page=2' + 'https://api.dzsalon.com/api'
+ * → 'https://api.dzsalon.com/api/servicios/?page=2'
+ */
+const fixPaginationUrl = (nextUrl: string, apiUrl: string): string => {
+  try {
+    const next = new URL(nextUrl);
+    const api = new URL(apiUrl);
+    const pathAndQuery = next.pathname + next.search;
+    return `${api.origin}${pathAndQuery}`;
+  } catch (error) {
+    console.warn('⚠️ Error parseando URL:', error);
+    const pathMatch = nextUrl.match(/\/api\/.*$/);
+    if (pathMatch) {
+      return `${apiUrl}${pathMatch[0].replace('/api/', '/')}`;
+    }
+    return '';
+  }
+};
 export default function AdminProfesionalesPage() {
   const router = useRouter();
   const [profesionales, setProfesionales] = useState<Profesional[]>([]);
@@ -270,19 +291,9 @@ export default function AdminProfesionalesPage() {
           console.log(`📊 Total acumulado: ${todosLosServicios.length}`);
           
           // Si hay siguiente página, corregir URL si es necesario
+         // ← DESPUÉS (usar fixPaginationUrl):
           if (data.next) {
-            // Corregir URL: reemplazar IP/HTTPS incorrecta por apiUrl
-            const nextUrl = data.next as string;
-            const baseUrl = apiUrl.replace('/api', '');
-            
-            url = nextUrl
-              .replace('https://179.43.112.64', baseUrl)
-              .replace('http://179.43.112.64:8080', baseUrl)
-              .replace('https://127.0.0.1', baseUrl)      // ← AGREGAR ESTA LÍNEA
-              .replace('http://127.0.0.1:8080', baseUrl)  // ← Y ESTA POR SI ACASO
-              .replace('https://api.dzsalon.com', baseUrl)
-              .replace('http://localhost:8080', baseUrl); // ← EXTRA: localhost
-            
+            url = fixPaginationUrl(data.next, apiUrl);
             console.log('🔗 Next URL corregida:', url);
           } else {
             console.log('✅ No hay más páginas (next es null)');
@@ -414,14 +425,7 @@ const abrirModalAsignarServicios = async (profesional: Profesional) => {
         
         idsAsignados = [...idsAsignados, ...idsPage];
         
-        url = data.next 
-        ? (data.next
-            .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
-            .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''))
-            .replace('https://127.0.0.1', apiUrl.replace('/api', ''))
-            .replace('http://127.0.0.1:8080', apiUrl.replace('/api', ''))
-            .replace('https://api.dzsalon.com', apiUrl.replace('/api', '')))
-        : '';  // ← ; al final del ternario
+        url = data.next ? fixPaginationUrl(data.next, apiUrl) : '';
       } else {
         url = '';
       }
@@ -564,15 +568,10 @@ const guardarServiciosAsignados = async () => {
         console.log(`  Página cargada: ${idsPage.length} IDs. Total: ${todosLosIdsActuales.length}`);
         
        if (data.next) {
-        url = (data.next
-          .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
-          .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''))
-          .replace('https://127.0.0.1', apiUrl.replace('/api', ''))
-          .replace('http://127.0.0.1:8080', apiUrl.replace('/api', ''))
-          .replace('https://api.dzsalon.com', apiUrl.replace('/api', '')));  // ← Paréntesis y ;
-      } else {
-        url = '';
-      }
+          url = fixPaginationUrl(data.next, apiUrl);
+        } else {
+          url = '';
+        }
       } else if (Array.isArray(data)) {
         todosLosIdsActuales = data.map((sp: any) => sp.id);
         url = '';
