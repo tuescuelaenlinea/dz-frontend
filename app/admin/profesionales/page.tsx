@@ -278,7 +278,10 @@ export default function AdminProfesionalesPage() {
             url = nextUrl
               .replace('https://179.43.112.64', baseUrl)
               .replace('http://179.43.112.64:8080', baseUrl)
-              .replace('https://api.dzsalon.com', baseUrl);
+              .replace('https://127.0.0.1', baseUrl)      // ← AGREGAR ESTA LÍNEA
+              .replace('http://127.0.0.1:8080', baseUrl)  // ← Y ESTA POR SI ACASO
+              .replace('https://api.dzsalon.com', baseUrl)
+              .replace('http://localhost:8080', baseUrl); // ← EXTRA: localhost
             
             console.log('🔗 Next URL corregida:', url);
           } else {
@@ -388,7 +391,10 @@ const abrirModalAsignarServicios = async (profesional: Profesional) => {
     while (url) {
       const correctedUrl = url
         .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
-        .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''));
+        .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''))
+        .replace('https://127.0.0.1', apiUrl.replace('/api', ''))      // ← AGREGAR
+        .replace('http://127.0.0.1:8080', apiUrl.replace('/api', ''))  // ← AGREGAR
+        .replace('https://api.dzsalon.com', apiUrl.replace('/api', ''));
       
       const res = await fetch(correctedUrl, {
         headers: { 'Authorization': `Bearer ${token}` },
@@ -408,9 +414,14 @@ const abrirModalAsignarServicios = async (profesional: Profesional) => {
         
         idsAsignados = [...idsAsignados, ...idsPage];
         
-        url = data.next ? data.next
-          .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
-          .replace('http://179.43.112.64:8080', apiUrl.replace('/api', '')) : '';
+        url = data.next 
+        ? (data.next
+            .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
+            .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''))
+            .replace('https://127.0.0.1', apiUrl.replace('/api', ''))
+            .replace('http://127.0.0.1:8080', apiUrl.replace('/api', ''))
+            .replace('https://api.dzsalon.com', apiUrl.replace('/api', '')))
+        : '';  // ← ; al final del ternario
       } else {
         url = '';
       }
@@ -531,7 +542,10 @@ const guardarServiciosAsignados = async () => {
       // Corregir URL si es necesario
       const correctedUrl = url
         .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
-        .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''));
+        .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''))
+        .replace('https://127.0.0.1', apiUrl.replace('/api', ''))      // ← AGREGAR
+        .replace('http://127.0.0.1:8080', apiUrl.replace('/api', ''))  // ← AGREGAR
+        .replace('https://api.dzsalon.com', apiUrl.replace('/api', ''));
       
       const resActual: Response = await fetch(correctedUrl, {
         headers: { 'Authorization': `Bearer ${token}` },
@@ -549,13 +563,16 @@ const guardarServiciosAsignados = async () => {
         todosLosIdsActuales = [...todosLosIdsActuales, ...idsPage];
         console.log(`  Página cargada: ${idsPage.length} IDs. Total: ${todosLosIdsActuales.length}`);
         
-        if (data.next) {
-          url = data.next
-            .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
-            .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''));
-        } else {
-          url = '';
-        }
+       if (data.next) {
+        url = (data.next
+          .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
+          .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''))
+          .replace('https://127.0.0.1', apiUrl.replace('/api', ''))
+          .replace('http://127.0.0.1:8080', apiUrl.replace('/api', ''))
+          .replace('https://api.dzsalon.com', apiUrl.replace('/api', '')));  // ← Paréntesis y ;
+      } else {
+        url = '';
+      }
       } else if (Array.isArray(data)) {
         todosLosIdsActuales = data.map((sp: any) => sp.id);
         url = '';
