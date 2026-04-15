@@ -129,7 +129,7 @@ export default function AdminHorariosPage() {
       while (nextPage && page <= maxPages) {
         console.log(`📡 Página ${page}:`, nextPage);
         
-        const res = await fetch(nextPage, {
+        const res: Response = await fetch(nextPage, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
