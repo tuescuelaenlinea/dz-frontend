@@ -118,26 +118,73 @@ export default function AdminHorariosPage() {
       const token = localStorage.getItem('admin_token');
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
       
-      const res = await fetch(`${apiUrl}/horarios/?ordering=profesional__nombre,dia_semana`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      console.log('🔄 Cargando horarios con paginación...');
+      
+      let allHorarios: Horario[] = [];
+      // ← Page size grande para reducir requests
+      let nextPage: string | null = `${apiUrl}/horarios/?ordering=profesional__nombre,dia_semana&page_size=200`;
+      let page = 1;
+      const maxPages = 20;  // ← Límite de seguridad
+      
+      while (nextPage && page <= maxPages) {
+        console.log(`📡 Página ${page}:`, nextPage);
+        
+        const res = await fetch(nextPage, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
 
-      if (!res.ok) {
-        if (res.status === 401) {
-          router.push('/admin/login');
-          return;
+        if (!res.ok) {
+          if (res.status === 401) {
+            router.push('/admin/login');
+            return;
+          }
+          throw new Error(`Error HTTP ${res.status} al cargar horarios`);
         }
-        throw new Error('Error al cargar horarios');
-      }
 
-      const data = await res.json();
-      const horariosList = Array.isArray(data) ? data : (data.results || []);
-      setHorarios(horariosList);
+        const data = await res.json();
+        
+        // ← Manejar respuesta paginada o array directo
+        if (data.results && Array.isArray(data.results)) {
+          allHorarios = [...allHorarios, ...data.results];
+          console.log(`✅ Página ${page}: ${data.results.length} horarios (total: ${allHorarios.length}/${data.count})`);
+        } else if (Array.isArray(data)) {
+          // Respuesta sin paginación
+          allHorarios = [...allHorarios, ...data];
+          console.log(`✅ Respuesta directa: ${data.length} horarios`);
+          break;
+        } else {
+          console.warn('⚠️ Formato de respuesta inesperado:', data);
+          break;
+        }
+        
+        // ← Manejar siguiente página
+        if (data.next) {
+          try {
+            // Corregir URL si el backend devuelve dominio diferente
+            const nextUrl = new URL(data.next);
+            const apiOrigin = apiUrl.replace(/\/api\/?$/, '');
+            nextPage = `${apiOrigin}${nextUrl.pathname}${nextUrl.search}`;
+            console.log('🔗 Next URL corregida:', nextPage);
+          } catch (e) {
+            console.warn('⚠️ Error parseando next URL, usando raw:', data.next);
+            nextPage = data.next;
+          }
+        } else {
+          nextPage = null;
+          console.log('✅ No hay más páginas');
+        }
+        
+        page++;
+      }
+      
+      console.log('✅ Total de horarios cargados:', allHorarios.length);
+      setHorarios(allHorarios);
+      
     } catch (err: any) {
-      console.error('Error cargando horarios:', err);
+      console.error('❌ Error cargando horarios:', err);
       setError(err.message || 'Error al cargar horarios');
     } finally {
       setLoading(false);
