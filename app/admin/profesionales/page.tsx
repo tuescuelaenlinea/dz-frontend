@@ -481,12 +481,23 @@ const abrirModalAsignarServicios = async (profesional: Profesional) => {
       const datosFormData = new FormData();
       
       Object.entries(formData).forEach(([key, value]) => {
-        if (value !== null && value !== undefined) {
+        // ← Verificación más estricta: solo procesar si value tiene un valor válido
+        if (value != null) {  // != null verifica tanto null como undefined
+          
           if (key === 'servicios' && Array.isArray(value)) {
-            value.forEach((servicio: any) => datosFormData.append('servicios', servicio.id.toString())); 
-          } else {
-            datosFormData.append(key, value.toString());
+            // ← Para servicios, verificar que cada item tenga id válido
+            value.forEach((servicio: any) => {
+              if (servicio?.id != null) {  // ← Verificar que servicio.id exista
+                datosFormData.append('servicios', String(servicio.id));  // ← String() es más seguro que .toString()
+              }
+            });
+            
+          } else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+            // ← Solo convertir a string si es un tipo primitivo seguro
+            datosFormData.append(key, String(value));  // ← String() maneja undefined/null mejor
+            
           }
+          // ← Ignorar objetos/arrays que no sean 'servicios' para evitar errores
         }
       });
       
@@ -799,6 +810,19 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
           <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">👥 Gestión de Profesionales</h1>
           <p className="text-gray-600 mt-2">Administra tu equipo de trabajo</p>
         </div>
+        {/* 🔗 NUEVO: Botón Asignación Masiva */}
+    <a
+      href="https://api.dzsalon.com/admin/salon_app/profesional/asignacion-masiva/"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="px-6 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors flex items-center gap-2"
+      title="Ir a asignación masiva de servicios"
+    >
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+      </svg>
+      Asignación Masiva
+    </a>
         <button
           onClick={abrirModalCrear}
           className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center gap-2"
@@ -808,7 +832,13 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
           </svg>
           Nuevo Profesional
         </button>
+
       </div>
+
+
+
+
+
 
       {/* Filtros */}
       <div className="bg-white rounded-xl shadow-lg p-4 lg:p-6 mb-6">

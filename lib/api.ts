@@ -12,7 +12,7 @@ export const api = {
     const res = await fetch(`${API_URL}/configuracion/activa/`);
     if (!res.ok) throw new Error('Error al cargar configuración');
     return res.json();
-  },
+},
 
   // ==========================================
   // CATEGORÍAS
@@ -21,6 +21,82 @@ export const api = {
     const res = await fetch(`${API_URL}/categorias/`);
     if (!res.ok) throw new Error('Error al cargar categorías');
     return res.json();
+  },
+
+  async getCategoriaServicios(categoriaId: number) {
+    try {
+      const res = await fetch(`${API_URL}/categorias/${categoriaId}/servicios/`);
+      if (!res.ok) throw new Error('Error al cargar servicios de la categoría');
+      return await res.json();
+    } catch (err) {
+      console.error('Error en getCategoriaServicios:', err);
+      return { servicios: [], servicios_count: 0 };
+    }
+  },
+
+
+  async agregarServiciosACategoria(categoriaId: number, serviciosIds: number[]) {
+    const token = this.getToken();
+    try {
+      const res = await fetch(`${API_URL}/categorias/${categoriaId}/agregar-servicios/`, {
+        method: 'POST',
+        headers: {
+          ...this.getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ servicios: serviciosIds }),
+      });
+      
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error || error.detail || 'Error al asignar servicios');
+      }
+      
+      return await res.json();
+    } catch (err) {
+      console.error('Error en agregarServiciosACategoria:', err);
+      throw err;
+    }
+  },
+
+  async getServiciosSinCategoria() {
+    try {
+      const res = await fetch(`${API_URL}/servicios/sin-categoria/`);
+      if (!res.ok) throw new Error('Error al cargar servicios disponibles');
+      return await res.json();
+    } catch (err) {
+      console.error('Error en getServiciosSinCategoria:', err);
+      return { servicios: [], count: 0 };
+    }
+  },
+  /**
+   * Reasignar servicios a una categoría (permite mover entre categorías)
+   * POST /api/categorias/{id}/reasignar-servicios/
+   */
+  async reasignarServiciosACategoria(categoriaId: number, serviciosIds: number[]) {
+    const token = this.getToken();
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+    
+    try {
+      const res = await fetch(`${apiUrl}/categorias/${categoriaId}/reasignar-servicios/`, {
+        method: 'POST',
+        headers: {
+          ...this.getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ servicios: serviciosIds }),
+      });
+      
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error || error.detail || 'Error al reasignar servicios');
+      }
+      
+      return await res.json();
+    } catch (err) {
+      console.error('❌ Error en reasignarServiciosACategoria:', err);
+      throw err;
+    }
   },
 
   // ==========================================
@@ -48,8 +124,25 @@ export const api = {
     const res = await fetch(`${API_URL}/servicios/?categoria=${categoriaId}`);
     if (!res.ok) throw new Error('Error al cargar servicios por categoría');
     return res.json();
-  },
+  }, 
 
+  async getServiciosParaAsignar() {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+      const res = await fetch(`${apiUrl}/servicios/todos-para-asignar/`);
+      
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.detail || error.error || `Error HTTP ${res.status}`);
+      }
+      
+      return await res.json();
+    } catch (err) {
+      console.error('❌ Error en getServiciosParaAsignar:', err);
+      return { count: 0, servicios: [] };
+    }
+  },
+ 
   // ==========================================
   // ⭐ Obtener TODOS los servicios (paginación)
   // ==========================================
@@ -350,33 +443,21 @@ export const api = {
   // UTILIDADES - Tokens y Headers
   // ==========================================
   
-  /**
-   * Obtener token de autenticación desde localStorage
-   */
   getToken(): string | null {
     if (typeof window === 'undefined') return null;
     return localStorage.getItem('token');
   },
 
-  /**
-   * Guardar token en localStorage
-   */
   setToken(token: string): void {
     if (typeof window === 'undefined') return;
     localStorage.setItem('token', token);
   },
 
-  /**
-   * Eliminar token (logout)
-   */
   removeToken(): void {
     if (typeof window === 'undefined') return;
     localStorage.removeItem('token');
   },
 
-  /**
-   * Headers base para requests autenticados
-   */
   getAuthHeaders(): HeadersInit {
     const token = this.getToken();
     const headers: HeadersInit = {
@@ -418,13 +499,6 @@ export const api = {
     return await res.json();
   },
 
-  // ==========================================
-// ← NUEVAS: VALIDACIÓN DE DISPONIBILIDAD
-// ==========================================
-
-/**
- * Validar si un horario específico está disponible antes de crear cita
- */
 async validarDisponibilidadCita(data: {
   profesional_id: number;
   fecha: string;

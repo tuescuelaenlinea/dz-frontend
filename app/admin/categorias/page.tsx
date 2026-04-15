@@ -2,7 +2,10 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+// ← AGREGAR: Import del modal de asignación de servicios
+import CategoryServicesModal from '@/components/admin/CategoryServicesModal';
 
+// ← ACTUALIZAR: Interfaz con campo opcional para contador
 interface Categoria {
   id: number;
   nombre: string;
@@ -12,6 +15,8 @@ interface Categoria {
   imagen_url?: string | null;
   orden: number;
   activo: boolean;
+  // ← NUEVO: Campo opcional para contador de servicios (puede no venir del backend)
+  servicios_count?: number;
 }
 
 export default function AdminCategoriasPage() {
@@ -24,10 +29,14 @@ export default function AdminCategoriasPage() {
   const [filtroActivo, setFiltroActivo] = useState<string>('todos');
   const [busqueda, setBusqueda] = useState<string>('');
   
-  // Modal
+  // Modal principal (crear/editar categoría)
   const [modalAbierto, setModalAbierto] = useState(false);
   const [modoEdicion, setModoEdicion] = useState(false);
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<Categoria | null>(null);
+  
+  // ← NUEVO: Estados para modal de asignación de servicios
+  const [modalServiciosAbierto, setModalServiciosAbierto] = useState(false);
+  const [categoriaParaServicios, setCategoriaParaServicios] = useState<Categoria | null>(null);
   
   // Formulario
   const [formData, setFormData] = useState<Partial<Categoria>>({
@@ -127,6 +136,12 @@ export default function AdminCategoriasPage() {
     setModalAbierto(true);
   };
 
+  // ← NUEVA FUNCIÓN: Abrir modal de asignación de servicios
+  const abrirModalServicios = (categoria: Categoria) => {
+    setCategoriaParaServicios(categoria);
+    setModalServiciosAbierto(true);
+  };
+
   const handleInputChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
@@ -182,29 +197,24 @@ const guardarCategoria = async () => {
     let url: string;
     
     if (modoEdicion && categoriaSeleccionada) {
-      // ← EDITAR: Usar PATCH con JSON (más compatible)
       url = `${apiUrl}/categorias/${categoriaSeleccionada.id}/`;
       console.log('🔗 URL:', url, '(PATCH + JSON)');
       
-      // ← Preparar datos como JSON (no FormData)
       const datosJson: any = {
         nombre: formData.nombre,
         orden: formData.orden,
         activo: formData.activo,
       };
       
-      // Solo agregar icono si tiene valor
       if (formData.icono) {
         datosJson.icono = formData.icono;
       }
       
-      // ← Si hay imagen nueva, enviar como multipart/form-data separado
       if (imagenFile) {
         console.log('📎 Imagen nueva detectada, usando FormData solo para imagen...');
         const formDataImagen = new FormData();
         formDataImagen.append('imagen', imagenFile);
         
-        // Primero actualizar la imagen
         const resImagen = await fetch(url, {
           method: 'PATCH',
           headers: { 'Authorization': `Bearer ${token}` },
@@ -216,7 +226,6 @@ const guardarCategoria = async () => {
         }
       }
       
-      // ← Luego actualizar los demás campos con JSON
       res = await fetch(url, {
         method: 'PATCH',
         headers: {
@@ -227,7 +236,6 @@ const guardarCategoria = async () => {
       });
       
     } else {
-      // ← CREAR: Usar POST con FormData (funciona bien para creación)
       url = `${apiUrl}/categorias/`;
       console.log('🔗 URL:', url, '(POST + FormData)');
       
@@ -425,6 +433,8 @@ const guardarCategoria = async () => {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ícono</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Imagen</th>
+                {/* ← NUEVA COLUMNA: Servicios */}
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicios</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
               </tr>
@@ -432,7 +442,8 @@ const guardarCategoria = async () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {categoriasPaginadas.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                  {/* ← Actualizar colSpan a 7 por la nueva columna */}
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
                     📭 No hay categorías registradas
                   </td>
                 </tr>
@@ -458,6 +469,16 @@ const guardarCategoria = async () => {
                       ) : (
                         <span className="text-xs text-gray-400">Sin imagen</span>
                       )}
+                    </td>
+                    {/* ← NUEVA CELDA: Botón para abrir modal de servicios */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <button
+                        onClick={() => abrirModalServicios(categoria)}
+                        className="text-indigo-600 hover:text-indigo-800 text-sm font-medium flex items-center gap-1"
+                        title="Gestionar servicios de esta categoría"
+                      >
+                        🛠️ {categoria.servicios_count ?? 0} servicios
+                      </button>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <button
@@ -674,6 +695,23 @@ const guardarCategoria = async () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ← NUEVO: Modal de Asignación de Servicios (al final, antes de cerrar el return) */}
+      {modalServiciosAbierto && categoriaParaServicios && (
+        <CategoryServicesModal
+          isOpen={modalServiciosAbierto}
+          onClose={() => {
+            setModalServiciosAbierto(false);
+            setCategoriaParaServicios(null);
+          }}
+          categoriaId={categoriaParaServicios.id}
+          categoriaNombre={categoriaParaServicios.nombre}
+          onServicesUpdated={() => {
+            // Refrescar lista de categorías para actualizar contador
+            cargarCategorias();
+          }}
+        />
       )}
     </div>
   );
