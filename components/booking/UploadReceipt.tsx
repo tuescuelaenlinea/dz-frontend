@@ -44,89 +44,80 @@ export default function UploadReceipt({ citaId, pagoId, onSuccess, onCancel }: U
   };
 
   // ← FUNCIÓN: Preparar datos para WhatsApp (PERO NO ABRIRLO)
-  async function prepararWhatsAppParaProfesional(citaId: number) {
-    try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
-      
-      console.log('🔍 [UploadReceipt] Obteniendo datos de la cita #', citaId);
-      const citaRes = await fetch(`${apiUrl}/citas/${citaId}/`, { headers });
-      
-      if (!citaRes.ok) {
-        const errorText = await citaRes.text();
-        console.error('❌ [UploadReceipt] Error obteniendo cita:', citaRes.status, errorText);
-        return;
-      }
-      
-      const cita = await citaRes.json();
-      console.log('📋 [UploadReceipt] Datos de la cita:', {
-        id: cita.id,
-        profesional: cita.profesional,
-        codigo_reserva: cita.codigo_reserva
-      });
-      
-      if (!cita.profesional) {
-        console.warn('⚠️ [UploadReceipt] La cita #', citaId, 'no tiene profesional asignado');
-        return;
-      }
-      
-      console.log('🔍 [UploadReceipt] Buscando profesional ID:', cita.profesional);
-      const profsRes = await fetch(`${apiUrl}/profesionales/`, { headers });
-      
-      if (!profsRes.ok) {
-        console.error('❌ [UploadReceipt] Error obteniendo profesionales:', profsRes.status);
-        return;
-      }
-      
-      const profs = await profsRes.json();
-      let profesionalesList = Array.isArray(profs) ? profs : (profs.results || []);
-      
-      const profesional = profesionalesList.find((p: any) => p.id === cita.profesional);
-      
-      if (!profesional) {
-        console.warn('⚠️ [UploadReceipt] No se encontró profesional con ID:', cita.profesional);
-        return;
-      }
-      
-      console.log('👨‍⚕️ [UploadReceipt] Profesional encontrado:', {
-        nombre: profesional.nombre,
-        telefono_whatsapp: profesional.telefono_whatsapp
-      });
-      
-      if (!profesional?.telefono_whatsapp) {
-        console.warn('⚠️ [UploadReceipt] El profesional', profesional.nombre, 'no tiene teléfono WhatsApp registrado');
-        return;
-      }
-      
-      // ← MENSAJE DE NOTIFICACIÓN DE COMPROBANTE (solo informativo)
-      const mensaje = `*📤 COMPROBANTE SUBIDO*%0A%0A` +
-        `*Código:* ${cita.codigo_reserva}%0A` +
-        `*Cliente:* ${cita.cliente_nombre}%0A` +
-        `*Servicio:* ${cita.servicio_nombre || 'Servicio'}%0A` +
-        `*Fecha:* ${cita.fecha}%0A` +
-        `*Hora:* ${cita.hora_inicio}%0A` +
-        `*Total:* $${cita.precio_total}%0A%0A` +
-        `⏳ Pendiente de verificación`;
-      
-      const telefonoLimpio = profesional.telefono_whatsapp.replace(/\D/g, '');
-      const whatsappUrl = `https://wa.me/57${telefonoLimpio}?text=${mensaje}`;
-      
-      // ← ⚠️ IMPORTANTE: SOLO guardar en localStorage, NO abrir WhatsApp
-      localStorage.setItem(`cita_${citaId}_whatsapp_profesional`, whatsappUrl);
-      
-      console.log('✅ [UploadReceipt] URL de WhatsApp guardada (NO se abrió):', profesional.nombre);
-      console.log('🔒 [UploadReceipt] WhatsApp se abrirá SOLO en BookingSuccess.tsx');
-      
-    } catch (err) {
-      console.error('❌ [UploadReceipt] Error preparando WhatsApp:', err);
+ // ← FUNCIÓN: Preparar datos para WhatsApp (CAMBIO: ahora al admin)
+async function prepararWhatsAppParaProfesional(citaId: number) {
+  try {
+    // ← CAMBIO #1: Buscar admin_token primero
+    const token = localStorage.getItem('admin_token') || localStorage.getItem('token');
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
+    
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
+    
+    console.log('🔍 [UploadReceipt] Obteniendo datos de la cita #', citaId);
+    const citaRes = await fetch(`${apiUrl}/citas/${citaId}/`, { headers });
+    
+    if (!citaRes.ok) {
+      const errorText = await citaRes.text();
+      console.error('❌ [UploadReceipt] Error obteniendo cita:', citaRes.status, errorText);
+      return;
+    }
+    
+    const cita = await citaRes.json();
+    console.log('📋 [UploadReceipt] Datos de la cita:', {
+      id: cita.id,
+      profesional: cita.profesional,
+      codigo_reserva: cita.codigo_reserva
+    });
+    
+    // ← MANTENER: Validar que existe profesional asignado
+    if (!cita.profesional) {
+      console.warn('⚠️ [UploadReceipt] La cita #', citaId, 'no tiene profesional asignado');
+      // ← CAMBIO: No retornar, continuar para enviar al admin de todas formas
+    }
+    
+    // ← CAMBIO #2: Obtener WhatsApp del admin desde config
+    const configRes = await fetch(`${apiUrl}/configuracion/activa/`);
+    let whatsappAdmin = '';
+    
+    if (configRes.ok) {
+      const configData = await configRes.json();
+      const config = configData.results?.[0] || configData;
+      whatsappAdmin = config?.whatsapp || '';
+    }
+    
+    if (!whatsappAdmin) {
+      console.warn('⚠️ [UploadReceipt] No hay WhatsApp de administración configurado');
+      return;
+    }
+    
+    console.log('💼 [UploadReceipt] WhatsApp del admin:', whatsappAdmin);
+    
+    // ← CAMBIO #3: Mensaje actualizado (para admin)
+    const mensaje = `*📤 COMPROBANTE SUBIDO*%0A%0A` +
+      `*Código:* ${cita.codigo_reserva}%0A` +
+      `*Cliente:* ${cita.cliente_nombre}%0A` +
+      `*Servicio:* ${cita.servicio_nombre || 'Servicio'}%0A` +
+      `*Fecha:* ${cita.fecha}%0A` +
+      `*Hora:* ${cita.hora_inicio}%0A` +
+      `*Total:* $${cita.precio_total}%0A%0A` +
+      `⏳ Pendiente de verificación por admin`;
+    
+    // ← CAMBIO #4: Usar WhatsApp del admin
+    const telefonoLimpio = whatsappAdmin.replace(/\D/g, '');
+    const whatsappUrl = `https://wa.me/57${telefonoLimpio}?text=${mensaje}`;
+    
+    // ← Guardar en localStorage
+    localStorage.setItem(`cita_${citaId}_whatsapp_admin`, whatsappUrl);
+    
+    console.log('✅ [UploadReceipt] URL de WhatsApp guardada para administrador');
+    
+  } catch (err) {
+    console.error('❌ [UploadReceipt] Error preparando WhatsApp:', err);
   }
-
+}
   const handleUpload = async () => {
   if (!file) {
     setError('Por favor selecciona un archivo');

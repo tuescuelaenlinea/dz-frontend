@@ -463,37 +463,46 @@ const getBoldPaymentUrl = () => {
     return endDate.toTimeString().slice(0, 5);
   };
 
-  // ← FUNCIÓN PARA ENVIAR WHATSAPP AL PROFESIONAL (reutilizable)
-  async function enviarWhatsAppAlProfesional(citaId: number, profesionalId: number) {
+  // ← FUNCIÓN PARA ENVIAR WHATSAPP DE CONFIRMACIÓN (ahora al administrador)
+  async function enviarWhatsAppAlProfesional(citaId: number, _profesionalId?: number) {
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('admin_token') || localStorage.getItem('token');
       
-      // Obtener datos del profesional
-      const profsRes = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api'}/profesionales/`,
-        {
-          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-        }
-      );
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
       
-      const profs = await profsRes.json();
-      let profesionalesList = Array.isArray(profs) ? profs : (profs.results || []);
-      const profesional = profesionalesList.find((p: any) => p.id === profesionalId);
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
       
-      if (!profesional?.telefono_whatsapp) {
-        console.warn('Profesional sin WhatsApp');
+      // ← 1. Obtener WhatsApp del administrador desde config
+      const configRes = await fetch(`${apiUrl}/configuracion/activa/`, { headers });
+      
+      if (!configRes.ok) {
+        console.warn('⚠️ No se pudo cargar configuración para WhatsApp');
         return;
       }
       
-      // Obtener datos de la cita
-      const citaRes = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api'}/citas/${citaId}/`,
-        {
-          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-        }
-      );
+      const configData = await configRes.json();
+      const config = configData.results?.[0] || configData;
+      const whatsappAdmin = config?.whatsapp;  // ← Aquí se define whatsappAdmin
+      
+      if (!whatsappAdmin) {
+        console.warn('⚠️ No hay WhatsApp de administración configurado');
+        return;
+      }
+      
+      // ← 2. Obtener datos de la cita
+      const citaRes = await fetch(`${apiUrl}/citas/${citaId}/`, { headers });
+      
+      if (!citaRes.ok) {
+        console.error('❌ Error obteniendo cita:', citaRes.status);
+        return;
+      }
+      
       const cita = await citaRes.json();
       
+      // ← 3. Construir mensaje para administrador
       const mensaje = `*🔔 NUEVA RESERVA CONFIRMADA*%0A%0A` +
         `*Código:* ${cita.codigo_reserva}%0A` +
         `*Cliente:* ${cita.cliente_nombre}%0A` +
@@ -502,18 +511,21 @@ const getBoldPaymentUrl = () => {
         `*Fecha:* ${cita.fecha}%0A` +
         `*Hora:* ${cita.hora_inicio}%0A` +
         `*Total:* $${cita.precio_total}%0A%0A` +
-        `✅ Pago confirmado - Por favor preparar el servicio.`;
+        `✅ Pago confirmado - Por favor gestionar la cita.`;
       
-      const telefonoLimpio = profesional.telefono_whatsapp.replace(/\D/g, '');
-      const whatsappUrl = `https://wa.me/57${telefonoLimpio}?text=${mensaje}`;
+      // ← 4. Limpiar teléfono y verificar prefijo 57
+      const telefonoLimpio = whatsappAdmin.replace(/\D/g, '');
+      const numeroFinal = telefonoLimpio.startsWith('57') ? telefonoLimpio : `57${telefonoLimpio}`;
+      const whatsappUrl = `https://wa.me/${numeroFinal}?text=${mensaje}`;
       
       window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
-      console.log('✅ WhatsApp enviado al profesional:', profesional.nombre);
+      console.log('✅ WhatsApp enviado al administrador');
       
     } catch (err) {
       console.error('Error enviando WhatsApp:', err);
     }
   }
+  
 
   // Manejar retorno de Bold
   useEffect(() => {

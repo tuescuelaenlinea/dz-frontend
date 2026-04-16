@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import CitaDetailAdminModal from '@/components/admin/CitaDetailAdminModal';
 
 interface Cita {
   id: number;
@@ -11,18 +12,19 @@ interface Cita {
   servicio: number;
   servicio_nombre: string;
   profesional: number | null;
+  profesional_id: number | null;
   profesional_nombre: string | null;
   fecha: string;
   hora_inicio: string;
   hora_fin: string;
   estado: 'pendiente' | 'confirmada' | 'completada' | 'cancelada';
   metodo_pago: 'bold' | 'efectivo' | 'pendiente';
-  pago_estado: 'pendiente' | 'parcial' | 'pagado' | 'reembolsado';
+  pago_estado: 'pendiente' | 'pagado' | 'reembolsado' | 'parcial'; 
   precio_total: string;
   pago_acumulado: string;
   estado_pago_detalle: 'pendiente' | 'parcial' | 'pagado' | 'reembolsado';
   notas_cliente: string;
-  fecha_reserva: string;
+  fecha_reserva: string; 
 }
 
 export default function AdminCitasPage() {
@@ -40,6 +42,8 @@ export default function AdminCitasPage() {
   // Modal de detalle
   const [citaSeleccionada, setCitaSeleccionada] = useState<Cita | null>(null);
   const [modalAbierto, setModalAbierto] = useState(false);
+  const [citaParaDetalle, setCitaParaDetalle] = useState<Cita | null>(null);
+  const [modalDetalleAbierto, setModalDetalleAbierto] = useState(false);
 
   // ← ESTADOS PARA PAGINACIÓN
   const [paginaActual, setPaginaActual] = useState(1);
@@ -149,6 +153,10 @@ const cargarCitas = async () => {
       alert(`❌ Error: ${err.message}`);
     }
   };
+  const abrirDetalleCita = (cita: Cita) => {
+  setCitaParaDetalle(cita);
+  setModalDetalleAbierto(true);
+};
 
   const citasFiltradas = citas.filter((cita) => {
     if (filtroEstado !== 'todas' && cita.estado !== filtroEstado) {
@@ -367,7 +375,7 @@ const cargarCitas = async () => {
                 </tr>
               ) : (
                 citasPaginadas.map((cita) => (
-                  <tr key={cita.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={cita.id} className="hover:bg-gray-50 transition-colors cursor-pointer"  onClick={() => abrirDetalleCita(cita)}>                    
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="font-mono text-sm font-medium text-gray-900">{cita.codigo_reserva}</span>
                     </td>
@@ -399,16 +407,18 @@ const cargarCitas = async () => {
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <button
-                        onClick={() => {
-                          setCitaSeleccionada(cita);
-                          setModalAbierto(true);
-                        }}
-                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                      >
-                        👁️ Ver
-                      </button>
+                    <td className="px-4 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            abrirDetalleCita(cita);
+                          }}
+                          className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                        >
+                          👁️ Detalle
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -623,6 +633,20 @@ const cargarCitas = async () => {
             </div>
           </div>
         </div>
+      )}
+      {/* Al final del return, antes del último </div>: */}
+      {modalDetalleAbierto && citaParaDetalle && (
+        <CitaDetailAdminModal
+          cita={citaParaDetalle}
+          isOpen={modalDetalleAbierto}
+          onClose={() => {
+            setModalDetalleAbierto(false);
+            setCitaParaDetalle(null);
+          }}
+          onCitaUpdated={() => {
+            cargarCitas();  // Refrescar lista después de editar
+          }}
+        />
       )}
     </div>
   );

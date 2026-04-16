@@ -280,13 +280,16 @@ export const api = {
   },
 
   async getCitaById(id: number) {
-    const token = this.getToken();
-    const res = await fetch(`${API_URL}/citas/${id}/`, {
-      headers: this.getAuthHeaders(),
-    });
-    if (!res.ok) throw new Error('Error al cargar cita');
-    return res.json();
-  },
+  // ← CORREGIDO: Buscar admin_token primero, luego token
+  const token = localStorage.getItem('admin_token') || localStorage.getItem('token');
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+  
+  const res = await fetch(`${apiUrl}/citas/${id}/`, {
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error('Error al cargar cita');
+  return res.json();
+},
 
   async createCita(data: any) {
     const token = this.getToken();
@@ -326,7 +329,7 @@ export const api = {
   /**
    * Obtener historial de pagos de una cita específica
    * GET /api/citas/{id}/pagos/
-   */
+  
   async getCitaPagos(citaId: number) {
     const token = this.getToken();
     const res = await fetch(`${API_URL}/citas/${citaId}/pagos/`, {
@@ -334,7 +337,7 @@ export const api = {
     });
     if (!res.ok) throw new Error('Error al cargar pagos de la cita');
     return res.json();
-  },
+  }, */
 
   // ==========================================
   // AUTENTICACIÓN
@@ -513,6 +516,169 @@ async validarDisponibilidadCita(data: {
   });
   
   if (!res.ok) throw new Error('Error validando disponibilidad');
+  return await res.json();
+},
+
+// ==========================================
+// SERVICIOS - PROFESIONALES ASIGNADOS
+// ==========================================
+
+/**
+ * Obtener profesionales asignados a un servicio
+ * GET /api/servicios/{id}/profesionales/
+ */
+async getServicioProfesionales(servicioId: number) {
+  try {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+    const res = await fetch(`${apiUrl}/servicios/${servicioId}/profesionales/`);
+    
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.detail || error.error || `Error HTTP ${res.status}`);
+    }
+    
+    return await res.json();
+  } catch (err) {
+    console.error('❌ Error en getServicioProfesionales:', err);
+    return { profesionales: [], profesionales_count: 0 };
+  }
+},
+
+/**
+ * Asignar profesionales a un servicio
+ * POST /api/servicios/{id}/profesionales/
+ */
+async asignarProfesionalesAServicio(servicioId: number, profesionalesIds: number[]) {
+  const token = this.getToken();
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+  
+  try {
+    const res = await fetch(`${apiUrl}/servicios/${servicioId}/profesionales/`, {
+      method: 'POST',
+      headers: {
+        ...this.getAuthHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ profesionales: profesionalesIds }),
+    });
+    
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || error.detail || 'Error al asignar profesionales');
+    }
+    
+    return await res.json();
+  } catch (err) {
+    console.error('❌ Error en asignarProfesionalesAServicio:', err);
+    throw err;
+  }
+},
+// ==========================================
+// CITAS - ADMIN (Funciones para el modal admin)
+// ==========================================
+
+/**
+ * Actualizar cita (PUT) - Solo para admin
+ */
+async updateCita(id: number, data: any) {  // ← ✅ CON 'data'
+  const token = localStorage.getItem('admin_token') || localStorage.getItem('token');
+  
+  if (!token) {
+    throw new Error('No hay token de autenticación');
+  }
+  
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+  
+  const res = await fetch(`${apiUrl}/citas/${id}/`, {
+    method: 'PUT',
+    headers: {
+      ...this.getAuthHeaders(),
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify(data),
+  });
+  
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.detail || error.error || 'Error al actualizar cita');
+  }
+  
+  return await res.json();
+},
+
+/**
+ * Crear pago manual - Solo para admin
+ */
+async createPago(data: any) {
+  const token = this.getToken();
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+  
+  const res = await fetch(`${apiUrl}/pagos/`, {
+    method: 'POST',
+    headers: {
+      ...this.getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+  
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error || error.detail || 'Error al crear pago');
+  }
+  
+  return await res.json();
+},
+
+/**
+ * Subir comprobante a un pago
+ */
+async subirComprobantePago(pagoId: number, file: File) {
+  // ← CORREGIDO: Buscar admin_token primero, luego token
+  const token = localStorage.getItem('admin_token') || localStorage.getItem('token');
+  
+  if (!token) {
+    throw new Error('No hay token de autenticación');
+  }
+  
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+  
+  const formData = new FormData();
+  formData.append('comprobante', file);
+  
+  const res = await fetch(`${apiUrl}/pagos/${pagoId}/subir-comprobante/`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+    body: formData,
+  });
+  
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error || error.detail || 'Error al subir comprobante');
+  }
+  
+  return await res.json();
+},
+
+/**
+ * Obtener pagos de una cita
+ */
+async getCitaPagos(citaId: number) {
+  const token = this.getToken();
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+  
+  const res = await fetch(`${apiUrl}/citas/${citaId}/pagos/`, {
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+  });
+  
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.detail || error.error || 'Error al cargar pagos');
+  }
+  
   return await res.json();
 },
 };

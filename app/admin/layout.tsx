@@ -91,6 +91,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           >
             📅 Citas
           </Link>
+           <Link
+            href="/admin/clientes"
+            className="block px-4 py-3 text-gray-300 hover:bg-gray-800 rounded-lg transition-colors"
+            onClick={() => setSidebarOpen(false)}
+          >
+            👥 Clientes
+          </Link>
+
           <Link
               href="/admin/categorias"
               className="block px-4 py-3 text-gray-300 hover:bg-gray-800 rounded-lg transition-colors"

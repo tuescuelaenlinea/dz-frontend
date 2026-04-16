@@ -2,6 +2,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import ServicioProfesionalesModal from '@/components/admin/ServicioProfesionalesModal';
 
 interface Categoria {
   id: number;
@@ -33,6 +34,7 @@ interface Servicio {
   disponible: boolean;
   imagen: string | null;
   imagen_url: string | null;
+  profesionales_count?: number;
 }
 
 export default function AdminServiciosPage() {
@@ -46,11 +48,15 @@ export default function AdminServiciosPage() {
   const [filtroCategoria, setFiltroCategoria] = useState<string>('todas');
   const [filtroDisponible, setFiltroDisponible] = useState<string>('todos');
   const [busqueda, setBusqueda] = useState<string>('');
+  const [mostrarInactivos, setMostrarInactivos] = useState(true);
   
   // Modal
   const [modalAbierto, setModalAbierto] = useState(false);
   const [modoEdicion, setModoEdicion] = useState(false);
   const [servicioSeleccionado, setServicioSeleccionado] = useState<Servicio | null>(null);
+
+  const [modalProfesionalesAbierto, setModalProfesionalesAbierto] = useState(false);
+  const [servicioParaProfesionales, setServicioParaProfesionales] = useState<Servicio | null>(null);
   
   // Formulario
   const [formData, setFormData] = useState<Partial<Servicio>>({
@@ -71,6 +77,12 @@ export default function AdminServiciosPage() {
     destacado: false,
     disponible: true,
   });
+
+  const abrirModalProfesionales = (servicio: Servicio) => {
+  setServicioParaProfesionales(servicio);
+  setModalProfesionalesAbierto(true);
+};
+
   
   const [imagenFile, setImagenFile] = useState<File | null>(null);
   const [imagenPreview, setImagenPreview] = useState<string | null>(null);
@@ -83,7 +95,7 @@ export default function AdminServiciosPage() {
   useEffect(() => {
     cargarServicios();
     cargarCategorias();
-  }, []);
+  }, [mostrarInactivos]);
 
   // Resetear paginación al filtrar
   useEffect(() => {
@@ -107,6 +119,9 @@ const cargarServicios = async () => {
     
     // ← URL INICIAL CON PAGE_SIZE GRANDE (aunque el backend lo ignore)
     let url: string = `${apiUrl}/servicios/?ordering=nombre&page_size=1000`;
+    if (mostrarInactivos) {
+      url += '&incluir_inactivos=true';  // ← AGREGAR ESTO
+    }
     let pageCount = 0;
     const maxPages = 20; // Límite de seguridad
     
@@ -505,7 +520,10 @@ const cargarServicios = async () => {
         <div className="mt-4 flex justify-between items-center">
           <p className="text-sm text-gray-600">
             Mostrando <strong>{serviciosFiltrados.length}</strong> de <strong>{servicios.length}</strong> servicios
+
           </p>
+
+
           <button
             onClick={() => {
               setFiltroCategoria('todas');
@@ -519,6 +537,7 @@ const cargarServicios = async () => {
         </div>
       </div>
 
+
       {/* Tabla de Servicios */}
       <div className="bg-white rounded-xl shadow-lg overflow-hidden">
         <div className="overflow-x-auto">
@@ -531,19 +550,24 @@ const cargarServicios = async () => {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Precio</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duración</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Profesionales</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
+
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {serviciosPaginados.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                  {/* ← Actualizar colSpan a 8 porque ahora hay 8 columnas */}
+                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
                     📭 No hay servicios que mostrar
                   </td>
                 </tr>
               ) : (
                 serviciosPaginados.map((servicio) => (
                   <tr key={servicio.id} className="hover:bg-gray-50 transition-colors">
+                    
+                    {/* Columna 1: Imagen */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       {servicio.imagen_url ? (
                         <img 
@@ -563,6 +587,8 @@ const cargarServicios = async () => {
                         </div>
                       )}
                     </td>
+                    
+                    {/* Columna 2: Nombre */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center">
                         <div>
@@ -573,9 +599,13 @@ const cargarServicios = async () => {
                         </div>
                       </div>
                     </td>
+                    
+                    {/* Columna 3: Categoría */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="text-sm text-gray-900">{servicio.categoria_nombre}</span>
                     </td>
+                    
+                    {/* Columna 4: Precio */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">
                         {servicio.tipo_precio === 'rango' 
@@ -584,9 +614,13 @@ const cargarServicios = async () => {
                         }
                       </div>
                     </td>
+                    
+                    {/* Columna 5: Duración */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="text-sm text-gray-900">{servicio.duracion || 'N/A'}</span>
                     </td>
+                    
+                    {/* Columna 6: Estado */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex flex-col gap-1">
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
@@ -603,6 +637,27 @@ const cargarServicios = async () => {
                         )}
                       </div>
                     </td>
+                    
+                    {/* ← Columna 7 NUEVA: Profesionales */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          console.log('🔗 Clic en profesionales:', servicio.id, servicio.nombre);
+                          abrirModalProfesionales(servicio);
+                        }}
+                        onMouseDown={(e) => e.preventDefault()}
+                        className="text-indigo-600 hover:text-indigo-800 text-sm font-medium flex items-center gap-1 cursor-pointer"
+                        title="Gestionar profesionales de este servicio"
+                        disabled={!servicio?.id}
+                      >
+                        👥 {servicio.profesionales_count ?? 0} profesionales
+                      </button>
+                    </td>
+                    
+                    {/* Columna 8: Acciones */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <button
@@ -621,6 +676,7 @@ const cargarServicios = async () => {
                         </button>
                       </div>
                     </td>
+                    
                   </tr>
                 ))
               )}
@@ -933,6 +989,18 @@ const cargarServicios = async () => {
             </div>
           </div>
         </div>
+      )}
+      {modalProfesionalesAbierto && servicioParaProfesionales && (
+        <ServicioProfesionalesModal
+          isOpen={modalProfesionalesAbierto}
+          onClose={() => {
+            setModalProfesionalesAbierto(false);
+            setServicioParaProfesionales(null);
+          }}
+          servicioId={servicioParaProfesionales.id}
+          servicioNombre={servicioParaProfesionales.nombre}
+          onProfesionalesUpdated={() => cargarServicios()}
+        />
       )}
     </div>
   );
