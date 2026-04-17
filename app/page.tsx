@@ -245,7 +245,7 @@ const heroMobileImage = getImageUrl(
                 </Link>
                 
                 <Link
-                  href="/servicios"
+                  href="/categorias"
                   className="group relative px-10 py-4 bg-white/95 backdrop-blur-md text-gray-900 rounded-full text-lg font-semibold shadow-2xl hover:shadow-white/50 transition-all duration-300 transform hover:-translate-y-1 hover:scale-105 border-2 border-white/50"
                 >
                   <span className="relative z-10">Ver Servicios</span>

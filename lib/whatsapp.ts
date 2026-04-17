@@ -2,115 +2,57 @@
 
 /**
  * Limpia y valida número de teléfono para WhatsApp
- * @param phone - Número en cualquier formato: '+57 300 123 4567', '3001234567', etc.
- * @returns Número en formato internacional sin símbolos: '573001234567'
+ * @param phone - Número en cualquier formato
+ * @returns Número en formato internacional: '573001234567'
  */
 export function formatPhoneNumber(phone: string): string {
-  // 1. Remover todos los caracteres no numéricos
   const cleaned = phone.replace(/\D/g, '');
-  
-  // 2. Si empieza con 00, reemplazar por el código de país apropiado
   if (cleaned.startsWith('00')) {
     return cleaned.replace('00', '');
   }
-  
-  // 3. Si empieza con +, ya fue removido por el paso 1
-  
-  // 4. Si NO tiene código de país (menos de 10 dígitos para Colombia), agregar 57
-  //    Ajusta esta lógica según tu país principal
   if (cleaned.length < 10 && !cleaned.startsWith('57')) {
     return `57${cleaned}`;
   }
-  
-  // 5. Si ya tiene código de país, retornar tal cual
   return cleaned;
 }
 
 /**
- * Construye URL de WhatsApp compatible con todos los dispositivos
- * @param phoneNumber - Número en formato internacional: '573001234567'
- * @param message - Mensaje con saltos de línea usando \n
- * @returns Objeto con URLs para diferentes métodos de apertura
+ * Construye URL de WhatsApp compatible
  */
-export function buildWhatsAppUrls(phoneNumber: string, message: string) {
+export function buildWhatsAppUrl(phoneNumber: string, message: string): string {
   const phone = formatPhoneNumber(phoneNumber);
   const encodedMessage = encodeURIComponent(message);
-  
-  return {
-    // URL estándar (más compatible)
-    standard: `https://api.whatsapp.com/send?phone=${phone}&text=${encodedMessage}`,
-    
-    // URL corta (wa.me) - algunos dispositivos la prefieren
-    short: `https://wa.me/${phone}?text=${encodedMessage}`,
-    
-    // Intent URL para Android (abre app directamente si está instalada)
-    androidIntent: `intent://send?phone=${phone}&text=${encodedMessage}#Intent;scheme=https;package=com.whatsapp;end`,
-    
-    // Universal Link para iOS
-    iosUniversal: `whatsapp://send?phone=${phone}&text=${encodedMessage}`,
-  };
+  return `https://api.whatsapp.com/send?phone=${phone}&text=${encodedMessage}`;
 }
 
 /**
- * Intenta abrir WhatsApp con múltiples estrategias de fallback
+ * Abre WhatsApp SIEMPRE en nueva ventana/pestaña
+ * NUNCA usa window.location.href para no navegar fuera de la página actual
  * @param phoneNumber - Número del destinatario
  * @param message - Mensaje a enviar
- * @returns Promise<boolean> - true si logró abrir, false si falló
+ * @returns boolean - true si logró abrir, false si fue bloqueado
  */
-export async function openWhatsAppWithFallback(
-  phoneNumber: string, 
-  message: string
-): Promise<boolean> {
-  const urls = buildWhatsAppUrls(phoneNumber, message);
+export function openWhatsAppInNewWindow(phoneNumber: string, message: string): boolean {
+  const url = buildWhatsAppUrl(phoneNumber, message);
   
-  // Estrategia 1: Intentar con window.open y URL estándar
-  try {
-    const popup = window.open(urls.standard, '_blank', 'noopener,noreferrer');
-    
-    // Verificar si el popup fue bloqueado
-    if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-      console.warn('⚠️ Popup bloqueado, intentando fallback...');
-      throw new Error('Popup blocked');
-    }
-    
-    // Esperar un poco para ver si se abrió
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Si el popup sigue abierto, asumimos éxito
-    if (!popup.closed) {
-      console.log('✅ WhatsApp abierto con window.open');
-      return true;
-    }
-  } catch (err) {
-    console.warn('⚠️ window.open falló, probando fallback...');
+  // ← SIEMPRE usar window.open con _blank, NUNCA window.location.href
+  const popup = window.open(url, '_blank', 'noopener,noreferrer');
+  
+  if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+    console.warn('⚠️ El navegador bloqueó la ventana de WhatsApp');
+    return false;
   }
   
-  // Estrategia 2: Redirección directa (más compatible con móviles)
-  try {
-    // Para móviles, redirigir directamente en la misma ventana
-    if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-      console.log('📱 Dispositivo móvil detectado, usando redirección directa');
-      window.location.href = urls.standard;
-      return true;
-    }
-    
-    // Para desktop, intentar con la URL corta
-    window.location.href = urls.short;
-    return true;
-  } catch (err) {
-    console.error('❌ Fallback de redirección también falló:', err);
-  }
-  
-  // Si todo falla, retornar false para que el frontend maneje el error
-  return false;
+  console.log('✅ WhatsApp abierto en nueva ventana');
+  return true;
 }
 
 /**
  * Función completa: enviar notificación al admin por WhatsApp
- * @param citaData - Datos de la cita para incluir en el mensaje
- * @param apiUrl - URL base de la API (opcional)
- * @param onOpenSuccess - Callback opcional si se abre exitosamente
- * @param onOpenError - Callback opcional si falla la apertura
+ * @param citaData - Datos de la cita
+ * @param apiUrl - URL base de la API
+ * @param onOpenSuccess - Callback si se abre exitosamente
+ * @param onOpenError - Callback si falla
  */
 export async function enviarNotificacionAdminWhatsApp(
   citaData: {
@@ -147,8 +89,7 @@ export async function enviarNotificacionAdminWhatsApp(
       return false;
     }
     
-    // 2. Construir mensaje COMPACTO y compatible
-    // Usar \n para saltos de línea (encodeURIComponent los maneja)
+    // 2. Construir mensaje COMPACTO
     const mensaje = 
       `🔔 *NUEVA RESERVA DZ Salón* 🔔\n` +
       `📋 ${citaData.codigo_reserva}\n` +
@@ -158,8 +99,8 @@ export async function enviarNotificacionAdminWhatsApp(
       `💰 $${parseInt(citaData.precio_total).toLocaleString('es-CO')}\n` +
       `✅ Confirmada - Gestionar`;
     
-    // 3. Intentar abrir WhatsApp con fallbacks
-    const exito = await openWhatsAppWithFallback(whatsappAdmin, mensaje);
+    // 3. Abrir WhatsApp en NUEVA VENTANA (nunca navegar fuera)
+    const exito = openWhatsAppInNewWindow(whatsappAdmin, mensaje);
     
     if (exito) {
       console.log('📱 Notificación WhatsApp enviada al admin');
@@ -176,16 +117,4 @@ export async function enviarNotificacionAdminWhatsApp(
     onOpenError?.();
     return false;
   }
-}
-
-/**
- * Hook React opcional para manejar estado de apertura de WhatsApp
- * Uso: const { open, loading, error } = useWhatsAppNotifier();
- */
-export function useWhatsAppNotifier() {
-  // Esta es una plantilla - implementar si necesitas estado React
-  // Por ahora, usar la función asíncrita directa es suficiente
-  return {
-    enviar: enviarNotificacionAdminWhatsApp,
-  };
 }
