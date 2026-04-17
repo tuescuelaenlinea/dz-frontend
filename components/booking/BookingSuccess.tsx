@@ -1,4 +1,5 @@
 // components/booking/BookingSuccess.tsx
+// components/booking/BookingSuccess.tsx
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -49,8 +50,7 @@ useEffect(() => {
     return;
   }
   
-  let whatsappTimeout: NodeJS.Timeout;
-  let hasOpenedWhatsapp = false;
+  let hasOpenedWhatsapp = false;  // ← whatsappTimeout ELIMINADO
   
   async function loadData() {
     try {
@@ -136,12 +136,7 @@ useEffect(() => {
   
   loadData();
   
-  // ← CLEANUP: Limpiar timeout si el componente se desmonta
-  return () => {
-    if (whatsappTimeout) {
-      clearTimeout(whatsappTimeout);
-    }
-  };
+  // ← SIN CLEANUP: whatsappTimeout fue eliminado, no hay timeout que limpiar
 }, [citaId, codigoReserva]);
 
   // Si está cargando
