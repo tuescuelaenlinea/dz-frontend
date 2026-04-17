@@ -1,9 +1,9 @@
 // components/booking/BookingSuccess.tsx
-// components/booking/BookingSuccess.tsx
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { enviarNotificacionAdminWhatsApp } from '@/lib/whatsapp';
 
 interface BookingSuccessProps {
   citaId: number;
@@ -86,7 +86,6 @@ useEffect(() => {
         const profsRes = await fetch(`${apiUrl}/profesionales/`, { headers });
         if (!profsRes.ok) {
           console.error('❌ [BookingSuccess] Error obteniendo profesionales:', profsRes.status);
-          // ← CAMBIO: No bloquear si falla cargar profesional, continuar con WhatsApp al admin
           console.log('⚠️ [BookingSuccess] Continuando sin datos del profesional');
         } else {
           const profs = await profsRes.json();
@@ -102,73 +101,29 @@ useEffect(() => {
         }
       }
       
-      // ← CAMBIO #2: Obtener WhatsApp del administrador desde config (en lugar del profesional)
-      async function configurarWhatsAppParaAdmin() {
-        try {
-          const configRes = await fetch(`${apiUrl}/configuracion/activa/`, { headers });
-          
-          if (!configRes.ok) {
-            console.warn('⚠️ [BookingSuccess] No se pudo cargar configuración');
-            return;
-          }
-          
-          const configData = await configRes.json();
-          const config = configData.results?.[0] || configData;
-          const whatsappAdmin = config?.whatsapp;
-          
-          if (!whatsappAdmin) {
-            console.warn('⚠️ [BookingSuccess] No hay WhatsApp de administración configurado');
-            return;
-          }
-          
-          // ← CAMBIO #3: Mensaje para administrador
-          const mensaje = `*✅ NUEVA RESERVA CONFIRMADA*%0A%0A` +
-            `*Código:* ${codigoReserva}%0A` +
-            `*Cliente:* ${cita.cliente_nombre}%0A` +
-            `*Teléfono:* ${cita.cliente_telefono}%0A` +
-            `*Servicio:* ${cita.servicio_nombre}%0A` +
-            `*Fecha:* ${cita.fecha}%0A` +
-            `*Hora:* ${cita.hora_inicio}%0A` +
-            `*Total:* $${cita.precio_total}%0A%0A` +
-            `✅ Pago confirmado - Por favor gestionar.`;
-          
-          // ← DESPUÉS (verifica si ya tiene 57):
-            const telefonoLimpio = whatsappAdmin.replace(/\D/g, '');
-            // ← Verificar si ya empieza con 57
-            const numeroFinal = telefonoLimpio.startsWith('57') ? telefonoLimpio : `57${telefonoLimpio}`;
-            const url = `https://wa.me/${numeroFinal}?text=${mensaje}`;
-          setWhatsappUrl(url);
-          
-          console.log('✅ [BookingSuccess] WhatsApp configurado para administrador');
-          
-          // ← VERIFICAR si ya se abrió WhatsApp antes
-          const alreadyOpened = localStorage.getItem(`cita_${citaId}_whatsapp_abierto`);
-          
-          // ← ABRIR WHATSAPP AUTOMÁTICAMENTE
-          if (!alreadyOpened && !hasOpenedWhatsapp) {
-            hasOpenedWhatsapp = true;
-            localStorage.setItem(`cita_${citaId}_whatsapp_abierto`, 'true');
-            
-            whatsappTimeout = setTimeout(() => {
-              console.log('🚀 [BookingSuccess] Abriendo WhatsApp al admin automáticamente...');
-              const whatsappWindow = window.open(url, '_blank', 'noopener,noreferrer');
-              
-              if (whatsappWindow) {
-                setWhatsappOpened(true);
-                console.log('✅ [BookingSuccess] WhatsApp abierto en nueva ventana');
-              } else {
-                console.warn('⚠️ [BookingSuccess] El navegador bloqueó la ventana emergente');
-              }
-            }, 1500);
-          }
-          
-        } catch (err) {
-          console.error('❌ [BookingSuccess] Error obteniendo WhatsApp admin:', err);
-        }
-      }
+      // ← 3. ENVIAR NOTIFICACIÓN WHATSAPP AL ADMIN (usando función reutilizable)
+      console.log('📱 [BookingSuccess] Enviando notificación WhatsApp al admin...');
       
-      // ← LLAMAR FUNCIÓN PARA CONFIGURAR WHATSAPP
-      await configurarWhatsAppParaAdmin();
+      // Fire-and-forget: no bloqueamos el flujo principal
+      enviarNotificacionAdminWhatsApp({
+        codigo_reserva: codigoReserva,
+        cliente_nombre: cita.cliente_nombre,
+        cliente_telefono: cita.cliente_telefono,
+        servicio_nombre: cita.servicio_nombre,
+        fecha: cita.fecha,
+        hora_inicio: cita.hora_inicio,
+        precio_total: cita.precio_total,
+      }, apiUrl)
+      .then((enviado) => {
+        console.log(`📱 WhatsApp ${enviado ? 'enviado' : 'bloqueado'} al admin`);
+        if (enviado) {
+          setWhatsappOpened(true);
+          localStorage.setItem(`cita_${citaId}_whatsapp_abierto`, 'true');
+        }
+      })
+      .catch((err) => {
+        console.error('❌ Error enviando WhatsApp:', err);
+      });
       
       setLoading(false);
       

@@ -15,6 +15,7 @@ import ProfessionalSelector from '@/components/booking/ProfessionalSelector';
 import PaymentMethodSelector, { PaymentMethod } from '@/components/booking/PaymentMethodSelector';
 import UploadReceipt from '@/components/booking/UploadReceipt';
 import BankAccountsModal from '@/components/booking/BankAccountsModal';
+/*import { enviarNotificacionAdminWhatsApp } from '@/lib/whatsapp';*/
 
 interface Servicio {
   id: number;
@@ -525,7 +526,7 @@ const getBoldPaymentUrl = () => {
       console.error('Error enviando WhatsApp:', err);
     }
   }
-  
+
 
   // Manejar retorno de Bold
   useEffect(() => {
@@ -556,11 +557,11 @@ const getBoldPaymentUrl = () => {
           setCitaCreada({ id: citaData.id, codigo_reserva: citaData.codigo_reserva });
           
           // ← ENVIAR WHATSAPP AL PROFESIONAL (si existe)
-          if (citaData.profesional) {
+          /*if (citaData.profesional) {
             await enviarWhatsAppAlProfesional(citaData.id, citaData.profesional);
           } else {
             console.warn('⚠️ La cita no tiene profesional asignado');
-          }
+          }*/
           
           setCurrentStep('success');
           setPagoPendiente(false);
@@ -752,7 +753,25 @@ const getBoldPaymentUrl = () => {
       const codigoReserva = resultado.codigo_reserva;
       
       console.log('✅ Cita procesada:', { id: citaId, codigo: codigoReserva });
-      
+
+     // ← AGREGAR: Enviar notificación al admin por WhatsApp (fire-and-forget)
+/*    // No usamos await para no bloquear el flujo principal
+    enviarNotificacionAdminWhatsApp({
+      codigo_reserva: codigoReserva,
+      cliente_nombre: clientData.cliente_nombre,
+      cliente_telefono: clientData.cliente_telefono,
+      servicio_nombre: selectedService?.nombre || '',
+      fecha: selectedDate?.toISOString().split('T')[0] || '',
+      hora_inicio: selectedTime || '',
+      precio_total: calcularPrecioTotal().toString(),
+    })
+    .then((enviado) => {
+      console.log(`📱 WhatsApp ${enviado ? 'enviado' : 'bloqueado'} al admin`);
+    })
+    .catch((err) => {
+      console.error('❌ Error enviando WhatsApp:', err);
+    });
+         */ 
       // ← CORRECCIÓN #2: Crear registro de Pago después de crear/actualizar cita
       // ← CORRECCIÓN: Crear registro de Pago y guardar su ID
       if (selectedPaymentMethod !== 'pendiente') {
@@ -794,7 +813,17 @@ const getBoldPaymentUrl = () => {
           setLoading(false);
           return;
         }
-        
+         /*// ← AGREGAR: Enviar WhatsApp ANTES de redirigir a Bold
+        enviarNotificacionAdminWhatsApp({
+          codigo_reserva: codigoReserva,
+          cliente_nombre: clientData.cliente_nombre,
+          cliente_telefono: clientData.cliente_telefono,
+          servicio_nombre: selectedService?.nombre || '',
+          fecha: selectedDate?.toISOString().split('T')[0] || '',
+          hora_inicio: selectedTime || '',
+          precio_total: calcularPrecioTotal().toString(),
+        });
+        */
         alert('Serás redirigido a Bold para completar el pago seguro de $' + amountToPay.toLocaleString());
         
         // ← CORRECCIÓN #3: Redirección simple (sin return_url por ahora)
@@ -810,13 +839,32 @@ const getBoldPaymentUrl = () => {
         
         // ← NO retornar aquí, dejar que la redirección ocurra
         
-      } else if (selectedPaymentMethod === 'efectivo') {
+     } else if (selectedPaymentMethod === 'efectivo') {
         // ← MOSTRAR MODAL DE SUBIDA DE COMPROBANTE
+        /*  enviarNotificacionAdminWhatsApp({
+          codigo_reserva: codigoReserva,
+          cliente_nombre: clientData.cliente_nombre,
+          cliente_telefono: clientData.cliente_telefono,
+          servicio_nombre: selectedService?.nombre || '',
+          fecha: selectedDate?.toISOString().split('T')[0] || '',
+          hora_inicio: selectedTime || '',
+          precio_total: calcularPrecioTotal().toString(),
+        });*/
         setCitaCreada({ id: parseInt(citaId), codigo_reserva: codigoReserva });
         setShowUploadReceipt(true);
         return;  // ← Salir aquí, no cambiar a success todavía
         
       } else if (selectedPaymentMethod === 'pendiente') {
+        /* enviarNotificacionAdminWhatsApp({
+            codigo_reserva: codigoReserva,
+            cliente_nombre: clientData.cliente_nombre,
+            cliente_telefono: clientData.cliente_telefono,
+            servicio_nombre: selectedService?.nombre || '',
+            fecha: selectedDate?.toISOString().split('T')[0] || '',
+            hora_inicio: selectedTime || '',
+            precio_total: calcularPrecioTotal().toString(),
+          });*/
+
         setCitaCreada({ id: parseInt(citaId), codigo_reserva: codigoReserva });
         setCurrentStep('success');
         setPagoPendiente(true);

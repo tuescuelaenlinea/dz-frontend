@@ -148,7 +148,7 @@ async function prepararWhatsAppParaProfesional(citaId: number) {
     alert('✅ Comprobante subido exitosamente! Tu cita está pendiente de verificación.');
     
     // ← Preparar WhatsApp (usando citaId, que sí es correcto aquí)
-    await prepararWhatsAppParaProfesional(citaId);
+   // await prepararWhatsAppParaProfesional(citaId);
     
     onSuccess();
     
