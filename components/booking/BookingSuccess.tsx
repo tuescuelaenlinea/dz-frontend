@@ -1,5 +1,4 @@
 // components/booking/BookingSuccess.tsx
-// components/booking/BookingSuccess.tsx
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -40,6 +39,9 @@ export default function BookingSuccess({
   const [whatsappUrl, setWhatsappUrl] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [whatsappOpened, setWhatsappOpened] = useState(false);
+  
+  // ← NUEVO: Estado para el número de WhatsApp del admin (desde BD)
+  const [whatsappAdmin, setWhatsappAdmin] = useState<string>('');
 
 useEffect(() => {
   // ← GUARD: Verificar si WhatsApp ya se abrió para esta cita
@@ -50,7 +52,7 @@ useEffect(() => {
     return;
   }
   
-  let hasOpenedWhatsapp = false;  // ← whatsappTimeout ELIMINADO
+  let hasOpenedWhatsapp = false;
   
   async function loadData() {
     try {
@@ -62,6 +64,29 @@ useEffect(() => {
       }
       
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
+      
+      // ← NUEVO: Cargar WhatsApp del admin desde configuración (para fallback)
+      async function cargarWhatsappAdmin() {
+        try {
+          const configRes = await fetch(`${apiUrl}/configuracion/activa/`, { headers });
+          if (configRes.ok) {
+            const configData = await configRes.json();
+            const config = configData.results?.[0] || configData;
+            if (config?.whatsapp) {
+              // Limpiar y formatear número
+              const phone = config.whatsapp.replace(/\D/g, '');
+              const phoneWithCountry = phone.startsWith('57') ? phone : `57${phone}`;
+              setWhatsappAdmin(phoneWithCountry);
+              console.log('✅ WhatsApp admin cargado:', phoneWithCountry);
+            }
+          }
+        } catch (err) {
+          console.warn('⚠️ No se pudo cargar WhatsApp del admin para fallback');
+        }
+      }
+      
+      // Cargar número del admin
+      cargarWhatsappAdmin();
       
       // 1. Obtener datos de la cita
       console.log('🔍 [BookingSuccess] Obteniendo cita #', citaId);
@@ -105,25 +130,28 @@ useEffect(() => {
       console.log('📱 [BookingSuccess] Enviando notificación WhatsApp al admin...');
       
       // Fire-and-forget: no bloqueamos el flujo principal
-      enviarNotificacionAdminWhatsApp({
-        codigo_reserva: codigoReserva,
-        cliente_nombre: cita.cliente_nombre,
-        cliente_telefono: cita.cliente_telefono,
-        servicio_nombre: cita.servicio_nombre,
-        fecha: cita.fecha,
-        hora_inicio: cita.hora_inicio,
-        precio_total: cita.precio_total,
-      }, apiUrl)
-      .then((enviado) => {
-        console.log(`📱 WhatsApp ${enviado ? 'enviado' : 'bloqueado'} al admin`);
-        if (enviado) {
+      enviarNotificacionAdminWhatsApp(
+        {
+          codigo_reserva: codigoReserva,
+          cliente_nombre: cita.cliente_nombre,
+          cliente_telefono: cita.cliente_telefono,
+          servicio_nombre: cita.servicio_nombre,
+          fecha: cita.fecha,
+          hora_inicio: cita.hora_inicio,
+          precio_total: cita.precio_total,
+        },
+        apiUrl,
+        // ← Callback de éxito
+        () => {
+          console.log('✅ WhatsApp abierto exitosamente');
           setWhatsappOpened(true);
           localStorage.setItem(`cita_${citaId}_whatsapp_abierto`, 'true');
+        },
+        // ← Callback de error
+        () => {
+          console.warn('⚠️ No se pudo abrir WhatsApp automáticamente');
         }
-      })
-      .catch((err) => {
-        console.error('❌ Error enviando WhatsApp:', err);
-      });
+      );
       
       setLoading(false);
       
@@ -253,6 +281,29 @@ useEffect(() => {
             </svg>
             Ver mensaje al administrador
           </a>
+        )}
+
+        {/* ← Botón manual de WhatsApp con número DINÁMICO desde BD */}
+        {whatsappAdmin && (
+          <div className="mt-4">
+            <a
+              href={`https://api.whatsapp.com/send?phone=${whatsappAdmin}&text=${encodeURIComponent(
+                `Hola DZ Salón 👋\nTengo una consulta sobre mi reserva ${codigoReserva}\nServicio: ${citaData?.servicio_nombre || '...'}\nFecha: ${citaData?.fecha || '...'}\n\nQuedo atento/a.`
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => {
+                setWhatsappOpened(true);
+                localStorage.setItem(`cita_${citaId}_whatsapp_abierto`, 'true');
+              }}
+              className="inline-flex items-center gap-2 text-sm text-green-600 hover:text-green-700 underline"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+              </svg>
+              ¿No se abrió WhatsApp? Haz clic aquí para enviar confirmación
+            </a>
+          </div>
         )}
         
         <Link

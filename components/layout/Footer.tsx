@@ -126,14 +126,14 @@ export default function Footer() {
           <div>
             <h4 className="text-lg font-semibold mb-4">Enlaces Rápidos</h4>
             <ul className="space-y-2">
-              <li>
+              {/*<li>
                 <Link href="/servicios" className="text-gray-400 hover:text-white transition-colors">
                   Servicios
                 </Link>
-              </li>
+              </li>*/}
               <li>
                 <Link href="/categorias" className="text-gray-400 hover:text-white transition-colors">
-                  Categorías
+                  Servicios
                 </Link>
               </li>
               <li>
