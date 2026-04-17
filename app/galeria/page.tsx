@@ -1,4 +1,3 @@
-// app/galeria/page.tsx
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
@@ -7,15 +6,16 @@ interface GaleriaItem {
   id: number;
   titulo: string;
   descripcion: string;
-  categoria: string;
+  categoria: number;  // ← ID numérico de la categoría
+  categoria_nombre?: string;  // ← Nombre de categoría (desde backend)
   
-  // ← CAMPOS NUEVOS (para antes/después)
+  // Campos para antes/después
   imagen_antes: string | null;
   imagen_antes_url: string | null;
   imagen_despues: string | null;
   imagen_despues_url: string | null;
   
-  // ← CAMPOS ANTIGUOS (para compatibilidad - 1 sola imagen)
+  // Campo para imagen única (fallback)
   imagen?: string | null;
   imagen_url?: string | null;
   
@@ -23,6 +23,12 @@ interface GaleriaItem {
   orden: number;
   activo: boolean;
   fecha: string;
+}
+
+interface CategoriaItem {
+  id: number;
+  nombre: string;
+  slug: string;
 }
 
 interface Configuracion {
@@ -34,11 +40,17 @@ interface Configuracion {
 
 export default function GaleriaPage() {
   const [galeria, setGaleria] = useState<GaleriaItem[]>([]);
+  const [categorias, setCategorias] = useState<Array<{id: number | string, nombre: string}>>([
+    { id: 'todas', nombre: 'Todas' }  // ← Opción por defecto
+  ]);
   const [configuracion, setConfiguracion] = useState<Configuracion | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  
+  // ← CAMBIO: filtroCategoria ahora maneja string (para 'todas') o número convertido
   const [filtroCategoria, setFiltroCategoria] = useState<string>('todas');
+  
   const [selectedImage, setSelectedImage] = useState<{
     url: string;
     tipo: 'antes' | 'despues';
@@ -80,18 +92,32 @@ export default function GaleriaPage() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Cargar datos
+  // ← CAMBIO: Cargar datos incluyendo categorías dinámicas
   useEffect(() => {
     async function loadData() {
       try {
-        const [galeriaData, configData] = await Promise.all([
-          fetch(`${API_URL}/galeria/`).then(res => res.json()),
+        // Cargar galería, configuración y categorías en paralelo
+        const [galeriaData, configData, categoriasData] = await Promise.all([
+          fetch(`${API_URL}/galeria/?activo=true&ordering=-destacado,orden`).then(res => res.json()),
           api.getConfiguracion().catch(() => null),
+          fetch(`${API_URL}/categorias/?activo=true&ordering=orden`).then(res => res.json()).catch(() => []),
         ]);
         
+        // Procesar galería
         const galeriaList = Array.isArray(galeriaData) ? galeriaData : (galeriaData.results || galeriaData);
         setGaleria(galeriaList.filter((item: GaleriaItem) => item.activo));
         
+        // ← PROCESAR CATEGORÍAS DINÁMICAS
+        const catsFromApi = Array.isArray(categoriasData) ? categoriasData : (categoriasData.results || []);
+        setCategorias([
+          { id: 'todas', nombre: 'Todas' },  // ← Opción para mostrar todo
+          ...catsFromApi.map((c: CategoriaItem) => ({ 
+            id: c.id, 
+            nombre: c.nombre 
+          }))
+        ]);
+        
+        // Procesar configuración
         if (configData) {
           const config = configData.results?.[0] || configData;
           setConfiguracion(config);
@@ -104,7 +130,19 @@ export default function GaleriaPage() {
       }
     }
     loadData();
-  }, []);
+  }, []);  // ← Sin dependencias para cargar solo al montar
+
+  // ← CAMBIO: Filtrar por ID numérico, no por nombre string
+  const galeriaFiltrada = filtroCategoria === 'todas'
+    ? galeria
+    : galeria.filter(item => item.categoria === Number(filtroCategoria));
+
+  // Ordenar: destacados primero, luego por orden
+  const galeriaOrdenada = [...galeriaFiltrada].sort((a, b) => {
+    if (a.destacado && !b.destacado) return -1;
+    if (!a.destacado && b.destacado) return 1;
+    return a.orden - b.orden;
+  });
 
   // URLs de header
   const headerDesktopImage = getImageUrl(
@@ -118,21 +156,6 @@ export default function GaleriaPage() {
   const headerImageUrl = isMobile
     ? (headerMobileImage || 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=768&q=80')
     : (headerDesktopImage || 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1920&q=80');
-
-  // Categorías disponibles
-  const categorias = ['todas', 'Facial', 'Capilar', 'Uñas', 'Corporal', 'Maquillaje'];
-
-  // Filtrar galería
-  const galeriaFiltrada = filtroCategoria === 'todas'
-    ? galeria
-    : galeria.filter(item => item.categoria === filtroCategoria);
-
-  // Ordenar: destacados primero, luego por orden
-  const galeriaOrdenada = [...galeriaFiltrada].sort((a, b) => {
-    if (a.destacado && !b.destacado) return -1;
-    if (!a.destacado && b.destacado) return 1;
-    return a.orden - b.orden;
-  });
 
   if (loading) {
     return (
@@ -153,14 +176,14 @@ export default function GaleriaPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       
-            {/* ========== HEADER REORGANIZADO: Dos Secciones Verticales ========== */}
+      {/* ========== HEADER REORGANIZADO: Dos Secciones Verticales ========== */}
       <div className="w-full" style={{ maxHeight: '400px' }}>
         
         {/* SECCIÓN SUPERIOR (80% - Imagen de fondo) */}
         <div 
           className="w-full"
           style={{
-            height: '320px',  // 80% de 400px
+            height: '320px',
             backgroundImage: `url(${headerImageUrl})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
@@ -191,21 +214,21 @@ export default function GaleriaPage() {
       </div>
       {/* ========== FIN HEADER ========== */}
 
-      {/* ========== FILTROS DE CATEGORÍA ========== */}
+      {/* ========== FILTROS DE CATEGORÍA (DINÁMICOS) ========== */}
       <section className="py-8 bg-gray-200 sticky top-0 z-40 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
             {categorias.map((cat) => (
               <button
-                key={cat}
-                onClick={() => setFiltroCategoria(cat)}
+                key={cat.id}
+                onClick={() => setFiltroCategoria(cat.id.toString())}  // ← Convertir a string para el estado
                 className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
-                  filtroCategoria === cat
+                  filtroCategoria === cat.id.toString()  // ← Comparar como string
                     ? 'bg-white text-gray-900 shadow-lg'
                     : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
                 }`}
               >
-                {cat === 'todas' ? 'Todos' : cat}
+                {cat.nombre}
               </button>
             ))}
           </div>
@@ -219,7 +242,9 @@ export default function GaleriaPage() {
           {galeriaOrdenada.length === 0 ? (
             <div className="text-center py-16">
               <p className="text-gray-600 text-lg">
-                No hay imágenes en esta categoría aún.
+                {filtroCategoria === 'todas' 
+                  ? 'No hay imágenes en la galería aún.' 
+                  : 'No hay imágenes en esta categoría aún.'}
               </p>
             </div>
           ) : (
@@ -318,28 +343,20 @@ function GalleryCard({
 }) {
   const [showAfter, setShowAfter] = useState(false);
   
-  // ← SOPORTE PARA AMBOS MODELOS:
-  // Modelo nuevo (antes/después)
+  // Soporte para ambos modelos: antes/después o imagen única
   const beforeUrl = getImageUrl(item.imagen_antes, item.imagen_antes_url);
   const afterUrl = getImageUrl(item.imagen_despues, item.imagen_despues_url);
-  
-  // Modelo antiguo (1 sola imagen) - fallback
   const singleImageUrl = getImageUrl(item.imagen || null, item.imagen_url || null);
   
   // Determinar qué URLs usar
-  const finalBeforeUrl = beforeUrl || singleImageUrl;  // Usa imagen_antes o imagen simple
-  const finalAfterUrl = afterUrl;  // Solo existe en modelo nuevo
-  
-  console.log(`🖼️ GalleryCard - Item: ${item.titulo}`);
-  console.log('  - finalBeforeUrl:', finalBeforeUrl);
-  console.log('  - finalAfterUrl:', finalAfterUrl);
+  const finalBeforeUrl = beforeUrl || singleImageUrl;
+  const finalAfterUrl = afterUrl;
   
   // Determinar qué imagen mostrar
   const currentUrl = showAfter && finalAfterUrl ? finalAfterUrl : finalBeforeUrl;
 
   // Si no hay ninguna imagen, mostrar placeholder
   if (!currentUrl) {
-    console.warn(`⚠️ Item sin imágenes: ${item.titulo}`);
     return (
       <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
         <div className="aspect-square bg-gray-100 flex flex-col items-center justify-center p-6 text-center">
@@ -356,6 +373,9 @@ function GalleryCard({
       </div>
     );
   }
+
+  // ← CAMBIO: Mostrar nombre de categoría desde backend (categoria_nombre) o fallback
+  const categoriaDisplay = item.categoria_nombre || `Categoría #${item.categoria}`;
 
   return (
     <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200 group hover:shadow-2xl transition-shadow">
@@ -389,6 +409,13 @@ function GalleryCard({
             `;
           }}
         />
+        
+        {/* Badge de categoría */}
+        <div className="absolute top-4 right-4 z-10">
+          <span className="px-3 py-1 bg-blue-600/90 text-white text-xs font-medium rounded-full shadow">
+            📁 {categoriaDisplay}
+          </span>
+        </div>
         
         {/* Overlay con controles (solo si hay after) */}
         {finalAfterUrl && (
@@ -449,8 +476,9 @@ function GalleryCard({
       {/* Información */}
       <div className="p-5">
         <div className="flex items-center justify-between mb-2">
+          {/* ← CAMBIO: Mostrar nombre de categoría */}
           <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-            {item.categoria}
+            {categoriaDisplay}
           </span>
           <span className="text-xs text-gray-400">
             {new Date(item.fecha).toLocaleDateString('es-CO', { 
