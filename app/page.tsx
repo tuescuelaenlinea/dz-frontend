@@ -298,7 +298,7 @@ const heroMobileImage = getImageUrl(
                   Reservar Cita
                 </Link>
                 <Link
-                  href="/servicios"
+                  href="/categorias"
                   className="px-8 py-3 bg-white/95 backdrop-blur-md text-gray-900 rounded-full text-sm font-semibold shadow-xl border-2 border-white/50 transition-all duration-300"
                 >
                   Ver Servicios

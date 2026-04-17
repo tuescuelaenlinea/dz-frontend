@@ -2,7 +2,6 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { api } from '@/lib/api';
 import { enviarNotificacionAdminWhatsApp } from '@/lib/whatsapp';
 
 interface BookingSuccessProps {
@@ -39,10 +38,7 @@ export default function BookingSuccess({
   const [whatsappUrl, setWhatsappUrl] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [whatsappOpened, setWhatsappOpened] = useState(false);
-  
-  // ← NUEVO: Estado para el número de WhatsApp del admin (desde BD)
   const [whatsappAdmin, setWhatsappAdmin] = useState<string>('');
-  // ← NUEVO: Estado para reintentar carga de datos
   const [retryCount, setRetryCount] = useState(0);
 
 useEffect(() => {
@@ -57,23 +53,70 @@ useEffect(() => {
   // ← GUARD: Verificar si WhatsApp ya se abrió para esta cita
   const whatsappAlreadyOpened = localStorage.getItem(`cita_${citaId}_whatsapp_abierto`);
   if (whatsappAlreadyOpened === 'true') {
-    console.log('ℹ️ [BookingSuccess] WhatsApp ya fue abierto anteriormente, no abrir de nuevo');
+    console.log('ℹ️ [BookingSuccess] WhatsApp ya fue abierto anteriormente');
     setLoading(false);
     return;
   }
   
   async function loadData() {
     try {
-      // ← CAMBIO #1: Buscar admin_token primero, luego token
-      const token = typeof window !== 'undefined' ? (localStorage.getItem('admin_token') || localStorage.getItem('token')) : null;
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
       
-      // ← NUEVO: Cargar WhatsApp del admin desde configuración (para fallback)
+      // ← CAMBIO CLAVE: Intentar SIN token primero (para usuarios no registrados)
+      // La cita se crea con AllowAny, así que debería ser accesible sin auth
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      
+      // ← NUEVO: Delay inicial para asegurar que la cita esté disponible en la BD
+      // Esto evita condiciones de carrera en móviles lentos
+      if (retryCount === 0) {
+        console.log('⏳ [BookingSuccess] Esperando 500ms para que la cita esté disponible...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      // 1. Obtener datos de la cita (SIN TOKEN por defecto)
+      console.log('🔍 [BookingSuccess] Obteniendo cita #', citaId, 'Intento:', retryCount + 1, 'Auth:', 'Público');
+      
+      const citaRes = await fetch(`${apiUrl}/citas/${citaId}/`, { 
+        headers,
+        signal: AbortSignal.timeout(15000)  // ← Timeout más largo para móviles
+      });
+      
+      // ← CAMBIO: Si falla 401/403, reintentar CON token (para usuarios registrados)
+      if (!citaRes.ok && (citaRes.status === 401 || citaRes.status === 403)) {
+        const token = typeof window !== 'undefined' 
+          ? (localStorage.getItem('admin_token') || localStorage.getItem('token')) 
+          : null;
+        
+        if (token && retryCount < 2) {
+          console.log('🔄 [BookingSuccess] Reintentando con token de usuario...');
+          headers['Authorization'] = `Bearer ${token}`;
+          setRetryCount(prev => prev + 1);
+          return loadData();  // ← Reintentar recursivamente
+        }
+        
+        console.warn('⚠️ [BookingSuccess] No se pudo autenticar, pero continuando...');
+        // ← NO retornar error, continuar sin datos del profesional
+      }
+      
+      if (!citaRes.ok) {
+        const errorText = await citaRes.text();
+        console.error('❌ [BookingSuccess] Error obteniendo cita:', citaRes.status, errorText);
+        
+        // ← Solo mostrar error si no es 401/403 (esos son esperados para usuarios no registrados)
+        if (citaRes.status !== 401 && citaRes.status !== 403) {
+          setError('No se pudo cargar la información de la reserva. Intenta nuevamente o verifica en "Mis Citas".');
+        }
+        setLoading(false);
+        return;
+      }
+      
+      const cita: CitaData = await citaRes.json();
+      console.log('📋 [BookingSuccess] Datos de la cita cargados:', cita);
+      setCitaData(cita);
+      
+      // 2. Cargar WhatsApp del admin desde configuración (SIN TOKEN)
       async function cargarWhatsappAdmin() {
         try {
           const configRes = await fetch(`${apiUrl}/configuracion/activa/`);
@@ -87,51 +130,13 @@ useEffect(() => {
             }
           }
         } catch (err) {
-          console.warn('⚠️ No se pudo cargar WhatsApp del admin para fallback');
+          console.warn('⚠️ No se pudo cargar WhatsApp del admin');
         }
       }
       
-      // Cargar número del admin
       await cargarWhatsappAdmin();
       
-      // 1. Obtener datos de la cita con reintentos
-      console.log('🔍 [BookingSuccess] Obteniendo cita #', citaId, 'Intento:', retryCount + 1);
-      
-      const citaRes = await fetch(`${apiUrl}/citas/${citaId}/`, { 
-        headers,
-        // ← NUEVO: Timeout para evitar bloqueos en móviles lentos
-        signal: AbortSignal.timeout(10000)
-      });
-      
-      if (!citaRes.ok) {
-        const errorText = await citaRes.text();
-        console.error('❌ [BookingSuccess] Error obteniendo cita:', citaRes.status, errorText);
-        
-        // ← NUEVO: Reintentar automáticamente si es error 401/403 y tenemos token
-        if ((citaRes.status === 401 || citaRes.status === 403) && token && retryCount < 2) {
-          console.log('🔄 [BookingSuccess] Reintentando con token alternativo...');
-          // Forzar recarga con token alternativo
-          const altToken = localStorage.getItem('admin_token') === token 
-            ? localStorage.getItem('token') 
-            : localStorage.getItem('admin_token');
-          
-          if (altToken) {
-            headers['Authorization'] = `Bearer ${altToken}`;
-            setRetryCount(prev => prev + 1);
-            return loadData(); // ← Reintentar recursivamente
-          }
-        }
-        
-        setError('No se pudo cargar la información de la reserva. Intenta nuevamente o verifica en "Mis Citas".');
-        setLoading(false);
-        return;
-      }
-      
-      const cita: CitaData = await citaRes.json();
-      console.log('📋 [BookingSuccess] Datos de la cita cargados:', cita);
-      setCitaData(cita);
-      
-      // 2. Si tiene profesional, obtener sus datos (para mostrar en UI)
+      // 3. Si tiene profesional, obtener sus datos (OPCIONAL, no bloqueante)
       if (cita.profesional) {
         try {
           const profsRes = await fetch(`${apiUrl}/profesionales/`, { headers });
@@ -145,13 +150,13 @@ useEffect(() => {
           }
         } catch (err) {
           console.warn('⚠️ [BookingSuccess] No se pudo cargar profesional (no crítico):', err);
+          // ← NO establecer error, continuar sin datos del profesional
         }
       }
       
-      // ← 3. ENVIAR NOTIFICACIÓN WHATSAPP AL ADMIN (usando función reutilizable)
+      // 4. ENVIAR NOTIFICACIÓN WHATSAPP AL ADMIN
       console.log('📱 [BookingSuccess] Enviando notificación WhatsApp al admin...');
       
-      // Fire-and-forget: no bloqueamos el flujo principal
       enviarNotificacionAdminWhatsApp(
         {
           codigo_reserva: codigoReserva,
@@ -163,13 +168,11 @@ useEffect(() => {
           precio_total: cita.precio_total,
         },
         apiUrl,
-        // ← Callback de éxito
         () => {
           console.log('✅ WhatsApp abierto exitosamente');
           setWhatsappOpened(true);
           localStorage.setItem(`cita_${citaId}_whatsapp_abierto`, 'true');
         },
-        // ← Callback de error
         () => {
           console.warn('⚠️ No se pudo abrir WhatsApp automáticamente');
         }
@@ -180,7 +183,6 @@ useEffect(() => {
     } catch (err: any) {
       console.error('❌ [BookingSuccess] Error cargando datos:', err);
       
-      // ← NUEVO: Manejar errores de timeout o red en móviles
       if (err.name === 'AbortError') {
         setError('La conexión es lenta. Verifica tu internet e intenta recargar.');
       } else if (err.message?.includes('Failed to fetch')) {
@@ -196,14 +198,30 @@ useEffect(() => {
   
 }, [citaId, codigoReserva, retryCount]);
 
-  // ← NUEVA: Función para reintentar carga manualmente
   const handleRetry = () => {
     setRetryCount(prev => prev + 1);
     setLoading(true);
     setError(null);
   };
 
-  // Si está cargando
+  const openWhatsAppSecure = (url: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    const popup = window.open(url, '_blank', 'noopener,noreferrer');
+    
+    if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+      alert('📱 Tu navegador bloqueó la ventana de WhatsApp. Permite ventanas emergentes o haz clic derecho → "Abrir en nueva pestaña".');
+      return false;
+    }
+    
+    setWhatsappOpened(true);
+    localStorage.setItem(`cita_${citaId}_whatsapp_abierto`, 'true');
+    return true;
+  };
+
   if (loading) {
     return (
       <div className="text-center py-12">
@@ -216,7 +234,6 @@ useEffect(() => {
     );
   }
 
-  // Si hay error
   if (error) {
     return (
       <div className="text-center py-12">
@@ -259,30 +276,8 @@ useEffect(() => {
     );
   }
 
-  // ← NUEVA: Función segura para abrir WhatsApp (SIEMPRE en nueva ventana)
- // ← Función segura: SIEMPRE abre en nueva ventana
-const openWhatsAppSecure = (url: string, e?: React.MouseEvent) => {
-  if (e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-  
-  // ← SIEMPRE window.open con _blank, NUNCA window.location.href
-  const popup = window.open(url, '_blank', 'noopener,noreferrer');
-  
-  if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-    alert('📱 Tu navegador bloqueó la ventana de WhatsApp. Por favor, permite ventanas emergentes o haz clic derecho → "Abrir en nueva pestaña".');
-    return false;
-  }
-  
-  setWhatsappOpened(true);
-  localStorage.setItem(`cita_${citaId}_whatsapp_abierto`, 'true');
-  return true;
-};
-
   return (
     <div className="text-center py-12">
-      {/* Icono de éxito */}
       <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
         <svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -298,13 +293,11 @@ const openWhatsAppSecure = (url: string, e?: React.MouseEvent) => {
         Te enviaremos un recordatorio 24 horas antes.
       </p>
       
-      {/* Código de reserva */}
       <div className="bg-blue-50 rounded-lg p-4 mb-8 inline-block">
         <p className="text-sm text-blue-600 mb-1">Código de reserva</p>
         <p className="text-2xl font-mono font-bold text-blue-900">{codigoReserva}</p>
       </div>
       
-      {/* Información del profesional (si existe) */}
       {profesionalData && (
         <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl p-4 mb-8 border border-purple-200">
           <p className="text-sm text-purple-600 mb-2">👨‍⚕️ Profesional asignado</p>
@@ -315,7 +308,6 @@ const openWhatsAppSecure = (url: string, e?: React.MouseEvent) => {
         </div>
       )}
       
-      {/* Notificación de WhatsApp */}
       {whatsappOpened && (
         <div className="bg-green-50 border-2 border-green-200 rounded-xl p-4 mb-8">
           <p className="text-green-800 font-semibold mb-2">
@@ -327,7 +319,6 @@ const openWhatsAppSecure = (url: string, e?: React.MouseEvent) => {
         </div>
       )}
       
-      {/* Botones de acción */}
       <div className="space-y-4 max-w-sm mx-auto">
         {whatsappUrl && (
           <a
@@ -344,7 +335,6 @@ const openWhatsAppSecure = (url: string, e?: React.MouseEvent) => {
           </a>
         )}
 
-        {/* ← Botón manual de WhatsApp con número DINÁMICO desde BD */}
         {whatsappAdmin && (
           <div className="mt-4">
             <a
@@ -387,7 +377,6 @@ const openWhatsAppSecure = (url: string, e?: React.MouseEvent) => {
         </button>
       </div>
       
-      {/* Información adicional */}
       <div className="mt-12 text-sm text-gray-500 space-y-2">
         <p>📍 <strong>Dirección:</strong> Bogotá, Colombia</p>
         <p>🕐 <strong>Horario:</strong> Lunes-Viernes 9AM-7PM, Sábados 9AM-5PM</p>
