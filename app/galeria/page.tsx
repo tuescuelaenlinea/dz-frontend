@@ -1,34 +1,35 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import Link from 'next/link';
 
 interface GaleriaItem {
   id: number;
   titulo: string;
   descripcion: string;
-  categoria: number;  // ← ID numérico de la categoría
-  categoria_nombre?: string;  // ← Nombre de categoría (desde backend)
-  
-  // Campos para antes/después
+  categoria: number;
+  categoria_nombre?: string;
   imagen_antes: string | null;
   imagen_antes_url: string | null;
   imagen_despues: string | null;
   imagen_despues_url: string | null;
-  
-  // Campo para imagen única (fallback)
   imagen?: string | null;
   imagen_url?: string | null;
-  
   destacado: boolean;
   orden: number;
   activo: boolean;
   fecha: string;
 }
 
-interface CategoriaItem {
+interface CategoriaConGaleria {
   id: number;
   nombre: string;
   slug: string;
+  imagen?: string | null;
+  imagen_url?: string | null;
+  gallery_count: number;
+  primera_imagen?: string | null;
+  primera_imagen_url?: string | null;
 }
 
 interface Configuracion {
@@ -40,16 +41,15 @@ interface Configuracion {
 
 export default function GaleriaPage() {
   const [galeria, setGaleria] = useState<GaleriaItem[]>([]);
-  const [categorias, setCategorias] = useState<Array<{id: number | string, nombre: string}>>([
-    { id: 'todas', nombre: 'Todas' }  // ← Opción por defecto
-  ]);
+  const [categoriasConGaleria, setCategoriasConGaleria] = useState<CategoriaConGaleria[]>([]);
   const [configuracion, setConfiguracion] = useState<Configuracion | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   
-  // ← CAMBIO: filtroCategoria ahora maneja string (para 'todas') o número convertido
-  const [filtroCategoria, setFiltroCategoria] = useState<string>('todas');
+  // ← NUEVO: Control de vista - 'categorias' muestra cards, 'galeria' muestra fotos
+  const [vistaActual, setVistaActual] = useState<'categorias' | 'galeria'>('categorias');
+  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<number | null>(null);
   
   const [selectedImage, setSelectedImage] = useState<{
     url: string;
@@ -57,11 +57,9 @@ export default function GaleriaPage() {
     titulo: string;
   } | null>(null);
 
-  // Constantes de API
   const API_DOMAIN = 'https://api.dzsalon.com';
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
 
-  // Función getImageUrl (igual que app/page.tsx)
   const getImageUrl = (imagenPath: string | null, imagenUrl?: string | null): string | null => {
     if (imagenUrl) {
       if (imagenUrl.startsWith('https://api.dzsalon.com')) return imagenUrl;
@@ -84,7 +82,6 @@ export default function GaleriaPage() {
     return `${API_DOMAIN}${imagePath}`;
   };
 
-  // Detectar móvil
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
@@ -92,32 +89,53 @@ export default function GaleriaPage() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // ← CAMBIO: Cargar datos incluyendo categorías dinámicas
+  // ← NUEVO: Cargar datos y procesar categorías con galería
   useEffect(() => {
     async function loadData() {
       try {
-        // Cargar galería, configuración y categorías en paralelo
         const [galeriaData, configData, categoriasData] = await Promise.all([
           fetch(`${API_URL}/galeria/?activo=true&ordering=-destacado,orden`).then(res => res.json()),
           api.getConfiguracion().catch(() => null),
           fetch(`${API_URL}/categorias/?activo=true&ordering=orden`).then(res => res.json()).catch(() => []),
         ]);
         
-        // Procesar galería
         const galeriaList = Array.isArray(galeriaData) ? galeriaData : (galeriaData.results || galeriaData);
-        setGaleria(galeriaList.filter((item: GaleriaItem) => item.activo));
+        const galeriaActiva = galeriaList.filter((item: GaleriaItem) => item.activo);
+        setGaleria(galeriaActiva);
         
-        // ← PROCESAR CATEGORÍAS DINÁMICAS
+        // ← PROCESAR: Solo categorías que tienen items en galería
         const catsFromApi = Array.isArray(categoriasData) ? categoriasData : (categoriasData.results || []);
-        setCategorias([
-          { id: 'todas', nombre: 'Todas' },  // ← Opción para mostrar todo
-          ...catsFromApi.map((c: CategoriaItem) => ({ 
-            id: c.id, 
-            nombre: c.nombre 
-          }))
-        ]);
         
-        // Procesar configuración
+        // Agrupar galería por categoría
+        const galeriaPorCategoria = new Map<number, GaleriaItem[]>();
+        galeriaActiva.forEach((item: GaleriaItem) => {
+          if (item.categoria) {
+            const existing = galeriaPorCategoria.get(item.categoria) || [];
+            existing.push(item);
+            galeriaPorCategoria.set(item.categoria, existing);
+          }
+        });
+        
+        // Filtrar y enriquecer categorías con datos de galería
+        const categoriasConGaleriaList: CategoriaConGaleria[] = catsFromApi
+          .filter((c: any) => galeriaPorCategoria.has(c.id))
+          .map((c: any) => {
+            const items = galeriaPorCategoria.get(c.id) || [];
+            const primeraImagen = items[0];
+            return {
+              id: c.id,
+              nombre: c.nombre,
+              slug: c.slug,
+              imagen: c.imagen || null,
+              imagen_url: c.imagen_url || null,
+              gallery_count: items.length,
+              primera_imagen: primeraImagen?.imagen_antes || primeraImagen?.imagen_despues || primeraImagen?.imagen || null,
+              primera_imagen_url: primeraImagen?.imagen_antes_url || primeraImagen?.imagen_despues_url || primeraImagen?.imagen_url || null,
+            };
+          });
+        
+        setCategoriasConGaleria(categoriasConGaleriaList);
+        
         if (configData) {
           const config = configData.results?.[0] || configData;
           setConfiguracion(config);
@@ -130,21 +148,24 @@ export default function GaleriaPage() {
       }
     }
     loadData();
-  }, []);  // ← Sin dependencias para cargar solo al montar
+  }, []);
 
-  // ← CAMBIO: Filtrar por ID numérico, no por nombre string
-  const galeriaFiltrada = filtroCategoria === 'todas'
-    ? galeria
-    : galeria.filter(item => item.categoria === Number(filtroCategoria));
+  // ← NUEVO: Filtrar galería por categoría seleccionada
+  const galeriaFiltrada = categoriaSeleccionada
+    ? galeria.filter(item => item.categoria === categoriaSeleccionada)
+    : galeria;
 
-  // Ordenar: destacados primero, luego por orden
   const galeriaOrdenada = [...galeriaFiltrada].sort((a, b) => {
     if (a.destacado && !b.destacado) return -1;
     if (!a.destacado && b.destacado) return 1;
     return a.orden - b.orden;
   });
 
-  // URLs de header
+  // ← NUEVO: Obtener nombre de categoría seleccionada
+  const nombreCategoriaSeleccionada = categoriaSeleccionada
+    ? categoriasConGaleria.find(c => c.id === categoriaSeleccionada)?.nombre
+    : null;
+
   const headerDesktopImage = getImageUrl(
     configuracion?.galeria_header_desktop ?? null,
     configuracion?.galeria_header_desktop_url ?? null
@@ -176,10 +197,8 @@ export default function GaleriaPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       
-      {/* ========== HEADER REORGANIZADO: Dos Secciones Verticales ========== */}
+      {/* ========== HEADER ========== */}
       <div className="w-full" style={{ maxHeight: '400px' }}>
-        
-        {/* SECCIÓN SUPERIOR (80% - Imagen de fondo) */}
         <div 
           className="w-full"
           style={{
@@ -190,77 +209,96 @@ export default function GaleriaPage() {
             backgroundRepeat: 'no-repeat',
           }}
         />
-        
-        {/* SECCIÓN INFERIOR (20% - Fondo negro con textos) */}
         <div className="w-full h-20 bg-gray-900 flex items-center justify-center px-4">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-center gap-2 md:gap-6">
-            
-            {/* Título */}
             <h1 className="text-lg md:text-2xl font-bold text-white text-center md:text-left drop-shadow-lg">
-              Nuestra Galería
+              {vistaActual === 'categorias' ? 'Nuestra Galería' : nombreCategoriaSeleccionada}
             </h1>
-            
-            {/* Separador vertical en desktop */}
             <span className="hidden md:block w-px h-6 bg-white/30" />
-            
-            {/* Subtítulo */}
             <p className="text-xs md:text-base text-gray-300 text-center md:text-left drop-shadow">
-              Transformaciones reales de nuestros clientes. Resultados que hablan por sí solos.
+              {vistaActual === 'categorias' 
+                ? 'Transformaciones reales de nuestros clientes. Resultados que hablan por sí solos.'
+                : `${galeriaOrdenada.length} transformaciones en esta categoría`}
             </p>
-            
           </div>
         </div>
-        
       </div>
-      {/* ========== FIN HEADER ========== */}
 
-      {/* ========== FILTROS DE CATEGORÍA (DINÁMICOS) ========== */}
-      <section className="py-8 bg-gray-200 sticky top-0 z-40 shadow-lg">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-            {categorias.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setFiltroCategoria(cat.id.toString())}  // ← Convertir a string para el estado
-                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
-                  filtroCategoria === cat.id.toString()  // ← Comparar como string
-                    ? 'bg-white text-gray-900 shadow-lg'
-                    : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
-                }`}
-              >
-                {cat.nombre}
-              </button>
-            ))}
+      {/* ========== VISTA: CARDS DE CATEGORÍAS ========== */}
+      {vistaActual === 'categorias' && (
+        <section className="py-16">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            {categoriasConGaleria.length === 0 ? (
+              <div className="text-center py-16">
+                <p className="text-gray-600 text-lg">No hay categorías con galería aún.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {categoriasConGaleria.map((cat) => (
+                  <CategoryCard
+                    key={cat.id}
+                    categoria={cat}
+                    getImageUrl={getImageUrl}
+                    onClick={() => {
+                      setCategoriaSeleccionada(cat.id);
+                      setVistaActual('galeria');
+                      window.scrollTo({ top: 400, behavior: 'smooth' });
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
-      {/* ========== GRID DE GALERÍA ========== */}
-      <section className="py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          
-          {galeriaOrdenada.length === 0 ? (
-            <div className="text-center py-16">
-              <p className="text-gray-600 text-lg">
-                {filtroCategoria === 'todas' 
-                  ? 'No hay imágenes en la galería aún.' 
-                  : 'No hay imágenes en esta categoría aún.'}
-              </p>
+      {/* ========== VISTA: GALERÍA DE FOTOS ========== */}
+      {vistaActual === 'galeria' && (
+        <>
+          {/* Barra de navegación */}
+          <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm shadow-sm border-b">
+            <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+              <button
+                onClick={() => {
+                  setVistaActual('categorias');
+                  setCategoriaSeleccionada(null);
+                }}
+                className="flex items-center gap-2 text-gray-700 hover:text-gray-900 font-medium transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Volver a categorías
+              </button>
+              <span className="text-sm text-gray-500">
+                {galeriaOrdenada.length} {galeriaOrdenada.length === 1 ? 'foto' : 'fotos'}
+              </span>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {galeriaOrdenada.map((item) => (
-                <GalleryCard
-                  key={item.id}
-                  item={item}
-                  getImageUrl={getImageUrl}
-                  onImageClick={setSelectedImage}
-                />
-              ))}
+          </div>
+
+          {/* Grid de galería */}
+          <section className="py-8">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              {galeriaOrdenada.length === 0 ? (
+                <div className="text-center py-16">
+                  <p className="text-gray-600 text-lg">No hay imágenes en esta categoría aún.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                  {galeriaOrdenada.map((item) => (
+                    <GalleryCard
+                      key={item.id}
+                      item={item}
+                      getImageUrl={getImageUrl}
+                      onImageClick={setSelectedImage}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </section>
+          </section>
+        </>
+      )}
 
       {/* ========== MODAL LIGHTBOX ========== */}
       {selectedImage && (
@@ -268,11 +306,7 @@ export default function GaleriaPage() {
           className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
           onClick={() => setSelectedImage(null)}
         >
-          <div 
-            className="relative max-w-4xl w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Botón cerrar */}
+          <div className="relative max-w-4xl w-full" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={() => setSelectedImage(null)}
               className="absolute -top-12 right-0 text-white hover:text-gray-300 transition-colors"
@@ -281,8 +315,6 @@ export default function GaleriaPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
-            
-            {/* Imagen */}
             <div className="bg-white rounded-xl overflow-hidden shadow-2xl">
               <img
                 src={selectedImage.url}
@@ -310,14 +342,14 @@ export default function GaleriaPage() {
             Agenda tu cita hoy y descubre lo que podemos hacer por ti.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <a
+            <Link
               href="/citas"
               className="px-8 py-4 bg-white text-gray-900 rounded-lg font-semibold hover:bg-gray-100 transition-colors shadow-lg"
             >
               Reservar Cita
-            </a>
+            </Link>
             <a
-              href="https://wa.me/573001234567"
+              href="https://wa.me/573157072678"
               target="_blank"
               rel="noopener noreferrer"
               className="px-8 py-4 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors shadow-lg"
@@ -331,6 +363,72 @@ export default function GaleriaPage() {
   );
 }
 
+// ========== COMPONENTE: CARD DE CATEGORÍA ==========
+function CategoryCard({ 
+  categoria, 
+  getImageUrl, 
+  onClick 
+}: { 
+  categoria: CategoriaConGaleria; 
+  getImageUrl: (path: string | null, url?: string | null) => string | null;
+  onClick: () => void;
+}) {
+  // Obtener imagen para la card: prioridad 1) imagen de categoría, 2) primera imagen de galería
+  const categoriaImageUrl = getImageUrl(categoria.imagen ?? null, categoria.imagen_url ?? null);
+const galeriaImageUrl = getImageUrl(categoria.primera_imagen ?? null, categoria.primera_imagen_url ?? null);
+  const displayImageUrl = categoriaImageUrl || galeriaImageUrl || 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=400&q=80';
+
+  return (
+    <button
+      onClick={onClick}
+      className="group relative bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-200 hover:shadow-2xl transition-all duration-300 text-left w-full"
+    >
+      {/* Imagen de la categoría */}
+      <div className="aspect-[4/3] overflow-hidden bg-gray-100">
+        <img
+          src={displayImageUrl}
+          alt={categoria.nombre}
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          loading="lazy"
+          onError={(e) => {
+            const target = e.target as HTMLImageElement;
+            target.onerror = null;
+            target.src = 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=400&q=80';
+          }}
+        />
+        {/* Overlay gradient */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
+        
+        {/* Badge con count */}
+        <div className="absolute top-3 right-3">
+          <span className="px-3 py-1 bg-white/90 text-gray-900 text-sm font-bold rounded-full shadow">
+            {categoria.gallery_count} {categoria.gallery_count === 1 ? 'foto' : 'fotos'}
+          </span>
+        </div>
+        
+        {/* Icono de flecha */}
+        <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="p-2 bg-white/90 rounded-full shadow-lg">
+            <svg className="w-4 h-4 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </div>
+      </div>
+      
+      {/* Información */}
+      <div className="p-4">
+        <h3 className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
+          {categoria.nombre}
+        </h3>
+        <p className="text-sm text-gray-500 mt-1">
+          Ver transformaciones →
+        </p>
+      </div>
+    </button>
+  );
+}
+
 // ========== COMPONENTE: TARJETA DE GALERÍA ==========
 function GalleryCard({ 
   item, 
@@ -339,23 +437,18 @@ function GalleryCard({
 }: { 
   item: GaleriaItem; 
   getImageUrl: (path: string | null, url?: string | null) => string | null;
-  onImageClick: (data: { url: string; tipo: 'antes' | 'despues'; titulo: string }) => void;
+  onImageClick: (data: { url: string; tipo: 'antes' | 'despues'; titulo: string }) => void;  // ← CORREGIDO
 }) {
   const [showAfter, setShowAfter] = useState(false);
   
-  // Soporte para ambos modelos: antes/después o imagen única
   const beforeUrl = getImageUrl(item.imagen_antes, item.imagen_antes_url);
   const afterUrl = getImageUrl(item.imagen_despues, item.imagen_despues_url);
   const singleImageUrl = getImageUrl(item.imagen || null, item.imagen_url || null);
   
-  // Determinar qué URLs usar
   const finalBeforeUrl = beforeUrl || singleImageUrl;
   const finalAfterUrl = afterUrl;
-  
-  // Determinar qué imagen mostrar
   const currentUrl = showAfter && finalAfterUrl ? finalAfterUrl : finalBeforeUrl;
 
-  // Si no hay ninguna imagen, mostrar placeholder
   if (!currentUrl) {
     return (
       <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
@@ -374,12 +467,10 @@ function GalleryCard({
     );
   }
 
-  // ← CAMBIO: Mostrar nombre de categoría desde backend (categoria_nombre) o fallback
   const categoriaDisplay = item.categoria_nombre || `Categoría #${item.categoria}`;
 
   return (
     <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200 group hover:shadow-2xl transition-shadow">
-      {/* Badge de destacado */}
       {item.destacado && (
         <div className="absolute top-4 left-4 z-10">
           <span className="px-3 py-1 bg-yellow-500 text-white text-xs font-bold rounded-full shadow-lg">
@@ -388,15 +479,22 @@ function GalleryCard({
         </div>
       )}
       
-      {/* Imagen */}
-      <div className="relative aspect-square overflow-hidden bg-gray-100">
+      <div 
+        className="relative aspect-square overflow-hidden bg-gray-100 cursor-zoom-in"
+        onClick={() => {
+          onImageClick({ 
+            url: currentUrl!, 
+            tipo: showAfter ? 'despues' : 'antes', 
+            titulo: item.titulo 
+          });
+        }}
+      >
         <img
           src={currentUrl}
           alt={item.titulo}
           className="w-full h-full object-cover transition-opacity duration-500"
           loading="lazy"
           onError={(e) => {
-            console.error(`❌ Error cargando imagen:`, currentUrl);
             const target = e.target as HTMLImageElement;
             target.onerror = null;
             target.parentElement!.innerHTML = `
@@ -410,21 +508,21 @@ function GalleryCard({
           }}
         />
         
-        {/* Badge de categoría */}
         <div className="absolute top-4 right-4 z-10">
           <span className="px-3 py-1 bg-blue-600/90 text-white text-xs font-medium rounded-full shadow">
             📁 {categoriaDisplay}
           </span>
         </div>
         
-        {/* Overlay con controles (solo si hay after) */}
         {finalAfterUrl && (
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
             <div className="absolute bottom-0 left-0 right-0 p-4">
-              {/* Toggle antes/después */}
               <div className="flex items-center justify-center gap-2 mb-3">
                 <button
-                  onClick={(e) => { e.stopPropagation(); setShowAfter(false); }}
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    setShowAfter(false); 
+                  }}
                   className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                     !showAfter 
                       ? 'bg-white text-gray-900' 
@@ -434,7 +532,10 @@ function GalleryCard({
                   Antes
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); setShowAfter(true); }}
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    setShowAfter(true); 
+                  }}
                   className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                     showAfter 
                       ? 'bg-white text-gray-900' 
@@ -444,8 +545,6 @@ function GalleryCard({
                   Después
                 </button>
               </div>
-              
-              {/* Botones de ver detalle */}
               <div className="flex gap-2">
                 <button
                   onClick={(e) => {
@@ -454,7 +553,7 @@ function GalleryCard({
                   }}
                   className="flex-1 py-2 bg-white/90 text-gray-900 rounded-lg text-sm font-medium hover:bg-white transition-colors"
                 >
-                  Ver Imagen
+                  Ver en Grande
                 </button>
                 {finalAfterUrl && (
                   <button
@@ -473,10 +572,8 @@ function GalleryCard({
         )}
       </div>
       
-      {/* Información */}
       <div className="p-5">
         <div className="flex items-center justify-between mb-2">
-          {/* ← CAMBIO: Mostrar nombre de categoría */}
           <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
             {categoriaDisplay}
           </span>
