@@ -871,11 +871,11 @@ const getBoldPaymentUrl = () => {
         
         alert('✅ Reserva guardada! Para pagar y confirmar, ve a "Mis Citas" en tu perfil.');
         
-        if (isAuthenticated) {
+       /* if (isAuthenticated) {
           setTimeout(() => {
             router.push('/mis-citas');
           }, 2000);
-        }
+        }*/
       }
       
       // ← Limpiar parámetro de edición de la URL después de procesar
