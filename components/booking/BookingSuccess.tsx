@@ -1,6 +1,6 @@
 // components/booking/BookingSuccess.tsx
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';  // ← CAMBIO: Agregar useRef
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { enviarNotificacionAdminWhatsApp } from '@/lib/whatsapp';
@@ -45,6 +45,9 @@ export default function BookingSuccess({
   const [whatsappAdmin, setWhatsappAdmin] = useState<string>('');
   const [direccionSalon, setDireccionSalon] = useState<string>('');
   const [horarioSalon, setHorarioSalon] = useState<string>('');
+  
+  // ← NUEVO: Ref para prevenir doble notificación
+  const whatsappNotifiedRef = useRef(false);
 
 useEffect(() => {
   // ← GUARD: Verificar si WhatsApp ya se abrió para esta cita
@@ -171,26 +174,31 @@ async function loadData() {
       }
     }
     
-    enviarNotificacionAdminWhatsApp(
-      {
-        codigo_reserva: codigoReserva,
-        cliente_nombre: cita.cliente_nombre,
-        cliente_telefono: cita.cliente_telefono,
-        servicio_nombre: cita.servicio_nombre,
-        fecha: cita.fecha,
-        hora_inicio: cita.hora_inicio,
-        precio_total: cita.precio_total,
-      },
-      apiUrl,
-      () => {
-        console.log('✅ WhatsApp abierto exitosamente');
-        setWhatsappOpened(true);
-        localStorage.setItem(`cita_${citaId}_whatsapp_abierto`, 'true');
-      },
-      () => {
-        console.warn('⚠️ No se pudo abrir WhatsApp automáticamente');
-      }
-    );
+    // ← CAMBIO: Verificar ref antes de enviar notificación
+    if (!whatsappNotifiedRef.current) {
+      whatsappNotifiedRef.current = true;  // ← Marcar como notificado
+      
+      enviarNotificacionAdminWhatsApp(
+        {
+          codigo_reserva: codigoReserva,
+          cliente_nombre: cita.cliente_nombre,
+          cliente_telefono: cita.cliente_telefono,
+          servicio_nombre: cita.servicio_nombre,
+          fecha: cita.fecha,
+          hora_inicio: cita.hora_inicio,
+          precio_total: cita.precio_total,
+        },
+        apiUrl,
+        () => {
+          console.log('✅ WhatsApp abierto exitosamente');
+          setWhatsappOpened(true);
+          localStorage.setItem(`cita_${citaId}_whatsapp_abierto`, 'true');
+        },
+        () => {
+          console.warn('⚠️ No se pudo abrir WhatsApp automáticamente');
+        }
+      );
+    }
     
     setLoading(false);
     
