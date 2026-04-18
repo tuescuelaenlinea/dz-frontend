@@ -105,9 +105,9 @@ export default function Navbar() {
           </div>
         </div>
 
-        {/* Mobile Navigation */}
+                {/* Mobile Navigation */}
         {mobileMenuOpen && (
-          <div className="md:hidden pb-4">
+          <div className="md:hidden pb-4 border-t border-gray-100 pt-4">
             {navLinks.map((link) => (
               <Link
                 key={link.href}
@@ -118,6 +118,26 @@ export default function Navbar() {
                 {link.label}
               </Link>
             ))}
+            
+            {/* Botones de auth */}
+            <div className="mt-4 pt-4 border-t border-gray-200 space-y-2">
+              <Link
+                href="/auth/login"
+                className="block w-full text-center py-2 px-4 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                🔐 Iniciar Sesión
+              </Link>
+              
+              <Link
+                href="/auth/register"
+                className="block w-full text-center py-2 px-4 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                📝 Registrarse
+              </Link>
+            </div>
+            
             <Link
               href="/citas"
               className="block mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg text-center hover:bg-blue-700 transition-colors duration-200"

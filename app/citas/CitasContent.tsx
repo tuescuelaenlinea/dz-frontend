@@ -1315,8 +1315,8 @@ const getBoldPaymentUrl = () => {
               disabled={!canProceedToStep((currentStep + 1) as BookingStep)}
               className="flex-1 py-4 px-6 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl text-lg font-semibold hover:from-blue-700 hover:to-blue-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {currentStep === 4 ? 'Ir a Definir Monto →' : 
-               currentStep === 5 ? 'Continuar a Método de Pago →' : 
+              {currentStep === 4 ? 'Definir pago' : 
+               currentStep === 5 ? 'Continuar' : 
                'Siguiente →'}
             </button>
           ) : (

@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';  
 import { api } from '@/lib/api';
 import CategoryGrid from '@/components/categories/CategoryGrid';
 
@@ -163,6 +164,14 @@ export default function CategoriasPage() {
             <p className="text-xs md:text-base text-white/90 text-center md:text-left drop-shadow">
               Explora nuestra amplia gama de servicios organizados por categoría
             </p>
+            
+            {/* ← BOTÓN: Buscar Servicios (redirige a /servicios) */}
+            <Link
+              href="/servicios"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors"
+            >
+              Buscar Servicios
+            </Link>
           </div>
         </div>
         
