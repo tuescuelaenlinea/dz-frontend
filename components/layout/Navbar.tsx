@@ -57,7 +57,8 @@ export default function Navbar() {
         <div className="flex justify-between h-16">
           {/* Logo + Slogan */}
           <div className="flex items-center space-x-3">
-            <Link href="/" className="flex items-center space-x-3">
+            {/* ← CAMBIO: href="/" → href="/admin" */}
+            <Link href="/admin" className="flex items-center space-x-3">
               {logoUrl ? (
                 <img 
                   src={logoUrl} 
