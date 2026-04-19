@@ -400,6 +400,7 @@ const cargarServicios = async () => {
   };
 
   // Filtros - ← AGREGAR TIPOS EXPLÍCITOS EN CALLBACKS
+  // Filtros - ← AGREGAR VALIDACIÓN NULL-SAFE
   const serviciosFiltrados = servicios.filter((servicio: Servicio) => {
     if (filtroCategoria !== 'todas' && servicio.categoria.toString() !== filtroCategoria) {
       return false;
@@ -415,8 +416,8 @@ const cargarServicios = async () => {
     if (busqueda) {
       const busquedaLower = busqueda.toLowerCase();
       const coincideNombre = servicio.nombre.toLowerCase().includes(busquedaLower);
-      const coincideDescripcion = servicio.descripcion.toLowerCase().includes(busquedaLower);
-      const coincideCategoria = servicio.categoria_nombre.toLowerCase().includes(busquedaLower);
+      const coincideDescripcion = (servicio.descripcion || '').toLowerCase().includes(busquedaLower);
+      const coincideCategoria = (servicio.categoria_nombre || '').toLowerCase().includes(busquedaLower);
       
       if (!coincideNombre && !coincideDescripcion && !coincideCategoria) {
         return false;
@@ -425,7 +426,6 @@ const cargarServicios = async () => {
     
     return true;
   });
-
   // Paginación
   const indiceUltimo = paginaActual * serviciosPorPagina;
   const indicePrimero = indiceUltimo - serviciosPorPagina;

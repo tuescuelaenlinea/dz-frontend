@@ -45,7 +45,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex">
+    <div className="min-h-screen bg-gray-900 flex bg-repeat" style={{
+      backgroundImage: "url('/images/admin-bg.jpg')"
+    }}>
       {/* Overlay para móvil */}
       {sidebarOpen && (
         <div 
@@ -107,7 +109,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               📁 Categorías
             </Link>
           <Link
-            href="/admin/servicios"  // ← AGREGAR ESTO
+            href="/admin/servicios"
             className="block px-4 py-3 text-gray-300 hover:bg-gray-800 rounded-lg transition-colors"
             onClick={() => setSidebarOpen(false)}
           >
@@ -148,10 +150,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           >
             ⚙️ Configuración
           </Link>
-        </nav>
 
-        {/* Logout - Fixed al fondo */}
-        <div className="p-4 border-t border-gray-800 flex-shrink-0">
+          <div className="p-4 border-t border-gray-800 flex-shrink-0">
           <button
             onClick={() => {
               localStorage.removeItem('admin_token');
@@ -163,12 +163,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             🚪 Cerrar Sesión
           </button>
         </div>
+        </nav>
+
+        {/* Logout - Fixed al fondo */}
+        
       </aside>
 
       {/* Contenido principal */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header con botón hamburguesa */}
-        <header className="bg-white shadow-sm sticky top-0 z-10 flex-shrink-0">
+        {/* ← CAMBIO: Header solo visible en móvil (lg:hidden) */}
+        <header className="bg-white shadow-sm sticky top-0 z-10 flex-shrink-0 lg:hidden">
           <div className="flex items-center justify-between px-4 py-3">
             <button
               onClick={() => setSidebarOpen(true)}

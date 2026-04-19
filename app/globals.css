@@ -54,3 +54,13 @@ html {
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
+/* Ocultar scrollbar pero mantener funcionalidad */
+.scrollbar-hidden::-webkit-scrollbar {
+  width: 0px;
+  background: transparent;
+}
+
+.scrollbar-hidden {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
