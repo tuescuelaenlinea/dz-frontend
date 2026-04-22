@@ -45,9 +45,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex bg-repeat" style={{
-      backgroundImage: "url('/images/admin-bg.jpg')"
-    }}>
+    <div className="min-h-screen bg-gray-100 flex bg-repeat" >
       {/* Overlay para móvil */}
       {sidebarOpen && (
         <div 

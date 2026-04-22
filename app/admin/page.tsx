@@ -1,6 +1,10 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
+import ProfessionalModal from '@/components/booking/ProfessionalModal';
+import PaymentMethodModal from '@/components/booking/PaymentMethodModal';
+import CitasTab from '@/components/admin/CitasTab';
+import ProfesionalesTab from '@/components/admin/ProfesionalesTab';  // ← NUEVO IMPORT
 
 interface Servicio {
   id: number;
@@ -20,6 +24,9 @@ interface Profesional {
   nombre: string;
   titulo: string;
   especialidad: string;
+  foto: string | null;
+  foto_url: string | null;
+  activo: boolean;
 }
 
 // ← Interface para Cliente (mezcla de registrados y no registrados)
@@ -39,7 +46,7 @@ interface NuevoClienteData {
   email: string;
 }
 
-type TabType = 'control' | 'citas' | 'clientes';
+type TabType = 'control' | 'citas' | 'profesionales';  // ← CAMBIO: 'clientes' → 'profesionales'
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<TabType>('control');
@@ -52,6 +59,14 @@ export default function AdminPage() {
   const [showClientModal, setShowClientModal] = useState(false);
   const [clienteSearchTerm, setClienteSearchTerm] = useState('');
   const [clienteSeleccionadoId, setClienteSeleccionadoId] = useState<number | null>(null);
+
+    // ← NUEVO: Estados para modal de profesionales
+  const [showProfessionalModal, setShowProfessionalModal] = useState(false);
+  const [profesionalSeleccionadoData, setProfesionalSeleccionadoData] = useState<Profesional | null>(null);
+
+    // ← NUEVO: Estados para modal de métodos de pago
+  const [showPaymentMethodModal, setShowPaymentMethodModal] = useState(false);
+  const [metodoPagoSeleccionado, setMetodoPagoSeleccionadoId] = useState<number | null>(null);
   
   // ← Estados para modal de registro de cliente
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -60,13 +75,16 @@ export default function AdminPage() {
     telefono: '',
     email: ''
   });
+  const [datosAdicionalesOpen, setDatosAdicionalesOpen] = useState(false);
   
   const [citaEnCreacion, setCitaEnCreacion] = useState<{
     servicio: Servicio | null;
     profesional: number | null;
+    profesionalData: Profesional | null;  // ← Datos completos del profesional
     fecha: string;
     hora_inicio: string;
     hora_fin: string;
+    duracion_minutos: number;  // ← NUEVO: Duración en minutos (editable)
     precio_total: number;
     metodo_pago: string;
     cliente_nombre: string;
@@ -75,12 +93,14 @@ export default function AdminPage() {
   }>({
     servicio: null,
     profesional: null,
+    profesionalData: null,  // ← Agregar este campo
     fecha: new Date().toISOString().split('T')[0],
     // ← Hora actual por defecto
     hora_inicio: new Date().toTimeString().slice(0, 5),
     hora_fin: '',
+    duracion_minutos: 60,  // ← NUEVO: Default 1 hora
     precio_total: 0,
-    metodo_pago: 'efectivo',
+    metodo_pago: '',
     cliente_nombre: '',
     cliente_telefono: '',
     cliente_email: '',
@@ -256,13 +276,21 @@ export default function AdminPage() {
     return `${cliente.nombre} (sin registro)`;
   };
 
-  const handleServicioClick = (servicio: Servicio) => {
+    const handleServicioClick = (servicio: Servicio) => {
     const precio = parseFloat(servicio.precio_min);
-    console.log(`🎯 [AdminPage] Servicio seleccionado: ${servicio.nombre} - Precio: ${precio}`);
+    
+    // ← NUEVO: Extraer duración del servicio o usar 60 min por defecto
+    const duracionMinutos = servicio.duracion 
+      ? parseInt(servicio.duracion.replace(/\D/g, '')) || 60
+      : 60;
+    
+    console.log(`🎯 [AdminPage] Servicio seleccionado: ${servicio.nombre} - Precio: ${precio} - Duración: ${duracionMinutos}min`);
+    
     setCitaEnCreacion(prev => ({
       ...prev,
       servicio,
       precio_total: precio,
+      duracion_minutos: duracionMinutos,  // ← NUEVO: Guardar duración
     }));
   };
 
@@ -337,18 +365,25 @@ export default function AdminPage() {
     alert(`✅ Cliente "${nuevoClienteData.nombre}" agregado a la cita\n\nNota: Para registrar usuario permanente, ve a Clientes → Nuevo`);
   };
 
-    // ← NUEVO: Calcular hora_fin basada en hora_inicio + duración del servicio
-  const calcularHoraFin = (horaInicio: string, duracion: string): string => {
-    if (!horaInicio || !duracion) return '';
+    
+   // ← NUEVO: Calcular hora_fin basada en hora_inicio + duración del servicio
+  // ← Calcular hora_fin basada en hora_inicio + duración
+  const calcularHoraFin = (horaInicio: string, duracionMinutos: number): string => {
+    if (!horaInicio) {
+      console.warn('⚠️ [AdminPage] hora_inicio vacío');
+      return '';
+    }
     
     try {
       // Parsear hora_inicio (formato "HH:MM")
       const [hours, minutes] = horaInicio.split(':').map(Number);
       
-      // Extraer minutos de la duración (ej: "60 minutos" → 60)
-      const duracionMinutos = parseInt(duracion.replace(/\D/g, '')) || 60;
+      if (isNaN(hours) || isNaN(minutes)) {
+        console.error('❌ [AdminPage] Formato de hora inválido:', horaInicio);
+        return '';
+      }
       
-      // Calcular hora fin
+      // Calcular hora fin usando duracion_minutos
       const fechaInicio = new Date();
       fechaInicio.setHours(hours, minutes, 0, 0);
       
@@ -358,12 +393,39 @@ export default function AdminPage() {
       const hh = String(fechaFin.getHours()).padStart(2, '0');
       const mm = String(fechaFin.getMinutes()).padStart(2, '0');
       
-      return `${hh}:${mm}`;
+      const horaFinCalculada = `${hh}:${mm}`;
+      console.log(`⏱️ [AdminPage] Hora fin: ${horaInicio} + ${duracionMinutos}min = ${horaFinCalculada}`);
+      
+      return horaFinCalculada;
     } catch (err) {
       console.error('❌ [AdminPage] Error calculando hora_fin:', err);
       return '';
     }
   };
+
+    // ← NUEVO: Manejar selección de profesional desde modal
+  const handleProfesionalSelect = (profesional: Profesional) => {
+    console.log(`👤 [AdminPage] Profesional seleccionado: ${profesional.nombre} (ID: ${profesional.id})`);
+    setCitaEnCreacion(prev => ({
+      ...prev,
+      profesional: profesional.id,
+      profesionalData: profesional,
+    }));
+    setProfesionalSeleccionadoData(profesional);
+  };
+
+
+    // ← NUEVO: Manejar selección de método de pago desde modal
+  const handlePaymentMethodSelect = (metodo: any) => {
+    console.log(`💳 [AdminPage] Método de pago seleccionado: ${metodo.banco} (ID: ${metodo.id})`);
+    setCitaEnCreacion(prev => ({
+      ...prev,
+      metodo_pago: metodo.banco.toLowerCase(),  // Guardar nombre del banco
+    }));
+    setMetodoPagoSeleccionadoId(metodo.id);
+  };
+
+
 
   const handleCrearCita = async () => {
     console.log('🚀 [AdminPage] Iniciando creación de cita...');
@@ -388,11 +450,19 @@ export default function AdminPage() {
       console.log('🎫 [AdminPage] Código de reserva generado:', codigoReserva);
       
       // ← Calcular hora_fin
+           // ← Calcular hora_fin usando duracion_minutos
       const horaFin = calcularHoraFin(
         citaEnCreacion.hora_inicio,
-        citaEnCreacion.servicio.duracion
+        citaEnCreacion.duracion_minutos  // ← NUEVO: Usar duracion_minutos
       );
-      console.log(`⏱️ [AdminPage] Hora inicio: ${citaEnCreacion.hora_inicio}, Duración: ${citaEnCreacion.servicio.duracion}, Hora fin calculada: ${horaFin}`);
+      
+      if (!horaFin) {
+        console.error('❌ [AdminPage] hora_fin está vacío');
+        alert('⚠️ Error calculando la hora de fin.');
+        return;
+      }
+      
+      console.log(`⏱️ [AdminPage] Hora inicio: ${citaEnCreacion.hora_inicio}, Duración: ${citaEnCreacion.duracion_minutos}min, Hora fin: ${horaFin}`);
       
       // ← NUEVO: Teléfono por defecto si está vacío (requerido por backend)
       const telefonoCliente = citaEnCreacion.cliente_telefono.trim() || '300 000 0000';
@@ -405,8 +475,9 @@ export default function AdminPage() {
         hora_inicio: citaEnCreacion.hora_inicio,
         hora_fin: horaFin,  // ← USAR horaFin calculada
         precio_total: citaEnCreacion.precio_total.toString(),
-        metodo_pago: citaEnCreacion.metodo_pago,
-        estado_pago: 'pendiente',
+        metodo_pago: citaEnCreacion.metodo_pago || 'pendiente',
+        pago_estado: 'pendiente',
+        estado: 'confirmada',  // ← CAMBIO: Inicia como confirmada (no pendiente)
         cliente_nombre: citaEnCreacion.cliente_nombre || 'Cliente Walk-in',
         cliente_telefono: telefonoCliente,  // ← USAR teléfono con default
         cliente_email: citaEnCreacion.cliente_email || '',
@@ -414,7 +485,6 @@ export default function AdminPage() {
         disponible_salon: true,
         disponible_domicilio: false,
         codigo_reserva: codigoReserva,
-        estado: 'pendiente',
         ...(clienteSeleccionadoId && { cliente: clienteSeleccionadoId }),
       };
 
@@ -439,44 +509,100 @@ export default function AdminPage() {
       const resultado = await res.json();
       console.log('✅ [AdminPage] Cita creada exitosamente:', resultado);
       
-      // Crear pago si hay precio
+      // ← NUEVA LÓGICA: Crear pago y actualizar estados según método de pago seleccionado
       if (citaEnCreacion.precio_total > 0) {
-        console.log('💰 [AdminPage] Creando pago asociado...');
-        const pagoRes = await fetch(`${apiUrl}/pagos/`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            monto: citaEnCreacion.precio_total,
-            metodo_pago: citaEnCreacion.metodo_pago,
-            estado: 'exitoso',
-            origen_tipo: 'cita',
-            origen_id: resultado.id,
-            referencia_externa: `RESERVA-${codigoReserva}`,
-          }),
+        console.log('💰 [AdminPage] Procesando pago...');
+        
+        // ← Verificar si se seleccionó un método de pago válido desde el modal
+        // Un método es válido si: tiene valor, no está vacío, y NO es el default ''
+        const metodoPagoSeleccionado = citaEnCreacion.metodo_pago && 
+                                       citaEnCreacion.metodo_pago.trim() !== '' &&
+                                       citaEnCreacion.metodo_pago !== '';
+        
+        console.log('🔍 [AdminPage] Debug método_pago:', {
+          valor: citaEnCreacion.metodo_pago,
+          tieneValor: !!citaEnCreacion.metodo_pago,
+          noVacio: citaEnCreacion.metodo_pago?.trim() !== '',
+          esValido: metodoPagoSeleccionado
         });
         
-        if (pagoRes.ok) {
-          const pagoData = await pagoRes.json();
-          console.log('✅ [AdminPage] Pago creado:', pagoData);
+        if (metodoPagoSeleccionado) {
+          // ✅ CASO 1: EXISTE MÉTODO DE PAGO SELECCIONADO
+          console.log('✅ [AdminPage] Método de pago seleccionado:', citaEnCreacion.metodo_pago);
+          
+          // 1. Actualizar la cita a "completada" y "pagado"
+          console.log('🔄 [AdminPage] Actualizando cita a estado completada/pagado...');
+          const updateCitaRes = await fetch(`${apiUrl}/citas/${resultado.id}/`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              estado: 'completada',
+              pago_estado: 'pagado',
+            }),
+          });
+          
+          if (updateCitaRes.ok) {
+            console.log('✅ [AdminPage] Cita actualizada: estado=completada, pago_estado=pagado');
+          } else {
+            console.warn('⚠️ [AdminPage] Error actualizando cita:', await updateCitaRes.text());
+          }
+          
+          // 2. Crear registro en salon_app_pago con estado 'exitoso'
+          console.log('💾 [AdminPage] Creando registro de pago en BD...');
+          const pagoRes = await fetch(`${apiUrl}/pagos/`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              monto: citaEnCreacion.precio_total,
+              metodo_pago: citaEnCreacion.metodo_pago,
+              estado: 'exitoso',
+              origen_tipo: 'cita',
+              origen_id: resultado.id,
+              referencia_externa: `RESERVA-${codigoReserva}`,
+            }),
+          });
+          
+          if (pagoRes.ok) {
+            const pagoData = await pagoRes.json();
+            console.log('✅ [AdminPage] Pago creado en BD:', pagoData);
+          } else {
+            console.error('❌ [AdminPage] Error creando pago en BD:', await pagoRes.text());
+          }
+          
         } else {
-          console.warn('⚠️ [AdminPage] Error creando pago:', await pagoRes.text());
+          // ❌ CASO 2: NO SE SELECCIONÓ MÉTODO DE PAGO
+          console.log('⏳ [AdminPage] Sin método de pago seleccionado - Cita en pendiente');
+          console.log('ℹ️ [AdminPage] No se crea registro de pago en BD');
+          // La cita ya fue creada con estado='confirmada' y pago_estado='pendiente'
+          // NO creamos registro en salon_app_pago
         }
       }
 
       alert(`✅ Cita creada exitosamente\nCódigo: ${codigoReserva}`);
+
+      // ← CAMBIO: Usar setTimeout para asegurar que el alert se cierre antes de redirigir
+      setTimeout(() => {
+        setActiveTab('citas');
+        console.log('🔄 [AdminPage] Redirigiendo a pestaña Citas');
+      }, 100);
       
       // Resetear formulario
       setCitaEnCreacion({
         servicio: null,
         profesional: null,
+        profesionalData: null,
         fecha: new Date().toISOString().split('T')[0],
         hora_inicio: new Date().toTimeString().slice(0, 5),
         hora_fin: '',
+        duracion_minutos: 60,
         precio_total: 0,
-        metodo_pago: 'efectivo',
+        metodo_pago: '',   // ← Default para próxima cita
         cliente_nombre: '',
         cliente_telefono: '',
         cliente_email: '',
@@ -497,11 +623,13 @@ export default function AdminPage() {
       setCitaEnCreacion({
         servicio: null,
         profesional: null,
+        profesionalData: null,
         fecha: new Date().toISOString().split('T')[0],
         hora_inicio: new Date().toTimeString().slice(0, 5),
         hora_fin: '',
+        duracion_minutos: 60,
         precio_total: 0,
-        metodo_pago: 'efectivo',
+        metodo_pago: '',
         cliente_nombre: '',
         cliente_telefono: '',
         cliente_email: '',
@@ -539,14 +667,14 @@ export default function AdminPage() {
               📅 Citas
             </button>
             <button
-              onClick={() => setActiveTab('clientes')}
+              onClick={() => setActiveTab('profesionales')}  // ← CAMBIO: 'clientes' → 'profesionales'
               className={`px-8 py-4 font-semibold transition-all border-b-4 ${
-                activeTab === 'clientes'
+                activeTab === 'profesionales'  // ← CAMBIO: 'clientes' → 'profesionales'
                   ? 'bg-gray-700 text-white border-blue-500'
                   : 'bg-transparent text-gray-400 border-transparent hover:bg-gray-800 hover:text-white'
               }`}
             >
-              👥 Clientes
+              👨‍⚕️ Profesionales  
             </button>
           </div>
         </div>
@@ -582,14 +710,14 @@ export default function AdminPage() {
                     <button
                       key={servicio.id}
                       onClick={() => handleServicioClick(servicio)}
-                      className={`bg-gray-800 rounded-xl overflow-hidden hover:bg-gray-700 transition-all transform hover:scale-105 hover:shadow-2xl ${
+                      className={`relative aspect-square rounded-xl overflow-hidden hover:shadow-2xl transition-all transform hover:scale-105 ${
                         citaEnCreacion.servicio?.id === servicio.id
                           ? 'ring-4 ring-blue-500 border-2 border-blue-500'
                           : 'border-2 border-gray-700'
                       }`}
                     >
-                      {/* Imagen del servicio */}
-                      <div className="aspect-square bg-gray-900 overflow-hidden">
+                      {/* ← CAMBIO 2: Imagen con overlay y datos encima */}
+                      <div className="absolute inset-0">
                         {servicio.imagen_url || servicio.imagen ? (
                           <img
                             src={servicio.imagen_url || servicio.imagen || ''}
@@ -597,30 +725,35 @@ export default function AdminPage() {
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <svg className="w-12 h-12 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <div className="w-full h-full flex items-center justify-center bg-gray-800">
+                            <svg className="w-8 h-8 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
                           </div>
                         )}
-                      </div>
-                      
-                      {/* Información */}
-                      <div className="p-3">
-                        <h3 className="font-bold text-sm text-white mb-1 line-clamp-2 min-h-[2.5rem]">
-                          {servicio.nombre}
-                        </h3>
-                        <p className="text-xs text-gray-400 mb-2 line-clamp-1">
-                          {servicio.categoria_nombre}
-                        </p>
-                        <p className="text-lg font-bold text-blue-400">
-                          ${parseInt(servicio.precio_min).toLocaleString()}
-                        </p>
-                        {servicio.duracion && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            ⏱ {servicio.duracion}
+                        
+                        {/* Overlay oscuro para contraste */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent" />
+                        
+                        {/* Contenido sobre la imagen */}
+                        <div className="absolute inset-0 p-2 flex flex-col justify-end">
+                          <h3 className="font-bold text-xs text-white mb-0.5 line-clamp-2 drop-shadow-lg">
+                            {servicio.nombre}
+                          </h3>
+                          <p className="text-[10px] text-gray-300 mb-1 line-clamp-1 drop-shadow">
+                            {servicio.categoria_nombre}
                           </p>
-                        )}
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-bold text-blue-400 drop-shadow">
+                              ${parseInt(servicio.precio_min).toLocaleString()}
+                            </p>
+                            {servicio.duracion && (
+                              <p className="text-[10px] text-gray-400 drop-shadow">
+                                ⏱ {servicio.duracion}
+                              </p>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </button>
                   ))}
@@ -677,6 +810,7 @@ export default function AdminPage() {
                   />
                 </div>
 
+
                 {/* Botones en una fila */}
                 <div className="grid grid-cols-3 gap-2 mb-4">
                   <button
@@ -688,106 +822,173 @@ export default function AdminPage() {
                   </button>
                   <button
                     type="button"
-                    className="px-2 py-3 bg-green-900/50 text-green-300 border border-green-700 rounded-xl text-xs font-semibold hover:bg-green-800/50 transition-colors"
-                    onClick={() => alert('Función: Seleccionar profesional (próximamente)')}
+                    className={`px-2 py-3 border rounded-xl text-xs font-semibold transition-colors ${
+                      citaEnCreacion.profesional
+                        ? 'bg-green-900/50 text-green-300 border-green-700 hover:bg-green-800/50'
+                        : 'bg-green-900/50 text-green-300 border border-green-700 hover:bg-green-800/50'
+                    }`}
+                    onClick={() => setShowProfessionalModal(true)}
                   >
-                    👨‍⚕️ Profesional
+                    👨‍⚕️ {citaEnCreacion.profesionalData ? citaEnCreacion.profesionalData.nombre.split(' ')[0] : 'Profesional'}
                   </button>
                   <button
                     type="button"
-                    className="px-2 py-3 bg-orange-900/50 text-orange-300 border border-orange-700 rounded-xl text-xs font-semibold hover:bg-orange-800/50 transition-colors"
-                    onClick={() => alert('Función: Método de pago (próximamente)')}
+                    className={`px-2 py-3 border rounded-xl text-xs font-semibold transition-colors ${
+                      citaEnCreacion.metodo_pago && citaEnCreacion.metodo_pago !== ''
+                        ? 'bg-orange-900/50 text-orange-300 border-orange-700 hover:bg-orange-800/50'
+                        : 'bg-orange-900/50 text-orange-300 border border-orange-700 hover:bg-orange-800/50'
+                    }`}
+                    onClick={() => setShowPaymentMethodModal(true)}
                   >
-                    💳 Pago
+                    💳 {citaEnCreacion.metodo_pago && citaEnCreacion.metodo_pago !== '' 
+                      ? citaEnCreacion.metodo_pago.charAt(0).toUpperCase() + citaEnCreacion.metodo_pago.slice(1)
+                      : 'Pago'}
                   </button>
                 </div>
 
-                {/* Campos adicionales */}
-               {/* Campos adicionales */}
-<div className="space-y-3 mb-6">
-  <div>
-    <label className="block text-xs font-semibold text-gray-400 mb-1">
-      📅 Fecha
-    </label>
-    <input
-      type="date"
-      value={citaEnCreacion.fecha}
-      onChange={(e) => setCitaEnCreacion(prev => ({ ...prev, fecha: e.target.value }))}
-      className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
-    />
-  </div>
-  <div>
-    <label className="block text-xs font-semibold text-gray-400 mb-1">
-      ⏰ Hora Inicio
-    </label>
-    <input
-      type="time"
-      value={citaEnCreacion.hora_inicio}
-      onChange={(e) => setCitaEnCreacion(prev => ({ ...prev, hora_inicio: e.target.value }))}
-      className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
-    />
-  </div>
-  {/* ← NUEVO: Campo de teléfono (requerido por backend) */}
-  <div>
-    <label className="block text-xs font-semibold text-gray-400 mb-1">
-      📱 Teléfono Cliente *
-    </label>
-    <input
-      type="tel"
-      value={citaEnCreacion.cliente_telefono}
-      onChange={(e) => setCitaEnCreacion(prev => ({ ...prev, cliente_telefono: e.target.value }))}
-      className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
-      placeholder="Ej: 300 123 4567 (requerido)"
-    />
-  </div>
-  {/* Campo cliente con icono de búsqueda */}
-  <div>
-    <label className="block text-xs font-semibold text-gray-400 mb-1 flex items-center justify-between">
-      <span>👤 Cliente</span>
-      <button
-        type="button"
-        onClick={() => setShowClientModal(true)}
-        className="text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1 text-xs"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-        Buscar
-      </button>
-    </label>
-    <div className="relative">
-      <input
-        type="text"
-        value={citaEnCreacion.cliente_nombre}
-        onChange={(e) => setCitaEnCreacion(prev => ({ ...prev, cliente_nombre: e.target.value }))}
-        className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none pr-10"
-        placeholder="Nombre del cliente"
-        readOnly={!!clienteSeleccionadoId}
-      />
-      {clienteSeleccionadoId && (
-        <button
-          type="button"
-          onClick={() => {
-            console.log('🗑️ [AdminPage] Limpiando cliente seleccionado');
-            setClienteSeleccionadoId(null);
-            setCitaEnCreacion(prev => ({
-              ...prev,
-              cliente_nombre: '',
-              cliente_telefono: '',
-              cliente_email: ''
-            }));
-          }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-400 transition-colors"
-          title="Quitar cliente"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      )}
-    </div>
-  </div>
-</div>
+                {/* Campos visibles siempre */}
+                <div className="space-y-3 mb-4">
+                  {/* Campo cliente con icono de búsqueda */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1 flex items-center justify-between">
+                      <span>👤 Cliente</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowClientModal(true)}
+                        className="text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1 text-xs"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        Buscar
+                      </button>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={citaEnCreacion.cliente_nombre}
+                        onChange={(e) => setCitaEnCreacion(prev => ({ ...prev, cliente_nombre: e.target.value }))}
+                        className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none pr-10"
+                        placeholder="Nombre del cliente"
+                        readOnly={!!clienteSeleccionadoId}
+                      />
+                      {clienteSeleccionadoId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            console.log('🗑️ [AdminPage] Limpiando cliente seleccionado');
+                            setClienteSeleccionadoId(null);
+                            setCitaEnCreacion(prev => ({
+                              ...prev,
+                              cliente_nombre: '',
+                              cliente_telefono: '',
+                              cliente_email: ''
+                            }));
+                          }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-400 transition-colors"
+                          title="Quitar cliente"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* ← NUEVO: Acordeón de Datos Adicionales */}
+                <div className="mb-6 border border-gray-700 rounded-lg overflow-hidden">
+                  {/* Header del acordeón */}
+                  <button
+                    type="button"
+                    onClick={() => setDatosAdicionalesOpen(!datosAdicionalesOpen)}
+                    className="w-full px-4 py-3 bg-gray-700/50 hover:bg-gray-700 transition-colors flex items-center justify-between"
+                  >
+                    <span className="text-sm font-semibold text-gray-300">
+                      📋 Datos adicionales
+                    </span>
+                    <svg 
+                      className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${
+                        datosAdicionalesOpen ? 'rotate-180' : ''
+                      }`} 
+                      fill="none" 
+                      stroke="currentColor" 
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {/* Contenido del acordeón (colapsable) */}
+                  {datosAdicionalesOpen && (
+                    <div className="px-4 py-3 bg-gray-800/50 space-y-3 border-t border-gray-700">
+                      {/* Fecha */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-400 mb-1">
+                          📅 Fecha
+                        </label>
+                        <input
+                          type="date"
+                          value={citaEnCreacion.fecha}
+                          onChange={(e) => setCitaEnCreacion(prev => ({ ...prev, fecha: e.target.value }))}
+                          className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Hora Inicio */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-400 mb-1">
+                          ⏰ Hora Inicio
+                        </label>
+                        <input
+                          type="time"
+                          value={citaEnCreacion.hora_inicio}
+                          onChange={(e) => setCitaEnCreacion(prev => ({ ...prev, hora_inicio: e.target.value }))}
+                          className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Duración */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-400 mb-1">
+                          ⏱️ Duración (minutos)
+                        </label>
+                        <input
+                          type="number"
+                          value={citaEnCreacion.duracion_minutos || 60}
+                          onChange={(e) => {
+                            const minutos = parseInt(e.target.value) || 60;
+                            setCitaEnCreacion(prev => ({ ...prev, duracion_minutos: minutos }));
+                          }}
+                          className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                          placeholder="60"
+                          min="15"
+                          step="15"
+                        />
+                        <p className="text-[10px] text-gray-500 mt-1">
+                          {citaEnCreacion.servicio?.duracion 
+                            ? `Del servicio: ${citaEnCreacion.servicio.duracion}`
+                            : '⚠️ Servicio sin duración - Usando 1 hora por defecto'}
+                        </p>
+                      </div>
+
+                      {/* Teléfono Cliente */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-400 mb-1">
+                          📱 Teléfono Cliente *
+                        </label>
+                        <input
+                          type="tel"
+                          value={citaEnCreacion.cliente_telefono}
+                          onChange={(e) => setCitaEnCreacion(prev => ({ ...prev, cliente_telefono: e.target.value }))}
+                          className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                          placeholder="Ej: 300 123 4567 (requerido)"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* Botones de Acción */}
                 <div className="space-y-3 mt-auto">
@@ -810,203 +1011,37 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* Modal de Selección de Clientes (combinados) */}
-        {showClientModal && (
-          <div 
-            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
-            onClick={() => setShowClientModal(false)}
-          >
-            <div 
-              className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden border-2 border-gray-700"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header del modal */}
-              <div className="flex items-center justify-between p-4 border-b border-gray-700">
-                <h3 className="text-lg font-bold text-white">👥 Seleccionar Cliente</h3>
-                <button
-                  onClick={() => setShowClientModal(false)}
-                  className="text-gray-400 hover:text-white transition-colors"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              {/* Buscador dentro del modal */}
-              <div className="p-4 border-b border-gray-700">
-                <input
-                  type="text"
-                  placeholder="🔍 Buscar por nombre, teléfono o email..."
-                  value={clienteSearchTerm}
-                  onChange={(e) => setClienteSearchTerm(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
-                  autoFocus
-                />
-              </div>
-
-              {/* Lista de clientes - Scrollable */}
-              <div className="overflow-y-auto max-h-96 p-2">
-                {/* Botón Nuevo Cliente */}
-                <button
-                  onClick={handleNuevoCliente}
-                  className="w-full p-4 mb-2 bg-green-900/50 border-2 border-green-700 rounded-xl text-left hover:bg-green-800/50 transition-colors flex items-center gap-3"
-                >
-                  <div className="w-10 h-10 bg-green-700 rounded-full flex items-center justify-center">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-white">➕ Nuevo Cliente</p>
-                    <p className="text-xs text-gray-400">Registrar cliente nuevo</p>
-                  </div>
-                </button>
-
-                {/* Cards de clientes existentes (combinados) */}
-                {clientesFiltrados.map((cliente) => (
-                  <button
-                    key={`${cliente.esRegistrado ? 'reg' : 'no'}-${cliente.id}`}
-                    onClick={() => handleClienteSelect(cliente)}
-                    className="w-full p-4 mb-2 bg-gray-900 border border-gray-700 rounded-xl text-left hover:bg-gray-700 hover:border-blue-500 transition-all flex items-center gap-3"
-                  >
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold ${
-                      cliente.esRegistrado ? 'bg-blue-900' : 'bg-gray-700'
-                    }`}>
-                      {cliente.nombre.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      {/* Display con formato "nombre (id)" o "nombre (sin registro)" */}
-                      <p className="font-semibold text-white truncate">
-                        {formatClienteDisplay(cliente)}
-                      </p>
-                      <p className="text-xs text-gray-400 truncate">{cliente.telefono || 'Sin teléfono'}</p>
-                      {cliente.email && (
-                        <p className="text-xs text-gray-500 truncate">{cliente.email}</p>
-                      )}
-                    </div>
-                    <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
-                ))}
-
-                {clientesFiltrados.length === 0 && clienteSearchTerm && (
-                  <div className="text-center py-8 text-gray-400">
-                    <p>No se encontraron clientes con "{clienteSearchTerm}"</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Footer del modal */}
-              <div className="p-4 border-t border-gray-700 text-center">
-                <p className="text-xs text-gray-500">
-                  {clientesFiltrados.length} cliente{clientesFiltrados.length !== 1 ? 's' : ''} encontrado{clientesFiltrados.length !== 1 ? 's' : ''}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Modal de Registro de Cliente Nuevo */}
-        {showRegisterModal && (
-          <div 
-            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
-            onClick={() => setShowRegisterModal(false)}
-          >
-            <div 
-              className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border-2 border-gray-700"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between p-4 border-b border-gray-700">
-                <h3 className="text-lg font-bold text-white">➕ Nuevo Cliente</h3>
-                <button
-                  onClick={() => setShowRegisterModal(false)}
-                  className="text-gray-400 hover:text-white transition-colors"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              {/* Formulario */}
-              <div className="p-4 space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-400 mb-1">
-                    Nombre completo *
-                  </label>
-                  <input
-                    type="text"
-                    value={nuevoClienteData.nombre}
-                    onChange={(e) => setNuevoClienteData(prev => ({ ...prev, nombre: e.target.value }))}
-                    className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
-                    placeholder="Ej: Wilmer Quijano"
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-400 mb-1">
-                    Teléfono
-                  </label>
-                  <input
-                    type="tel"
-                    value={nuevoClienteData.telefono}
-                    onChange={(e) => setNuevoClienteData(prev => ({ ...prev, telefono: e.target.value }))}
-                    className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
-                    placeholder="Ej: 300 123 4567"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-400 mb-1">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    value={nuevoClienteData.email}
-                    onChange={(e) => setNuevoClienteData(prev => ({ ...prev, email: e.target.value }))}
-                    className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
-                    placeholder="Ej: cliente@email.com"
-                  />
-                </div>
-              </div>
-
-              {/* Footer con acciones */}
-              <div className="p-4 border-t border-gray-700 flex gap-3">
-                <button
-                  onClick={() => setShowRegisterModal(false)}
-                  className="flex-1 py-3 bg-gray-700 text-white rounded-lg font-semibold hover:bg-gray-600 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleGuardarNuevoCliente}
-                  className="flex-1 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
-                >
-                  ✅ Agregar a Cita
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB: CITAS (Placeholder) */}
+        {/* TAB: CITAS */}
         {activeTab === 'citas' && (
-          <div className="bg-gray-800 rounded-xl shadow-2xl p-12 text-center border-2 border-gray-700">
-            <h2 className="text-3xl font-bold text-white mb-4">📅 Gestión de Citas</h2>
-            <p className="text-gray-400 text-lg">Próximamente: Lista completa de citas, filtros y edición</p>
+          <div className="bg-gray-800 rounded-xl shadow-2xl p-6 border-2 border-gray-700">
+            <CitasTab />
           </div>
         )}
 
-        {/* TAB: CLIENTES (Placeholder) */}
-        {activeTab === 'clientes' && (
-          <div className="bg-gray-800 rounded-xl shadow-2xl p-12 text-center border-2 border-gray-700">
-            <h2 className="text-3xl font-bold text-white mb-4">👥 Gestión de Clientes</h2>
-            <p className="text-gray-400 text-lg">Próximamente: Base de datos de clientes, historial y estadísticas</p>
+        {/* TAB: PROFESIONALES (Reemplaza Clientes) */}  // ← CAMBIO: Título
+        {activeTab === 'profesionales' && (  // ← CAMBIO: 'clientes' → 'profesionales'
+          <div className="bg-gray-800 rounded-xl shadow-2xl p-6 border-2 border-gray-700">
+            <ProfesionalesTab />  // ← CAMBIO: Componente
           </div>
         )}
       </div>
+        {/* ← NUEVO: Modal de Métodos de Pago */}
+        <PaymentMethodModal
+          isOpen={showPaymentMethodModal}
+          onClose={() => setShowPaymentMethodModal(false)}
+          onSelect={handlePaymentMethodSelect}
+          metodoSeleccionadoId={metodoPagoSeleccionado}
+        />
+
+
+        {/* ← Modal de Profesionales */}
+        <ProfessionalModal
+          isOpen={showProfessionalModal}
+          onClose={() => setShowProfessionalModal(false)}
+          onSelect={handleProfesionalSelect}
+          servicioId={citaEnCreacion.servicio?.id || null}
+          profesionalSeleccionadoId={citaEnCreacion.profesional}
+        />
     </div>
   );
 }

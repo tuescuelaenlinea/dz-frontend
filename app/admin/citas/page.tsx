@@ -58,55 +58,54 @@ export default function AdminCitasPage() {
     setPaginaActual(1);
   }, [filtroEstado, filtroPago, filtroFecha, busqueda]);
 
-const cargarCitas = async () => {
-  try {
-    setLoading(true);
-    const token = localStorage.getItem('admin_token');
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
-    
-    let todasLasCitas: Cita[] = [];
-    let url: string | null = `${apiUrl}/citas/?ordering=-fecha,-hora_inicio&page_size=100`;
-    
-    while (url) {
-      // ← AGREGAR ANOTACIÓN DE TIPO EXPLÍCITA: Response
-      const res: Response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!res.ok) {
-        if (res.status === 401) {
-          router.push('/admin/login');
-          return;
-        }
-        throw new Error(`Error ${res.status}: ${res.statusText}`);
-      }
-
-      const data = await res.json();
+  const cargarCitas = async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('admin_token');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
       
-      if (data.results) {
-        todasLasCitas = [...todasLasCitas, ...data.results];
-        url = data.next;
-        console.log(`📄 Página cargada. Total acumulado: ${todasLasCitas.length}`);
-      } else if (Array.isArray(data)) {
-        todasLasCitas = data;
-        url = null;
-      } else {
-        url = null;
+      let todasLasCitas: Cita[] = [];
+      let url: string | null = `${apiUrl}/citas/?ordering=-fecha,-hora_inicio&page_size=100`;
+      
+      while (url) {
+        const res: Response = await fetch(url, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!res.ok) {
+          if (res.status === 401) {
+            router.push('/admin/login');
+            return;
+          }
+          throw new Error(`Error ${res.status}: ${res.statusText}`);
+        }
+
+        const data = await res.json();
+        
+        if (data.results) {
+          todasLasCitas = [...todasLasCitas, ...data.results];
+          url = data.next;
+          console.log(`📄 Página cargada. Total acumulado: ${todasLasCitas.length}`);
+        } else if (Array.isArray(data)) {
+          todasLasCitas = data;
+          url = null;
+        } else {
+          url = null;
+        }
       }
+      
+      console.log(`✅ Total de citas cargadas: ${todasLasCitas.length}`);
+      setCitas(todasLasCitas);
+    } catch (err: any) {
+      console.error('❌ Error cargando citas:', err);
+      setError(err.message || 'Error al cargar citas');
+    } finally {
+      setLoading(false);
     }
-    
-    console.log(`✅ Total de citas cargadas: ${todasLasCitas.length}`);
-    setCitas(todasLasCitas);
-  } catch (err: any) {
-    console.error('❌ Error cargando citas:', err);
-    setError(err.message || 'Error al cargar citas');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const actualizarEstadoCita = async (citaId: number, nuevoEstado: string) => {
     if (!confirm(`¿Estás seguro de cambiar el estado a "${nuevoEstado}"?`)) {
@@ -153,63 +152,21 @@ const cargarCitas = async () => {
       alert(`❌ Error: ${err.message}`);
     }
   };
+
   const abrirDetalleCita = (cita: Cita) => {
-  setCitaParaDetalle(cita);
-  setModalDetalleAbierto(true);
-};
-
-  const citasFiltradas = citas.filter((cita) => {
-    if (filtroEstado !== 'todas' && cita.estado !== filtroEstado) {
-      return false;
-    }
-    
-    if (filtroPago !== 'todos' && cita.pago_estado !== filtroPago) {
-      return false;
-    }
-    
-    if (filtroFecha && cita.fecha !== filtroFecha) {
-      return false;
-    }
-    
-    if (busqueda) {
-      const busquedaLower = busqueda.toLowerCase();
-      const coincideNombre = cita.cliente_nombre.toLowerCase().includes(busquedaLower);
-      const coincideCodigo = cita.codigo_reserva.toLowerCase().includes(busquedaLower);
-      const coincideTelefono = cita.cliente_telefono.includes(busqueda);
-      const coincideServicio = cita.servicio_nombre.toLowerCase().includes(busquedaLower);
-      
-      if (!coincideNombre && !coincideCodigo && !coincideTelefono && !coincideServicio) {
-        return false;
-      }
-    }
-    
-    return true;
-  });
-
-  // ← CÁLCULO DE PAGINACIÓN
-  const indiceUltimaCita = paginaActual * citasPorPagina;
-  const indicePrimeraCita = indiceUltimaCita - citasPorPagina;
-  const citasPaginadas = citasFiltradas.slice(indicePrimeraCita, indiceUltimaCita);
-  const totalPaginas = Math.ceil(citasFiltradas.length / citasPorPagina);
-
-  // ← FUNCIONES DE NAVEGACIÓN
-  const irAPagina = (pagina: number) => {
-    setPaginaActual(pagina);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setCitaParaDetalle(cita);
+    setModalDetalleAbierto(true);
   };
 
-  const paginaAnterior = () => {
-    if (paginaActual > 1) {
-      setPaginaActual(paginaActual - 1);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-
-  const paginaSiguiente = () => {
-    if (paginaActual < totalPaginas) {
-      setPaginaActual(paginaActual + 1);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+  // ← NUEVO: Normalizar fecha para evitar problemas de zona horaria
+  const normalizeDate = (dateStr: string): string => {
+    // Parsear manualmente para evitar conversión a UTC
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);  // Mes es 0-indexed
+    const normalizedYear = date.getFullYear();
+    const normalizedMonth = String(date.getMonth() + 1).padStart(2, '0');
+    const normalizedDay = String(date.getDate()).padStart(2, '0');
+    return `${normalizedYear}-${normalizedMonth}-${normalizedDay}`;
   };
 
   const formatPrice = (price: string) => {
@@ -218,7 +175,11 @@ const cargarCitas = async () => {
   };
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('es-CO', {
+    // ← CAMBIO: Usar parseo manual para evitar UTC
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    
+    return date.toLocaleDateString('es-CO', {
       weekday: 'short',
       day: 'numeric',
       month: 'short',
@@ -254,6 +215,62 @@ const cargarCitas = async () => {
       return <span className="px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">⚠️ Parcial</span>;
     }
     return <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">⏳ Pendiente</span>;
+  };
+
+  // ← AHORA: citasFiltradas va ANTES de los cálculos de paginación
+  const citasFiltradas = citas.filter((cita) => {
+    if (filtroEstado !== 'todas' && cita.estado !== filtroEstado) {
+      return false;
+    }
+    
+    if (filtroPago !== 'todos' && cita.pago_estado !== filtroPago) {
+      return false;
+    }
+    
+    // ← CAMBIO: Normalizar ambas fechas antes de comparar
+    if (filtroFecha && normalizeDate(cita.fecha) !== normalizeDate(filtroFecha)) {
+      return false;
+    }
+    
+    if (busqueda) {
+      const busquedaLower = busqueda.toLowerCase();
+      const coincideNombre = cita.cliente_nombre.toLowerCase().includes(busquedaLower);
+      const coincideCodigo = cita.codigo_reserva.toLowerCase().includes(busquedaLower);
+      const coincideTelefono = cita.cliente_telefono.includes(busqueda);
+      const coincideServicio = cita.servicio_nombre.toLowerCase().includes(busquedaLower);
+      
+      if (!coincideNombre && !coincideCodigo && !coincideTelefono && !coincideServicio) {
+        return false;
+      }
+    }
+    
+    return true;
+  });
+
+  // ← CÁLCULO DE PAGINACIÓN (AHORA va DESPUÉS de citasFiltradas)
+  const indiceUltimaCita = paginaActual * citasPorPagina;
+  const indicePrimeraCita = indiceUltimaCita - citasPorPagina;
+  const citasPaginadas = citasFiltradas.slice(indicePrimeraCita, indiceUltimaCita);
+  const totalPaginas = Math.ceil(citasFiltradas.length / citasPorPagina);
+
+  // ← FUNCIONES DE NAVEGACIÓN
+  const irAPagina = (pagina: number) => {
+    setPaginaActual(pagina);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const paginaAnterior = () => {
+    if (paginaActual > 1) {
+      setPaginaActual(paginaActual - 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const paginaSiguiente = () => {
+    if (paginaActual < totalPaginas) {
+      setPaginaActual(paginaActual + 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   if (loading) {
@@ -312,7 +329,6 @@ const cargarCitas = async () => {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
             >
               <option value="todos">Todos</option>
-              {/*<option value="parcial">Parcial</option>*/}
               <option value="pagado">Pagado</option>
               <option value="pendiente">Pendiente</option>
             </select>
@@ -375,7 +391,7 @@ const cargarCitas = async () => {
                 </tr>
               ) : (
                 citasPaginadas.map((cita) => (
-                  <tr key={cita.id} className="hover:bg-gray-50 transition-colors cursor-pointer"  onClick={() => abrirDetalleCita(cita)}>                    
+                  <tr key={cita.id} className="hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => abrirDetalleCita(cita)}>                    
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="font-mono text-sm font-medium text-gray-900">{cita.codigo_reserva}</span>
                     </td>
@@ -634,6 +650,7 @@ const cargarCitas = async () => {
           </div>
         </div>
       )}
+
       {/* Al final del return, antes del último </div>: */}
       {modalDetalleAbierto && citaParaDetalle && (
         <CitaDetailAdminModal
