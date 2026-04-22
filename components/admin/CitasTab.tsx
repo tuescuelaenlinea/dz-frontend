@@ -99,28 +99,31 @@ export default function CitasTab() {
         const citasList = Array.isArray(data) ? data : (data.results || []);
         setCitas(citasList);
         
-        // ← CALCULAR los 3 totales
-        let confirmado = 0;
-        let pendiente = 0;
-        let general = 0;
+      // ← CALCULAR los 3 totales
+      let confirmadoPendientePago = 0;  // Citas confirmadas pero sin pagar
+      let completadoConPago = 0;         // Citas completadas y pagadas
+      let general = 0;
+
+      for (const cita of citasList) {
+        const precio = parseFloat(cita.precio_total) || 0;
+        general += precio;  // ← Siempre suma al total general
         
-        for (const cita of citasList) {
-          const precio = parseFloat(cita.precio_total) || 0;
-          general += precio;  // ← Siempre suma al total general
-          
-          // Clasificar según pago_estado
-          if (cita.pago_estado === 'pagado' || cita.estado === 'confirmada') {
-            confirmado += precio;
-          } else {
-            pendiente += precio;  // ← Incluye 'pendiente', 'cancelada', etc.
-          }
+        // ← Clasificar correctamente según estado y pago_estado
+        if (cita.estado === 'confirmada' && cita.pago_estado !== 'pagado') {
+          // Citas confirmadas pero que aún no han sido pagadas
+          confirmadoPendientePago += precio;
+        } else if (cita.estado === 'completada' && cita.pago_estado === 'pagado') {
+          // Citas completadas y ya pagadas
+          completadoConPago += precio;
         }
-        
-        setTotalConfirmado(confirmado);
-        setTotalPendiente(pendiente);
-        setTotalGeneral(general);
-        
-        console.log(`✅ [CitasTab] Totales: Confirmado=$${confirmado.toLocaleString()}, Pendiente=$${pendiente.toLocaleString()}, General=$${general.toLocaleString()}`);
+        // Las citas en estado 'pendiente' o 'cancelada' no se suman a ningún total específico
+      }
+
+      setTotalConfirmado(confirmadoPendientePago);  // Total azul: Confirmadas sin pago
+      setTotalPendiente(completadoConPago);         // Total verde: Completadas con pago
+      setTotalGeneral(general);
+
+      console.log(`✅ [CitasTab] Totales: Confirmadas sin pago=$${confirmadoPendientePago.toLocaleString()}, Completadas con pago=$${completadoConPago.toLocaleString()}, General=$${general.toLocaleString()}`);
       } else {
         console.error('❌ [CitasTab] Error cargando citas:', await res.text());
       }

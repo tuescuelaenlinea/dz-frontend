@@ -375,7 +375,7 @@ export default function AdminPage() {
     }
     
     try {
-      // Parsear hora_inicio (formato "HH:MM")
+      // Parsear hora_inicio (formato "HH:MM") - ESTO YA ESTÁ BIEN
       const [hours, minutes] = horaInicio.split(':').map(Number);
       
       if (isNaN(hours) || isNaN(minutes)) {
@@ -384,8 +384,8 @@ export default function AdminPage() {
       }
       
       // Calcular hora fin usando duracion_minutos
-      const fechaInicio = new Date();
-      fechaInicio.setHours(hours, minutes, 0, 0);
+      const fechaInicio = new Date();  // ← Usa fecha actual local
+      fechaInicio.setHours(hours, minutes, 0, 0);  // ← Establece hora local
       
       const fechaFin = new Date(fechaInicio.getTime() + duracionMinutos * 60000);
       
@@ -637,6 +637,22 @@ export default function AdminPage() {
       setClienteSeleccionadoId(null);
       console.log('✅ [AdminPage] Cita cancelada, formulario reseteado');
     }
+  };
+
+    // ← NUEVO: Crear fecha local evitando conversión UTC
+  const createDateLocal = (dateStr: string): Date => {
+    if (!dateStr) return new Date();
+    const [year, month, day] = dateStr.split('-').map(Number);
+    // Mes es 0-indexed en JavaScript (0 = enero, 11 = diciembre)
+    return new Date(year, month - 1, day);
+  };
+
+  // ← NUEVO: Formatear fecha para input date (YYYY-MM-DD)
+  const formatDateInput = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   };
 
   return (
@@ -923,7 +939,7 @@ export default function AdminPage() {
                   {/* Contenido del acordeón (colapsable) */}
                   {datosAdicionalesOpen && (
                     <div className="px-4 py-3 bg-gray-800/50 space-y-3 border-t border-gray-700">
-                      {/* Fecha */}
+                     {/* Fecha */}
                       <div>
                         <label className="block text-xs font-semibold text-gray-400 mb-1">
                           📅 Fecha
@@ -931,7 +947,14 @@ export default function AdminPage() {
                         <input
                           type="date"
                           value={citaEnCreacion.fecha}
-                          onChange={(e) => setCitaEnCreacion(prev => ({ ...prev, fecha: e.target.value }))}
+                          onChange={(e) => {
+                            // ← CAMBIO: Usar fecha directamente sin conversión UTC
+                            const fechaValor = e.target.value;
+                            setCitaEnCreacion(prev => ({ 
+                              ...prev, 
+                              fecha: fechaValor  // ← Guardar string YYYY-MM-DD directamente
+                            }));
+                          }}
                           className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
                         />
                       </div>
@@ -1022,6 +1045,186 @@ export default function AdminPage() {
         {activeTab === 'profesionales' && (  // ← CAMBIO: 'clientes' → 'profesionales'
           <div className="bg-gray-800 rounded-xl shadow-2xl p-6 border-2 border-gray-700">
             <ProfesionalesTab />  // ← CAMBIO: Componente
+          </div>
+        )}
+                {/* ← Modal de Selección de Clientes (combinados) */}
+        {showClientModal && (
+          <div 
+            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+            onClick={() => setShowClientModal(false)}
+          >
+            <div 
+              className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden border-2 border-gray-700"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header del modal */}
+              <div className="flex items-center justify-between p-4 border-b border-gray-700">
+                <h3 className="text-lg font-bold text-white">👥 Seleccionar Cliente</h3>
+                <button
+                  onClick={() => setShowClientModal(false)}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Buscador dentro del modal */}
+              <div className="p-4 border-b border-gray-700">
+                <input
+                  type="text"
+                  placeholder="🔍 Buscar por nombre, teléfono o email..."
+                  value={clienteSearchTerm}
+                  onChange={(e) => setClienteSearchTerm(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  autoFocus
+                />
+              </div>
+
+              {/* Lista de clientes - Scrollable */}
+              <div className="overflow-y-auto max-h-96 p-2">
+                {/* Botón Nuevo Cliente */}
+                <button
+                  onClick={handleNuevoCliente}
+                  className="w-full p-4 mb-2 bg-green-900/50 border-2 border-green-700 rounded-xl text-left hover:bg-green-800/50 transition-colors flex items-center gap-3"
+                >
+                  <div className="w-10 h-10 bg-green-700 rounded-full flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-white">➕ Nuevo Cliente</p>
+                    <p className="text-xs text-gray-400">Registrar cliente nuevo</p>
+                  </div>
+                </button>
+
+                {/* Cards de clientes existentes (combinados) */}
+                {clientesFiltrados.map((cliente) => (
+                  <button
+                    key={`${cliente.esRegistrado ? 'reg' : 'no'}-${cliente.id}`}
+                    onClick={() => handleClienteSelect(cliente)}
+                    className="w-full p-4 mb-2 bg-gray-900 border border-gray-700 rounded-xl text-left hover:bg-gray-700 hover:border-blue-500 transition-all flex items-center gap-3"
+                  >
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold ${
+                      cliente.esRegistrado ? 'bg-blue-900' : 'bg-gray-700'
+                    }`}>
+                      {cliente.nombre.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      {/* Display con formato "nombre (id)" o "nombre (sin registro)" */}
+                      <p className="font-semibold text-white truncate">
+                        {formatClienteDisplay(cliente)}
+                      </p>
+                      <p className="text-xs text-gray-400 truncate">{cliente.telefono || 'Sin teléfono'}</p>
+                      {cliente.email && (
+                        <p className="text-xs text-gray-500 truncate">{cliente.email}</p>
+                      )}
+                    </div>
+                    <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                ))}
+
+                {clientesFiltrados.length === 0 && clienteSearchTerm && (
+                  <div className="text-center py-8 text-gray-400">
+                    <p>No se encontraron clientes con "{clienteSearchTerm}"</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer del modal */}
+              <div className="p-4 border-t border-gray-700 text-center">
+                <p className="text-xs text-gray-500">
+                  {clientesFiltrados.length} cliente{clientesFiltrados.length !== 1 ? 's' : ''} encontrado{clientesFiltrados.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ← Modal de Registro de Cliente Nuevo */}
+        {showRegisterModal && (
+          <div 
+            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+            onClick={() => setShowRegisterModal(false)}
+          >
+            <div 
+              className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border-2 border-gray-700"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b border-gray-700">
+                <h3 className="text-lg font-bold text-white">➕ Nuevo Cliente</h3>
+                <button
+                  onClick={() => setShowRegisterModal(false)}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Formulario */}
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 mb-1">
+                    Nombre completo *
+                  </label>
+                  <input
+                    type="text"
+                    value={nuevoClienteData.nombre}
+                    onChange={(e) => setNuevoClienteData(prev => ({ ...prev, nombre: e.target.value }))}
+                    className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
+                    placeholder="Ej: Wilmer Quijano"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 mb-1">
+                    Teléfono
+                  </label>
+                  <input
+                    type="tel"
+                    value={nuevoClienteData.telefono}
+                    onChange={(e) => setNuevoClienteData(prev => ({ ...prev, telefono: e.target.value }))}
+                    className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
+                    placeholder="Ej: 300 123 4567"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 mb-1">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={nuevoClienteData.email}
+                    onChange={(e) => setNuevoClienteData(prev => ({ ...prev, email: e.target.value }))}
+                    className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
+                    placeholder="Ej: cliente@email.com"
+                  />
+                </div>
+              </div>
+
+              {/* Footer con acciones */}
+              <div className="p-4 border-t border-gray-700 flex gap-3">
+                <button
+                  onClick={() => setShowRegisterModal(false)}
+                  className="flex-1 py-3 bg-gray-700 text-white rounded-lg font-semibold hover:bg-gray-600 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleGuardarNuevoCliente}
+                  className="flex-1 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
+                >
+                  ✅ Agregar a Cita
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
