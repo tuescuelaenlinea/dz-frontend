@@ -2,6 +2,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import heic2any from 'heic2any';
 
 interface GaleriaItem {
   id: number;
@@ -19,6 +20,104 @@ interface GaleriaItem {
   activo: boolean;
   fecha?: string;
 }
+
+/**
+ * Detecta si un archivo es HEIC/HEIF y lo convierte a JPEG si es necesario
+ * @param file - Archivo original
+ * @returns Promise<File> - Archivo convertido a JPEG o el original si no era HEIC
+ */
+const convertHeicToJpeg = async (file: File): Promise<File> => {
+  const heicTypes = ['image/heic', 'image/heif', 'image/heic-sequence', 'image/heif-sequence'];
+  
+  // ← Verificar si es realmente HEIC (por tipo MIME O extensión)
+  const isHeicByType = heicTypes.includes(file.type);
+  const isHeicByExt = file.name.toLowerCase().endsWith('.heic') || 
+                      file.name.toLowerCase().endsWith('.heif');
+  
+  // ← Si NO es HEIC por tipo ni por extensión, retornar sin convertir
+  if (!isHeicByType && !isHeicByExt) {
+    console.log(`✅ Archivo no es HEIC, no requiere conversión: ${file.name} (${file.type})`);
+    return file;
+  }
+  
+  // ← Si es HEIC por extensión pero el tipo es JPEG/PNG, es un falso positivo
+  if (isHeicByExt && (file.type === 'image/jpeg' || file.type === 'image/png' || file.type === 'image/webp')) {
+    console.log(`⚠️ Archivo tiene extensión HEIC pero es ${file.type}, renombrando sin conversión: ${file.name}`);
+    
+    // Renombrar a .jpg sin convertir
+    const newName = file.name.replace(/\.(heic|heif)$/i, '.jpg');
+    return new File([file], newName, {
+      type: 'image/jpeg',
+      lastModified: Date.now(),
+    });
+  }
+  
+  // ← Si llegamos aquí, es probablemente un HEIC real, intentar convertir
+  console.log(`🔄 Intentando convertir HEIC a JPEG: ${file.name}`);
+  console.log(`   Tipo MIME: ${file.type}`);
+  console.log(`   Tamaño: ${(file.size / 1024 / 1024).toFixed(2)} MB`);
+  
+  try {
+    // ← Intentar conversión con heic2any
+    const blob = await heic2any({
+      blob: file,
+      toType: 'image/jpeg',
+      quality: 0.85,
+    });
+    
+    // heic2any puede retornar Blob o Blob[]
+    const resultBlob = Array.isArray(blob) ? blob[0] : blob;
+    
+    if (!resultBlob || resultBlob.size === 0) {
+      throw new Error('Resultado de conversión vacío');
+    }
+    
+    // Crear nuevo File con nombre .jpg
+    const originalName = file.name.replace(/\.(heic|heif)$/i, '.jpg');
+    const jpegFile = new File([resultBlob], originalName, {
+      type: 'image/jpeg',
+      lastModified: Date.now(),
+    });
+    
+    console.log(`✅ HEIC convertido exitosamente: ${file.name} → ${originalName}`);
+    console.log(`   Tamaño: ${(file.size / 1024 / 1024).toFixed(2)} MB → ${(jpegFile.size / 1024 / 1024).toFixed(2)} MB`);
+    
+    return jpegFile;
+    
+  } catch (err: any) {
+    // ← MANEJO ESPECÍFICO del error "already browser readable"
+    if (err.message && err.message.includes('already browser readable')) {
+      console.log(`⚠️ ${err.message} - Renombrando sin conversión: ${file.name}`);
+      
+      // El archivo ya es legible, solo renombrar
+      const newName = file.name.replace(/\.(heic|heif)$/i, '.jpg');
+      return new File([file], newName, {
+        type: 'image/jpeg',
+        lastModified: Date.now(),
+      });
+    }
+    
+    // ← Otros errores de conversión
+    console.error('❌ Error detallado convirtiendo HEIC:', {
+      message: err.message,
+      name: err.name,
+      file: {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      }
+    });
+    
+    // ← FALLBACK: Retornar el archivo original renombrado
+    console.warn(`⚠️ No se pudo convertir ${file.name}. Se usará el archivo original renombrado.`);
+    
+    const fallbackName = file.name.replace(/\.(heic|heif)$/i, '.jpg');
+    return new File([file], fallbackName, {
+      type: 'image/jpeg',
+      lastModified: Date.now(),
+    });
+  }
+};
 
 // ← ← ← AGREGAR ESTA FUNCIÓN (fuera del componente) ← ← ←
 
@@ -117,7 +216,7 @@ export default function AdminGaleriaPage() {
   const [imagenDespuesFile, setImagenDespuesFile] = useState<File | null>(null);
   const [imagenUnicaFile, setImagenUnicaFile] = useState<File | null>(null);
   const [guardando, setGuardando] = useState(false);
-
+  const [convirtiendo, setConvirtiendo] = useState<Record<string, boolean>>({});
   useEffect(() => {
   cargarGaleria();
   cargarCategorias();  // ← AGREGAR: Cargar categorías también
@@ -223,44 +322,65 @@ const handleFileChange = async (
 ) => {
   if (!file) return;
   
-  // ← Validar que sea imagen
-  if (!file.type.startsWith('image/')) {
-    alert(`❌ El archivo "${file.name}" no es una imagen válida.`);
-    return;
-  }
+  // ← AGREGAR: Activar indicador de conversión
+  setConvirtiendo(prev => ({ ...prev, [fieldName]: true }));
   
   try {
-    // ← COMPRIMIR imagen si es JPEG/PNG y > 1MB
-    let fileToUse = file;
+    // ← PASO 1: Intentar convertir HEIC a JPEG
+    let processedFile = await convertHeicToJpeg(file);
     
-    if ((file.type === 'image/jpeg' || file.type === 'image/png') && file.size > 1 * 1024 * 1024) {
-      console.log(`🔄 Comprimiendo ${file.name}...`);
+    // ← PASO 2: Validar que sea imagen (permitir fallback)
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    
+    // Si el tipo no es válido PERO el nombre termina en .jpg, permitir (fallback de HEIC)
+    if (!validTypes.includes(processedFile.type)) {
+      const isFallbackHeic = processedFile.name.toLowerCase().endsWith('.jpg') && 
+                            (file.type === 'image/heic' || file.type === 'image/heif');
       
-      const compressedBlob = await compressImage(file, 1920, 0.85);
-      
-      // Crear nuevo File desde el Blob comprimido
-      fileToUse = new File([compressedBlob], file.name, {
-        type: 'image/jpeg',  // Forzar JPEG para consistencia
-        lastModified: Date.now(),
-      });
+      if (!isFallbackHeic) {
+        alert(`❌ Formato no soportado: "${processedFile.name}". Usa JPEG, PNG o WebP.`);
+        return;
+      } else {
+        console.warn(`⚠️ Usando fallback para HEIC: ${processedFile.name} (tipo real: ${file.type})`);
+      }
     }
     
-    // ← Validar tamaño final (después de compresión)
+    // ← PASO 3: COMPRIMIR si es JPEG/PNG y > 1MB (solo si es tipo válido)
+    if (validTypes.includes(processedFile.type) && processedFile.size > 1 * 1024 * 1024) {
+      console.log(`🔄 Comprimiendo ${processedFile.name}...`);
+      
+      try {
+        const compressedBlob = await compressImage(processedFile, 1920, 0.85);
+        
+        processedFile = new File([compressedBlob], processedFile.name, {
+          type: 'image/jpeg',
+          lastModified: Date.now(),
+        });
+      } catch (compressErr) {
+        console.warn(`⚠️ No se pudo comprimir ${processedFile.name}, se usará original:`, compressErr);
+        // Continuar con el archivo sin comprimir
+      }
+    }
+    
+    // ← PASO 4: Validar tamaño final
     const MAX_SIZE = 5 * 1024 * 1024; // 5MB
     
-    if (fileToUse.size > MAX_SIZE) {
-      const sizeInMB = (fileToUse.size / (1024 * 1024)).toFixed(2);
-      alert(`❌ La imagen comprimida sigue siendo muy grande (${sizeInMB} MB). Intenta con una imagen de menor resolución.`);
+    if (processedFile.size > MAX_SIZE) {
+      const sizeInMB = (processedFile.size / (1024 * 1024)).toFixed(2);
+      alert(`❌ La imagen es demasiado grande (${sizeInMB} MB). El tamaño máximo permitido es 5 MB.`);
       return;
     }
     
-    // ← Actualizar estado con el archivo (comprimido o original)
-    setter(fileToUse);
-    console.log(`✅ ${fieldName} listo: ${fileToUse.name} (${(fileToUse.size / 1024).toFixed(2)} KB)`);
+    // ← PASO 5: Actualizar estado
+    setter(processedFile);
+    console.log(`✅ ${fieldName} listo: ${processedFile.name} (${(processedFile.size / 1024).toFixed(2)} KB)`);
     
-  } catch (err) {
+  } catch (err: any) {
     console.error(`❌ Error procesando ${fieldName}:`, err);
-    alert(`⚠️ No se pudo procesar la imagen. Intenta con otra o reduce su tamaño manualmente.`);
+    alert(`⚠️ ${err.message || 'No se pudo procesar la imagen. Intenta con otra.'}`);
+  } finally {
+    // ← AGREGAR: Desactivar indicador de conversión
+    setConvirtiendo(prev => ({ ...prev, [fieldName]: false }));
   }
 };
 
@@ -766,6 +886,11 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     📸 Imagen Antes
                   </label>
+
+                  {/* ← ← ← AGREGAR AQUÍ: Indicador de conversión */}
+                  {convirtiendo['imagen_antes'] && (
+                    <span className="text-xs text-purple-600 ml-2 animate-pulse">🔄 Convirtiendo...</span>
+                  )}
                   {formData.imagen_antes_url && !imagenAntesFile && (
                     <img 
                       src={getCorrectImageUrl(formData.imagen_antes_url) || ''} 
@@ -785,6 +910,10 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     ✨ Imagen Después
                   </label>
+                  {/* ← ← ← AGREGAR AQUÍ: Indicador de conversión */}
+                  {convirtiendo['imagen_antes'] && (
+                    <span className="text-xs text-purple-600 ml-2 animate-pulse">🔄 Convirtiendo...</span>
+                  )}
                   {formData.imagen_despues_url && !imagenDespuesFile && (
                     <img 
                       src={getCorrectImageUrl(formData.imagen_despues_url) || ''} 
@@ -806,6 +935,10 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   📷 Imagen Única (si no hay antes/después)
                 </label>
+                {/* ← ← ← AGREGAR AQUÍ: Indicador de conversión */}
+                  {convirtiendo['imagen_antes'] && (
+                    <span className="text-xs text-purple-600 ml-2 animate-pulse">🔄 Convirtiendo...</span>
+                  )}
                 {formData.imagen_url && !imagenUnicaFile && (
                   <img 
                     src={getCorrectImageUrl(formData.imagen_url) || ''} 
