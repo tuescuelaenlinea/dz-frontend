@@ -44,6 +44,8 @@ interface Configuracion {
   reservas_header_mobile_url: string | null;
   bold_payment_link: string;
   bold_payment_activo: boolean;
+  // ← NUEVO: Campo porcentaje_bold
+  porcentaje_bold?: number | string;
   instagram_url: string;
   facebook_url: string;
   web_url: string;
@@ -114,6 +116,8 @@ export default function AdminConfiguracionPage() {
     reservas_header_mobile_url: '',
     bold_payment_link: '',
     bold_payment_activo: false,
+    // ← NUEVO: Porcentaje Bold por defecto
+    porcentaje_bold: 3.50,
     instagram_url: '',
     facebook_url: '',
     web_url: '',
@@ -157,18 +161,6 @@ export default function AdminConfiguracionPage() {
 
     const data = await res.json();
     console.log('✅ Configuración cargada:', data);
-    console.log('📸 Imágenes recibidas:');
-    console.log('  - Logo:', data.logo_url);
-    console.log('  - Hero:', data.hero_imagen_url);
-    console.log('  - Hero Mobile:', data.hero_imagen_mobile_url);
-    console.log('  - Categorías Desktop:', data.categorias_header_desktop_url);
-    console.log('  - Categorías Mobile:', data.categorias_header_mobile_url);
-    console.log('  - Servicios Desktop:', data.servicios_header_desktop_url);
-    console.log('  - Servicios Mobile:', data.servicios_header_mobile_url);
-    console.log('  - Contacto Desktop:', data.contacto_header_desktop_url);
-    console.log('  - Contacto Mobile:', data.contacto_header_mobile_url);
-    console.log('  - Reservas Desktop:', data.reservas_header_desktop_url);
-    console.log('  - Reservas Mobile:', data.reservas_header_mobile_url);
     
     setConfiguracion(data);
     setFormData({
@@ -195,6 +187,8 @@ export default function AdminConfiguracionPage() {
         reservas_header_mobile_url: data.reservas_header_mobile_url || '',
         bold_payment_link: data.bold_payment_link || '',
         bold_payment_activo: data.bold_payment_activo || false,
+        // ← NUEVO: Cargar porcentaje_bold existente
+        porcentaje_bold: data.porcentaje_bold || 3.50,
         instagram_url: data.instagram_url || '',
         facebook_url: data.facebook_url || '',
         web_url: data.web_url || '',
@@ -204,60 +198,20 @@ export default function AdminConfiguracionPage() {
         activo: data.activo ?? true,
       });
     
-    // ← AGREGAR: Previsualizar imágenes existentes con corrección de URLs
-    console.log('🖼️ Configurando previsualizaciones...');
-    
-    const logoUrl = getCorrectImageUrl(data.logo_url);
-    console.log('  Logo URL corregida:', logoUrl);
-    setLogoPreview(logoUrl);
-    
-    const heroUrl = getCorrectImageUrl(data.hero_imagen_url);
-    console.log('  Hero URL corregida:', heroUrl);
-    setHeroPreview(heroUrl);
-    
-    const heroMobileUrl = getCorrectImageUrl(data.hero_imagen_mobile_url);
-    console.log('  Hero Mobile URL corregida:', heroMobileUrl);
-    setHeroMobilePreview(heroMobileUrl);
-    
-    const catDesktopUrl = getCorrectImageUrl(data.categorias_header_desktop_url);
-    console.log('  Categorías Desktop URL corregida:', catDesktopUrl);
-    setCategoriasDesktopPreview(catDesktopUrl);
-    
-    const catMobileUrl = getCorrectImageUrl(data.categorias_header_mobile_url);
-    console.log('  Categorías Mobile URL corregida:', catMobileUrl);
-    setCategoriasMobilePreview(catMobileUrl);
-    
-    const servDesktopUrl = getCorrectImageUrl(data.servicios_header_desktop_url);
-    console.log('  Servicios Desktop URL corregida:', servDesktopUrl);
-    setServiciosDesktopPreview(servDesktopUrl);
-    
-    const servMobileUrl = getCorrectImageUrl(data.servicios_header_mobile_url);
-    console.log('  Servicios Mobile URL corregida:', servMobileUrl);
-    setServiciosMobilePreview(servMobileUrl);
-    
-    const contDesktopUrl = getCorrectImageUrl(data.contacto_header_desktop_url);
-    console.log('  Contacto Desktop URL corregida:', contDesktopUrl);
-    setContactoDesktopPreview(contDesktopUrl);
-    
-    const contMobileUrl = getCorrectImageUrl(data.contacto_header_mobile_url);
-    console.log('  Contacto Mobile URL corregida:', contMobileUrl);
-    setContactoMobilePreview(contMobileUrl);
-    
-    const galDesktopUrl = getCorrectImageUrl(data.galeria_header_desktop_url);
-    console.log('  Galería Desktop URL corregida:', galDesktopUrl);
-    setGaleriaDesktopPreview(galDesktopUrl);
-    
-    const galMobileUrl = getCorrectImageUrl(data.galeria_header_mobile_url);
-    console.log('  Galería Mobile URL corregida:', galMobileUrl);
-    setGaleriaMobilePreview(galMobileUrl);
-    
-    const resDesktopUrl = getCorrectImageUrl(data.reservas_header_desktop_url);
-    console.log('  Reservas Desktop URL corregida:', resDesktopUrl);
-    setReservasDesktopPreview(resDesktopUrl);
-    
-    const resMobileUrl = getCorrectImageUrl(data.reservas_header_mobile_url);
-    console.log('  Reservas Mobile URL corregida:', resMobileUrl);
-    setReservasMobilePreview(resMobileUrl);
+    // Previsualizar imágenes existentes con corrección de URLs
+    setLogoPreview(getCorrectImageUrl(data.logo_url));
+    setHeroPreview(getCorrectImageUrl(data.hero_imagen_url));
+    setHeroMobilePreview(getCorrectImageUrl(data.hero_imagen_mobile_url));
+    setCategoriasDesktopPreview(getCorrectImageUrl(data.categorias_header_desktop_url));
+    setCategoriasMobilePreview(getCorrectImageUrl(data.categorias_header_mobile_url));
+    setServiciosDesktopPreview(getCorrectImageUrl(data.servicios_header_desktop_url));
+    setServiciosMobilePreview(getCorrectImageUrl(data.servicios_header_mobile_url));
+    setContactoDesktopPreview(getCorrectImageUrl(data.contacto_header_desktop_url));
+    setContactoMobilePreview(getCorrectImageUrl(data.contacto_header_mobile_url));
+    setGaleriaDesktopPreview(getCorrectImageUrl(data.galeria_header_desktop_url));
+    setGaleriaMobilePreview(getCorrectImageUrl(data.galeria_header_mobile_url));
+    setReservasDesktopPreview(getCorrectImageUrl(data.reservas_header_desktop_url));
+    setReservasMobilePreview(getCorrectImageUrl(data.reservas_header_mobile_url));
     
   } catch (err: any) {
     console.error('❌ Error cargando configuración:', err);
@@ -289,7 +243,6 @@ export default function AdminConfiguracionPage() {
     }
   };
 
-  // ← FUNCIÓN PARA CORREGIR URLs DE IMÁGENES
   const getCorrectImageUrl = (url: string | null | undefined): string | null => {
     if (!url) return null;
     
@@ -362,7 +315,6 @@ export default function AdminConfiguracionPage() {
       let url: string;
       
       if (configuracion && configuracion.id) {
-        // Actualizar configuración existente
         url = `${apiUrl}/configuracion/${configuracion.id}/`;
         res = await fetch(url, {
           method: 'PUT',
@@ -370,7 +322,6 @@ export default function AdminConfiguracionPage() {
           body: datosFormData,
         });
       } else {
-        // Crear nueva configuración
         url = `${apiUrl}/configuracion/`;
         res = await fetch(url, {
           method: 'POST',
@@ -406,7 +357,6 @@ export default function AdminConfiguracionPage() {
       setReservasDesktopFile(null);
       setReservasMobileFile(null);
       
-      // Scroll al inicio para ver el mensaje
       window.scrollTo({ top: 0, behavior: 'smooth' });
       
     } catch (err: any) {
@@ -926,6 +876,31 @@ export default function AdminConfiguracionPage() {
               <p className="text-xs text-gray-500 mt-1">Link de checkout de Bold para pagos en línea</p>
             </div>
 
+            {/* ← NUEVO: Porcentaje Bold */}
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                💳 Comisión Bold (%)
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={formData.porcentaje_bold ?? 3.50}
+                  onChange={(e) => handleInputChange('porcentaje_bold', parseFloat(e.target.value) || 0)}
+                  className="w-32 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="3.50"
+                />
+                <span className="text-sm text-gray-500">
+                  Porcentaje que cobra Bold por transacción (ej: 3.5% = 3.50)
+                </span>
+              </div>
+              <p className="text-xs text-orange-600 mt-1">
+                ℹ️ Este porcentaje se usará para calcular la ganancia neta del salón cuando se pague con Bold
+              </p>
+            </div>
+
             <div className="md:col-span-2">
               <label className="flex items-center gap-2">
                 <input
@@ -937,28 +912,26 @@ export default function AdminConfiguracionPage() {
                 <span className="text-sm text-gray-700">✅ Activar pago con Bold</span>
               </label>
               {/* Botón para ir a Cuentas Bancarias */}
-<div className="mt-6 pt-6 border-t border-gray-200">
-  <div className="flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4">
-    <div>
-      <h3 className="font-semibold text-gray-900">🏦 Cuentas Bancarias</h3>
-      <p className="text-sm text-gray-600 mt-1">
-        Configura las cuentas para recibir pagos de reservas
-      </p>
-    </div>
-    <button
-      onClick={() => router.push('/admin/cuentas-bancarias')}
-      className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center gap-2"
-    >
-      Gestionar Cuentas
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-      </svg>
-    </button>
-  </div>
-</div>
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <div className="flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4">
+                  <div>
+                    <h3 className="font-semibold text-gray-900">🏦 Cuentas Bancarias</h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Configura las cuentas para recibir pagos de reservas
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => router.push('/admin/cuentas-bancarias')}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center gap-2"
+                  >
+                    Gestionar Cuentas
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
             </div>
-
-
 
             {/* Instagram */}
             <div>

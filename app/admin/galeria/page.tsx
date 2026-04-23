@@ -20,6 +20,78 @@ interface GaleriaItem {
   fecha?: string;
 }
 
+// ← ← ← AGREGAR ESTA FUNCIÓN (fuera del componente) ← ← ←
+
+/**
+ * Comprime una imagen usando Canvas API
+ * @param file - Archivo de imagen original
+ * @param maxWidth - Ancho máximo en píxeles (default: 1920)
+ * @param quality - Calidad JPEG 0.1-1.0 (default: 0.8)
+ * @returns Promise<Blob> - Imagen comprimida como Blob
+ */
+const compressImage = async (
+  file: File, 
+  maxWidth: number = 1920, 
+  quality: number = 0.8
+): Promise<Blob> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+      img.src = e.target?.result as string;
+    };
+    
+    img.onload = () => {
+      // Calcular dimensiones manteniendo aspect ratio
+      let width = img.width;
+      let height = img.height;
+      
+      if (width > maxWidth) {
+        const ratio = maxWidth / width;
+        width = maxWidth;
+        height = height * ratio;
+      }
+      
+      // Crear canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('No se pudo obtener contexto del canvas'));
+        return;
+      }
+      
+      // Dibujar imagen escalada
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // Convertir a Blob JPEG comprimido
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            console.log(`🗜️ Imagen comprimida: ${file.name}`);
+            console.log(`   Original: ${(file.size / 1024 / 1024).toFixed(2)} MB`);
+            console.log(`   Comprimida: ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
+            console.log(`   Reducción: ${((1 - blob.size / file.size) * 100).toFixed(1)}%`);
+            resolve(blob);
+          } else {
+            reject(new Error('Error al comprimir imagen'));
+          }
+        },
+        'image/jpeg',  // Forzar JPEG para mejor compresión
+        quality
+      );
+    };
+    
+    img.onerror = () => reject(new Error('Error al cargar imagen'));
+    reader.onerror = () => reject(new Error('Error al leer archivo'));
+    
+    reader.readAsDataURL(file);
+  });
+};
+
 export default function AdminGaleriaPage() {
   const router = useRouter();
   const [galeria, setGaleria] = useState<GaleriaItem[]>([]);
@@ -144,29 +216,51 @@ const abrirModalCrear = () => {
     setModalAbierto(true);
   };
 
- const handleFileChange = (
+const handleFileChange = async (
   file: File | null,
   setter: React.Dispatch<React.SetStateAction<File | null>>,
   fieldName: string
 ) => {
-  if (file) {
-    // ← Validar tamaño máximo (5MB = 5 * 1024 * 1024 bytes)
+  if (!file) return;
+  
+  // ← Validar que sea imagen
+  if (!file.type.startsWith('image/')) {
+    alert(`❌ El archivo "${file.name}" no es una imagen válida.`);
+    return;
+  }
+  
+  try {
+    // ← COMPRIMIR imagen si es JPEG/PNG y > 1MB
+    let fileToUse = file;
+    
+    if ((file.type === 'image/jpeg' || file.type === 'image/png') && file.size > 1 * 1024 * 1024) {
+      console.log(`🔄 Comprimiendo ${file.name}...`);
+      
+      const compressedBlob = await compressImage(file, 1920, 0.85);
+      
+      // Crear nuevo File desde el Blob comprimido
+      fileToUse = new File([compressedBlob], file.name, {
+        type: 'image/jpeg',  // Forzar JPEG para consistencia
+        lastModified: Date.now(),
+      });
+    }
+    
+    // ← Validar tamaño final (después de compresión)
     const MAX_SIZE = 5 * 1024 * 1024; // 5MB
     
-    if (file.size > MAX_SIZE) {
-      const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
-      alert(`❌ El archivo "${file.name}" es demasiado grande (${sizeInMB} MB). El tamaño máximo permitido es 5 MB.`);
+    if (fileToUse.size > MAX_SIZE) {
+      const sizeInMB = (fileToUse.size / (1024 * 1024)).toFixed(2);
+      alert(`❌ La imagen comprimida sigue siendo muy grande (${sizeInMB} MB). Intenta con una imagen de menor resolución.`);
       return;
     }
     
-    // ← Validar que sea imagen
-    if (!file.type.startsWith('image/')) {
-      alert(`❌ El archivo "${file.name}" no es una imagen válida.`);
-      return;
-    }
+    // ← Actualizar estado con el archivo (comprimido o original)
+    setter(fileToUse);
+    console.log(`✅ ${fieldName} listo: ${fileToUse.name} (${(fileToUse.size / 1024).toFixed(2)} KB)`);
     
-    setter(file);
-    console.log(`✅ ${fieldName} aceptado: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
+  } catch (err) {
+    console.error(`❌ Error procesando ${fieldName}:`, err);
+    alert(`⚠️ No se pudo procesar la imagen. Intenta con otra o reduce su tamaño manualmente.`);
   }
 };
 

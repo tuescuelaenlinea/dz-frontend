@@ -1,4 +1,3 @@
-// admin\profesionales\page.tsx
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -7,7 +6,7 @@ interface Categoria {
   id: number;
   nombre: string;
   slug: string;
-  icono?: string | null;  // ← AGREGADO: propiedad opcional
+  icono?: string | null;
   activo?: boolean;
   orden?: number;
   imagen?: string | null;
@@ -22,20 +21,20 @@ interface Servicio {
   descripcion_corta: string;
   categoria: number;
   categoria_nombre: string;
-  tipo_precio: 'fijo' | 'rango' | 'desde';  // ← AGREGADO
-  precio_min: string;                        // ← AGREGADO
-  precio_max: string | null;                 // ← AGREGADO
-  duracion: string;                          // ← AGREGADO
-  sesiones_incluidas: number;                // ← AGREGADO
-  es_medico: boolean;                        // ← AGREGADO
-  requiere_valoracion: boolean;              // ← AGREGADO
-  disponible_salon: boolean;                 // ← AGREGADO
-  disponible_domicilio: boolean;             // ← AGREGADO
-  adicional_domicilio: string;               // ← AGREGADO
-  destacado: boolean;                        // ← AGREGADO
-  disponible: boolean;                       // ← AGREGADO
-  imagen: string | null;                     // ← AGREGADO
-  imagen_url: string | null;                 // ← AGREGADO
+  tipo_precio: 'fijo' | 'rango' | 'desde';
+  precio_min: string;
+  precio_max: string | null;
+  duracion: string;
+  sesiones_incluidas: number;
+  es_medico: boolean;
+  requiere_valoracion: boolean;
+  disponible_salon: boolean;
+  disponible_domicilio: boolean;
+  adicional_domicilio: string;
+  destacado: boolean;
+  disponible: boolean;
+  imagen: string | null;
+  imagen_url: string | null;
 }
 
 interface Profesional {
@@ -54,18 +53,15 @@ interface Profesional {
   telefono_whatsapp: string;
   email_notificaciones: string;
   activo_reservas: boolean;
+  // ← NUEVO: Campo porcentaje_global
+  porcentaje_global?: number | string;
   serviciosCount?: number;
-  servicios?: Array<{id: number; nombre: string}>;  // ← Si el backend devuelve la lista
+  servicios?: Array<{id: number; nombre: string}>;
   horarios?: Array<{dia_semana: string; hora_inicio: string; hora_fin: string}>;
   citas_pendientes?: number;
 }
-// ← AGREGAR ESTA FUNCIÓN (fuera del componente AdminProfesionalesPage):
 
-/**
- * Corrige URLs de paginación del backend usando URL API
- * Ej: 'https://127.0.0.1/api/servicios/?page=2' + 'https://api.dzsalon.com/api'
- * → 'https://api.dzsalon.com/api/servicios/?page=2'
- */
+// ← AGREGAR ESTA FUNCIÓN (fuera del componente AdminProfesionalesPage):
 const fixPaginationUrl = (nextUrl: string, apiUrl: string): string => {
   try {
     const next = new URL(nextUrl);
@@ -81,6 +77,7 @@ const fixPaginationUrl = (nextUrl: string, apiUrl: string): string => {
     return '';
   }
 };
+
 export default function AdminProfesionalesPage() {
   const router = useRouter();
   const [profesionales, setProfesionales] = useState<Profesional[]>([]);
@@ -113,6 +110,8 @@ export default function AdminProfesionalesPage() {
     telefono_whatsapp: '',
     email_notificaciones: '',
     activo_reservas: true,
+    // ← NUEVO: Porcentaje global por defecto
+    porcentaje_global: 50.00,
     servicios: [],
   });
   
@@ -124,6 +123,9 @@ export default function AdminProfesionalesPage() {
   const [modalServiciosAbierto, setModalServiciosAbierto] = useState(false);
   const [serviciosSeleccionados, setServiciosSeleccionados] = useState<number[]>([]);
   const [filtroServicioCategoria, setFiltroServicioCategoria] = useState<string>('todas');
+  
+  // ← NUEVO: Estado para porcentajes específicos por servicio
+  const [porcentajesPorServicio, setPorcentajesPorServicio] = useState<Record<number, number | string>>({});
 
   // Paginación
   const [paginaActual, setPaginaActual] = useState(1);
@@ -186,8 +188,8 @@ export default function AdminProfesionalesPage() {
             // ← AGREGAR el conteo al objeto profesional
             return {
               ...prof,
-              servicios: Array.from({ length: serviciosCount }, (_, i) => i), // Array dummy para el count
-              serviciosCount: serviciosCount, // ← Campo adicional para el conteo real
+              servicios: Array.from({ length: serviciosCount }, (_, i) => i),
+              serviciosCount: serviciosCount,
             };
           }
         } catch (err) {
@@ -214,7 +216,6 @@ export default function AdminProfesionalesPage() {
       const token = localStorage.getItem('admin_token');
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
       
-      // ← AGREGAR TIPO EXPLÍCITO: Response
       const res: Response = await fetch(`${apiUrl}/categorias/?activo=true`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -245,7 +246,6 @@ export default function AdminProfesionalesPage() {
     }
     
     console.log('🔄 Cargando servicios para asignación...');
-    console.log('🔗 API URL:', apiUrl);
     
     let todosLosServicios: Servicio[] = [];
     let url: string = `${apiUrl}/servicios/?disponible=true&ordering=nombre&page_size=1000`;
@@ -254,8 +254,6 @@ export default function AdminProfesionalesPage() {
     
     while (url && pageCount < maxPages) {
       pageCount++;
-      console.log(`\n📡 === Página ${pageCount} ===`);
-      console.log('🔗 URL:', url);
       
       try {
         const res: Response = await fetch(url, {
@@ -265,10 +263,7 @@ export default function AdminProfesionalesPage() {
           },
         });
 
-        console.log('📥 Status:', res.status, res.ok ? '✅' : '❌');
-
         if (!res.ok) {
-          console.error(`❌ Error HTTP ${res.status}:`, res.statusText);
           if (res.status === 401) {
             router.push('/admin/login');
             return;
@@ -277,38 +272,19 @@ export default function AdminProfesionalesPage() {
         }
 
         const data = await res.json();
-        console.log('📦 Data received:', {
-          count: data.count,
-          results_length: data.results?.length,
-          has_next: !!data.next,
-          next_url: data.next
-        });
         
-        // Si es respuesta paginada
         if (data.results && Array.isArray(data.results)) {
-          console.log(`✅ Agregando ${data.results.length} servicios`);
           todosLosServicios = [...todosLosServicios, ...data.results];
-          console.log(`📊 Total acumulado: ${todosLosServicios.length}`);
           
-          // Si hay siguiente página, corregir URL si es necesario
-         // ← DESPUÉS (usar fixPaginationUrl):
           if (data.next) {
             url = fixPaginationUrl(data.next, apiUrl);
-            console.log('🔗 Next URL corregida:', url);
           } else {
-            console.log('✅ No hay más páginas (next es null)');
             url = '';
           }
-        } 
-        // Si es array directo
-        else if (Array.isArray(data)) {
-          console.log(`✅ Array directo con ${data.length} servicios`);
+        } else if (Array.isArray(data)) {
           todosLosServicios = data;
           url = '';
-        }
-        // Formato inesperado
-        else {
-          console.warn('⚠️ Formato inesperado:', data);
+        } else {
           url = '';
         }
         
@@ -318,7 +294,6 @@ export default function AdminProfesionalesPage() {
       }
     }
     
-    console.log(`\n🎉 === Carga Completa ===`);
     console.log(`✅ Total de servicios cargados: ${todosLosServicios.length}`);
     setServicios(todosLosServicios);
   } catch (err) {
@@ -342,6 +317,7 @@ export default function AdminProfesionalesPage() {
       telefono_whatsapp: '',
       email_notificaciones: '',
       activo_reservas: true,
+      porcentaje_global: 50.00,  // ← NUEVO: Default 50%
       servicios: [],
     });
     setFotoFile(null);
@@ -365,6 +341,8 @@ export default function AdminProfesionalesPage() {
       telefono_whatsapp: profesional.telefono_whatsapp,
       email_notificaciones: profesional.email_notificaciones,
       activo_reservas: profesional.activo_reservas,
+      // ← NUEVO: Cargar porcentaje global existente
+      porcentaje_global: profesional.porcentaje_global || 50.00,
       servicios: profesional.servicios || [],
     });
     
@@ -381,6 +359,9 @@ const abrirModalAsignarServicios = async (profesional: Profesional) => {
   setProfesionalSeleccionado(profesional);
   setFiltroServicioCategoria('todas');
   
+  // ← NUEVO: Resetear porcentajes por servicio
+  setPorcentajesPorServicio({});
+  
   // ← PROFESIONAL NUEVO: Sin servicios asignados
   if (!profesional.id || profesional.id === 0) {
     console.log('✅ Profesional nuevo → 0 servicios seleccionados');
@@ -393,20 +374,12 @@ const abrirModalAsignarServicios = async (profesional: Profesional) => {
     const token = localStorage.getItem('admin_token');
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
     
-    console.log(`\n🔄 Cargando servicios ASIGNADOS al profesional ${profesional.id}...`);
+    console.log(`🔄 Cargando servicios ASIGNADOS al profesional ${profesional.id}...`);
     
-    // ← IMPORTANTE: Solo cargar los servicios YA ASIGNADOS
     let idsAsignados: number[] = [];
     let url = `${apiUrl}/servicios-profesionales/?profesional=${profesional.id}&activo=true&page_size=100`;
     
     while (url) {
-      /*const correctedUrl = url
-        .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
-        .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''))
-        .replace('https://127.0.0.1', apiUrl.replace('/api', ''))      // ← AGREGAR
-        .replace('http://127.0.0.1:8080', apiUrl.replace('/api', ''))  // ← AGREGAR
-        .replace('https://api.dzsalon.com', apiUrl.replace('/api', ''));*/
-      
       const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -419,11 +392,18 @@ const abrirModalAsignarServicios = async (profesional: Profesional) => {
       const data = await res.json();
       
       if (data.results && Array.isArray(data.results)) {
-        // ← EXTRAER SOLO los IDs de servicios asignados (NO todos los servicios)
-        const idsPage = data.results.map((sp: any) => sp.servicio);
-        console.log(`📄 Página: ${idsPage.length} IDs asignados`, idsPage.slice(0, 10));
-        
-        idsAsignados = [...idsAsignados, ...idsPage];
+        // ← EXTRAER IDs y porcentajes específicos (precio_especial)
+        data.results.forEach((sp: any) => {
+          idsAsignados.push(sp.servicio);
+          
+          // ← NUEVO: Si tiene precio_especial, usarlo como porcentaje específico
+          if (sp.precio_especial) {
+            setPorcentajesPorServicio(prev => ({
+              ...prev,
+              [sp.servicio]: parseFloat(sp.precio_especial)
+            }));
+          }
+        });
         
         url = data.next ? fixPaginationUrl(data.next, apiUrl) : '';
       } else {
@@ -431,17 +411,14 @@ const abrirModalAsignarServicios = async (profesional: Profesional) => {
       }
     }
     
-    // ← ELIMINAR duplicados y establecer SOLO los asignados
     const unicos = [...new Set(idsAsignados)];
-    console.log(`✅ Servicios ASIGNADOS al profesional: ${unicos.length}`);
-    console.log('📋 IDs:', unicos);
+    console.log(`✅ Servicios ASIGNADOS: ${unicos.length}`);
     
-    // ← ESTABLECER solo los asignados (NO todos los servicios disponibles)
     setServiciosSeleccionados(unicos);
     
   } catch (err) {
     console.error('❌ Error:', err);
-    setServiciosSeleccionados([]);  // ← En error, vacío (NO todos)
+    setServiciosSeleccionados([]);
   }
   
   setModalServiciosAbierto(true);
@@ -481,23 +458,16 @@ const abrirModalAsignarServicios = async (profesional: Profesional) => {
       const datosFormData = new FormData();
       
       Object.entries(formData).forEach(([key, value]) => {
-        // ← Verificación más estricta: solo procesar si value tiene un valor válido
-        if (value != null) {  // != null verifica tanto null como undefined
-          
+        if (value != null) {
           if (key === 'servicios' && Array.isArray(value)) {
-            // ← Para servicios, verificar que cada item tenga id válido
             value.forEach((servicio: any) => {
-              if (servicio?.id != null) {  // ← Verificar que servicio.id exista
-                datosFormData.append('servicios', String(servicio.id));  // ← String() es más seguro que .toString()
+              if (servicio?.id != null) {
+                datosFormData.append('servicios', String(servicio.id));
               }
             });
-            
           } else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-            // ← Solo convertir a string si es un tipo primitivo seguro
-            datosFormData.append(key, String(value));  // ← String() maneja undefined/null mejor
-            
+            datosFormData.append(key, String(value));
           }
-          // ← Ignorar objetos/arrays que no sean 'servicios' para evitar errores
         }
       });
       
@@ -505,7 +475,7 @@ const abrirModalAsignarServicios = async (profesional: Profesional) => {
         datosFormData.append('foto', fotoFile);
       }
 
-      let res: Response;  // ← AGREGAR TIPO EXPLÍCITO
+      let res: Response;
       if (modoEdicion && profesionalSeleccionado) {
         res = await fetch(`${apiUrl}/profesionales/${profesionalSeleccionado.id}/`, {
           method: 'PUT',
@@ -545,23 +515,13 @@ const guardarServiciosAsignados = async () => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
     
     console.log('💾 Guardando servicios...');
-    console.log('  Prof ID:', profesionalSeleccionado.id);
-    console.log('  Servicios seleccionados:', serviciosSeleccionados.length);
     
-    // ← 1. OBTENER TODOS los servicios actualmente asignados (con paginación)
+    // ← 1. OBTENER TODOS los servicios actualmente asignados
     console.log('🔄 Obteniendo servicios actuales...');
     let todosLosIdsActuales: number[] = [];
     let url: string = `${apiUrl}/servicios-profesionales/?profesional=${profesionalSeleccionado.id}&page_size=100`;
     
     while (url) {
-      // Corregir URL si es necesario
-      /*const correctedUrl = url
-        .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
-        .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''))
-        .replace('https://127.0.0.1', apiUrl.replace('/api', ''))      // ← AGREGAR
-        .replace('http://127.0.0.1:8080', apiUrl.replace('/api', ''))  // ← AGREGAR
-        .replace('https://api.dzsalon.com', apiUrl.replace('/api', ''));*/
-      
       const resActual: Response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -576,9 +536,8 @@ const guardarServiciosAsignados = async () => {
       if (data.results && Array.isArray(data.results)) {
         const idsPage = data.results.map((sp: any) => sp.id);
         todosLosIdsActuales = [...todosLosIdsActuales, ...idsPage];
-        console.log(`  Página cargada: ${idsPage.length} IDs. Total: ${todosLosIdsActuales.length}`);
         
-       if (data.next) {
+        if (data.next) {
           url = fixPaginationUrl(data.next, apiUrl);
         } else {
           url = '';
@@ -595,32 +554,22 @@ const guardarServiciosAsignados = async () => {
     
     // ← 2. ELIMINAR TODOS los servicios actuales
     console.log('🗑️ Eliminando servicios antiguos...');
-    let deleteSuccess = 0;
-    let deleteError = 0;
-    
     for (const spId of todosLosIdsActuales) {
-      const deleteRes = await fetch(`${apiUrl}/servicios-profesionales/${spId}/`, {
+      await fetch(`${apiUrl}/servicios-profesionales/${spId}/`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
       });
-      
-      if (deleteRes.ok || deleteRes.status === 404) {
-        deleteSuccess++;
-      } else {
-        deleteError++;
-        console.error(`❌ Error eliminando ${spId}:`, deleteRes.status);
-      }
     }
     
-    console.log(`  Eliminados: ${deleteSuccess}, Errores: ${deleteError}`);
-    
-    // ← 3. CREAR nuevos servicios seleccionados
+    // ← 3. CREAR nuevos servicios seleccionados CON PORCENTAJE
     console.log('✨ Creando nuevos servicios...');
-    let successCount = 0;
-    let errorCount = 0;
-    const erroresDetallados: string[] = [];
-    
     for (const servicioId of serviciosSeleccionados) {
+      // ← NUEVO: Obtener porcentaje específico o usar null para usar el global
+      const porcentajeEspecifico = porcentajesPorServicio[servicioId];
+      const precioEspecial = porcentajeEspecifico !== undefined && porcentajeEspecifico !== '' 
+        ? parseFloat(String(porcentajeEspecifico)) 
+        : null;
+      
       const postRes = await fetch(`${apiUrl}/servicios-profesionales/`, {
         method: 'POST',
         headers: {
@@ -631,41 +580,18 @@ const guardarServiciosAsignados = async () => {
           profesional: profesionalSeleccionado.id,
           servicio: servicioId,
           activo: true,
+          // ← NUEVO: Enviar precio_especial como porcentaje (null = usar global)
+          precio_especial: precioEspecial,
         }),
       });
       
-      if (postRes.ok) {
-        successCount++;
-      } else {
-        errorCount++;
-        const errorData = await postRes.json().catch(() => ({}));
-        console.error(`❌ Error creando servicio ${servicioId}:`, postRes.status, errorData);
-        
-        // Guardar primeros 5 errores detallados
-        if (erroresDetallados.length < 5) {
-          erroresDetallados.push(`Servicio ${servicioId}: ${JSON.stringify(errorData)}`);
-        }
+      if (!postRes.ok) {
+        console.error(`❌ Error creando servicio ${servicioId}:`, postRes.status);
       }
     }
     
-    console.log(`\n✅ Guardado completado:`);
-    console.log(`  - Eliminados: ${deleteSuccess}`);
-    console.log(`  - Creados: ${successCount}`);
-    console.log(`  - Errores: ${errorCount}`);
+    alert(`✅ Servicios actualizados exitosamente\n\n📊 Servicios guardados: ${serviciosSeleccionados.length}`);
     
-    // Mostrar mensaje al usuario
-    let mensaje = `✅ Servicios actualizados exitosamente\n\n`;
-    mensaje += `📊 Resumen:\n`;
-    mensaje += `  • Servicios guardados: ${successCount}\n`;
-    
-    if (errorCount > 0) {
-      mensaje += `  • Errores: ${errorCount}\n\n`;
-      mensaje += `⚠️ Algunos servicios no se pudieron guardar.`;
-    }
-    
-    alert(mensaje);
-    
-    // Cerrar modal y recargar
     setModalServiciosAbierto(false);
     cargarProfesionales();
     
@@ -675,7 +601,6 @@ const guardarServiciosAsignados = async () => {
   } finally {
     setGuardando(false);
   }
-
 };
 
   const eliminarProfesional = async (profesional: Profesional) => {
@@ -724,7 +649,6 @@ const guardarServiciosAsignados = async () => {
     }
   };
 
-  // ← Filtros con tipos explícitos
   const profesionalesFiltrados = profesionales.filter((prof: Profesional) => {
     if (filtroEspecialidad !== 'todas' && prof.especialidad !== filtroEspecialidad) return false;
     if (filtroActivo !== 'todos') {
@@ -752,21 +676,16 @@ const guardarServiciosAsignados = async () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // ← FUNCIÓN PARA CONSTRUIR URL ABSOLUTA DE IMÁGENES
-// ← FUNCIÓN PARA CORREGIR URLs DE IMÁGENES (IP → DOMINIO)
 const getCorrectImageUrl = (url: string | null | undefined): string | null => {
   if (!url) return null;
   
-  // Dominios correctos para producción
   const PRODUCTION_DOMAIN = 'https://api.dzsalon.com';
   const LOCAL_DOMAIN = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:8080';
   
-  // Si ya es URL absoluta con dominio correcto, retornarla
   if (url.startsWith(PRODUCTION_DOMAIN)) {
     return url;
   }
   
-  // Si es URL absoluta con IP o localhost, corregirla
   if (url.startsWith('http://') || url.startsWith('https://')) {
     return url
       .replace('https://179.43.112.64', PRODUCTION_DOMAIN)
@@ -775,7 +694,6 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
       .replace('http://localhost:8080', LOCAL_DOMAIN);
   }
   
-  // Si es URL relativa (empieza con /media/), construir URL absoluta
   if (url.startsWith('/media/')) {
     const baseUrl = process.env.NODE_ENV === 'production' 
       ? PRODUCTION_DOMAIN 
@@ -783,12 +701,9 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
     return `${baseUrl}${url}`;
   }
   
-  // Fallback: retornar null
-  console.warn('⚠️ URL de imagen no reconocida:', url);
   return null;
 };
 
-  // ← Filtros de servicios con tipos explícitos
   const serviciosFiltradosPorCategoria = servicios.filter((s: Servicio) => {
     if (filtroServicioCategoria === 'todas') return true;
     return s.categoria.toString() === filtroServicioCategoria;
@@ -810,19 +725,18 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
           <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">👥 Gestión de Profesionales</h1>
           <p className="text-gray-600 mt-2">Administra tu equipo de trabajo</p>
         </div>
-        {/* 🔗 NUEVO: Botón Asignación Masiva */}
-    <a
-      href="https://api.dzsalon.com/admin/salon_app/profesional/asignacion-masiva/"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="px-6 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors flex items-center gap-2"
-      title="Ir a asignación masiva de servicios"
-    >
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-      </svg>
-      Asignación Masiva
-    </a>
+        <a
+          href="https://api.dzsalon.com/admin/salon_app/profesional/asignacion-masiva/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-6 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors flex items-center gap-2"
+          title="Ir a asignación masiva de servicios"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Asignación Masiva
+        </a>
         <button
           onClick={abrirModalCrear}
           className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center gap-2"
@@ -832,13 +746,7 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
           </svg>
           Nuevo Profesional
         </button>
-
       </div>
-
-
-
-
-
 
       {/* Filtros */}
       <div className="bg-white rounded-xl shadow-lg p-4 lg:p-6 mb-6">
@@ -919,7 +827,6 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                           alt={prof.nombre} 
                           className="w-12 h-12 object-cover rounded-full border-2 border-gray-200"
                           onError={(e) => {
-                            console.error('❌ Error cargando foto:', prof.foto_url);
                             (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="2"%3E%3Ccircle cx="12" cy="8" r="4"%3E%3C/circle%3E%3Cpath d="M20 21a8 8 0 10-16 0"%3E%3C/path%3E%3C/svg%3E';
                           }}
                           loading="lazy"
@@ -1042,6 +949,28 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">Biografía</label>
                   <textarea value={formData.bio} onChange={(e) => handleInputChange('bio', e.target.value)} rows={3} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Descripción profesional..." />
                 </div>
+                
+                {/* ← NUEVO: Campo Porcentaje Global */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    💰 Porcentaje de Ganancia Global (%)
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="number" 
+                      min="0" 
+                      max="100" 
+                      step="0.01"
+                      value={formData.porcentaje_global ?? 50}
+                      onChange={(e) => handleInputChange('porcentaje_global', parseFloat(e.target.value) || 50)}
+                      className="w-32 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-500">
+                      Por defecto para todos los servicios (ej: 50 = 50% del precio)
+                    </span>
+                  </div>
+                </div>
+                
                 {/* Foto de Perfil */}
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Foto de Perfil</label>
@@ -1052,7 +981,6 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                           alt="Vista previa" 
                           className="w-24 h-24 object-cover rounded-full border-2 border-gray-200"
                           onError={(e) => {
-                            console.error('❌ Error cargando vista previa:', fotoPreview);
                             (e.target as HTMLImageElement).style.display = 'none';
                           }}
                           loading="lazy"
@@ -1087,7 +1015,7 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
         </div>
       )}
 
-      {/* Modal Asignar Servicios - Mejorado */}
+      {/* Modal Asignar Servicios - Mejorado con Porcentajes */}
       {modalServiciosAbierto && profesionalSeleccionado && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full my-8">
@@ -1095,6 +1023,10 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
               <div>
                 <h2 className="text-xl font-bold">🛠️ Asignar Servicios</h2>
                 <p className="text-sm opacity-90">{profesionalSeleccionado.nombre}</p>
+                {/* ← NUEVO: Mostrar porcentaje global de referencia */}
+                <p className="text-xs opacity-75 mt-1">
+                  💡 Porcentaje global: <strong>{formData.porcentaje_global || 50}%</strong> (se usará si no especificas uno por servicio)
+                </p>
               </div>
               <button onClick={() => setModalServiciosAbierto(false)} className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -1111,7 +1043,7 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
                 >
                   <option value="todas">Todas las categorías</option>
-                  {categorias.map((cat: Categoria) => (  // ← TIPO EXPLÍCITO
+                  {categorias.map((cat: Categoria) => (
                     <option key={cat.id} value={cat.id.toString()}>{cat.nombre}</option>
                   ))}
                 </select>
@@ -1148,37 +1080,101 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                           </h3>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-4">
-                          {serviciosDeCategoria.map((servicio: Servicio) => (  // ← TIPO EXPLÍCITO
-                            <label 
-                              key={servicio.id} 
-                              className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                                serviciosSeleccionados.includes(servicio.id)
-                                  ? 'border-emerald-500 bg-emerald-50'
-                                  : 'border-gray-200 hover:bg-gray-50'
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={serviciosSeleccionados.includes(servicio.id)}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setServiciosSeleccionados([...serviciosSeleccionados, servicio.id]);
-                                  } else {
-                                    setServiciosSeleccionados(serviciosSeleccionados.filter(id => id !== servicio.id));
-                                  }
-                                }}
-                                className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
-                              />
-                              <div className="flex-1">
-                                <div className="font-medium text-gray-900 text-sm">{servicio.nombre}</div>
-                                <div className="text-xs text-gray-500">
-                                  {servicio.tipo_precio === 'fijo' && formatPrice(servicio.precio_min)}
-                                  {servicio.tipo_precio === 'rango' && `${formatPrice(servicio.precio_min)} - ${formatPrice(servicio.precio_max || '0')}`}
-                                  {servicio.tipo_precio === 'desde' && `Desde ${formatPrice(servicio.precio_min)}`}
-                                </div>
+                          {serviciosDeCategoria.map((servicio: Servicio) => {
+                            const estaSeleccionado = serviciosSeleccionados.includes(servicio.id);
+                            const porcentajeEspecifico = porcentajesPorServicio[servicio.id];
+                            
+                            return (
+                              <div 
+                                key={servicio.id} 
+                                className={`p-3 border rounded-lg transition-colors ${
+                                  estaSeleccionado
+                                    ? 'border-emerald-500 bg-emerald-50'
+                                    : 'border-gray-200 hover:bg-gray-50'
+                                }`}
+                              >
+                                {/* Checkbox para seleccionar servicio */}
+                                <label className="flex items-center gap-3 cursor-pointer mb-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={estaSeleccionado}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setServiciosSeleccionados([...serviciosSeleccionados, servicio.id]);
+                                      } else {
+                                        setServiciosSeleccionados(serviciosSeleccionados.filter(id => id !== servicio.id));
+                                        // ← Limpiar porcentaje específico si se deselecciona
+                                        setPorcentajesPorServicio(prev => {
+                                          const newPrev = { ...prev };
+                                          delete newPrev[servicio.id];
+                                          return newPrev;
+                                        });
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
+                                  />
+                                  <div className="flex-1">
+                                    <div className="font-medium text-gray-900 text-sm">{servicio.nombre}</div>
+                                    <div className="text-xs text-gray-500">
+                                      {servicio.tipo_precio === 'fijo' && formatPrice(servicio.precio_min)}
+                                      {servicio.tipo_precio === 'rango' && `${formatPrice(servicio.precio_min)} - ${formatPrice(servicio.precio_max || '0')}`}
+                                      {servicio.tipo_precio === 'desde' && `Desde ${formatPrice(servicio.precio_min)}`}
+                                    </div>
+                                  </div>
+                                </label>
+                                
+                                {/* ← NUEVO: Input para porcentaje específico (solo si está seleccionado) */}
+                                {estaSeleccionado && (
+                                  <div className="ml-7 pl-2 border-l-2 border-emerald-200">
+                                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                                      Porcentaje para este servicio
+                                    </label>
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        step="0.01"
+                                        placeholder={`${formData.porcentaje_global || 50}% (global)`}
+                                        value={porcentajeEspecifico ?? ''}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setPorcentajesPorServicio(prev => ({
+                                            ...prev,
+                                            [servicio.id]: val === '' ? '' : parseFloat(val) || 0
+                                          }));
+                                        }}
+                                        className="w-24 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-emerald-500"
+                                      />
+                                      <span className="text-xs text-gray-500">%</span>
+                                      {porcentajeEspecifico !== undefined && porcentajeEspecifico !== '' && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setPorcentajesPorServicio(prev => {
+                                              const newPrev = { ...prev };
+                                              delete newPrev[servicio.id];
+                                              return newPrev;
+                                            });
+                                          }}
+                                          className="text-xs text-red-500 hover:text-red-700"
+                                          title="Usar porcentaje global"
+                                        >
+                                          ✕
+                                        </button>
+                                      )}
+                                    </div>
+                                    <p className="text-[10px] text-gray-400 mt-1">
+                                      {porcentajeEspecifico !== undefined && porcentajeEspecifico !== '' 
+                                        ? `Se usará ${porcentajeEspecifico}% para este servicio`
+                                        : `Se usará el global: ${formData.porcentaje_global || 50}%`
+                                      }
+                                    </p>
+                                  </div>
+                                )}
                               </div>
-                            </label>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     );
