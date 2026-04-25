@@ -133,53 +133,46 @@ export const api = {
   },
 
   async getServiciosDestacados(): Promise<Servicio[]> {
-    try {
-      // ← USAR la misma API_URL que el resto de métodos (sin duplicar /api/)
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080';
-      
-      // ← Construir URL correcta: si apiUrl ya termina en /api, no agregar otro
-      const baseUrl = apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`;
-      const url = `${baseUrl}/servicios/destacados/`;
-      
-      const response = await fetch(url, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        // ← ELIMINAR: next: { revalidate } no funciona en cliente
-        cache: 'no-store',  // ← Esto sí es válido para fetch en cliente
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        console.error(`❌ Error ${response.status} en /servicios/destacados/:`, errorText);
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      
-      // ← Manejar respuesta con o sin paginación
-      const resultados = data.results || data;
-      
-      // ← Validar que sea un array
-      if (!Array.isArray(resultados)) {
-        console.warn('⚠️ Respuesta de destacados no es un array:', data);
-        return [];
-      }
-      
-      return resultados;
-      
-    } catch (error: any) {
-      // ← Log más detallado para debugging
-      console.error('❌ Error en getServiciosDestacados:', {
-        message: error?.message,
-        name: error?.name,
-        stack: error?.stack,
-      });
-      
-      // ← Retornar array vacío de forma segura
+  try {
+    // ← Usar API_URL consistente con el resto de métodos
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
+    
+    // ← Construir URL correcta (evitar duplicar /api/)
+    const baseUrl = apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`;
+    const url = `${baseUrl}/servicios/destacados/`;
+    
+    const response = await fetch(url, {
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',  // ← Válido para fetch en cliente
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      console.error(`❌ Error ${response.status} en /servicios/destacados/:`, errorText);
+      throw new Error(`Error ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    
+    // ← Manejar respuesta con o sin paginación
+    const resultados = Array.isArray(data) ? data : (data.results || []);
+    
+    // ← Validar que sea un array
+    if (!Array.isArray(resultados)) {
+      console.warn('⚠️ Respuesta de destacados no es un array:', data);
       return [];
     }
-  },
+    
+    return resultados;
+    
+  } catch (error: any) {
+    console.error('❌ Error en getServiciosDestacados:', {
+      message: error?.message,
+      name: error?.name,
+    });
+    return [];  // ← Retornar array vacío de forma segura
+  }
+},
 
   async getServiciosPorCategoria(categoriaId: number) {
     const res = await fetch(`${API_URL}/servicios/?categoria=${categoriaId}`);

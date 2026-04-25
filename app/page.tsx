@@ -87,8 +87,19 @@ export default function Home() {
 
         const serviciosData = await api.getServicios();
         const todosServicios = serviciosData.results || serviciosData;
-        const destacados = todosServicios.filter((s: Servicio) => s.destacado).slice(0, 6);
-        setServiciosDestacados(destacados);
+        // ← ← ← USAR endpoint dedicado para destacados ← ← ←
+        try {
+          const destacados = await api.getServiciosDestacados();
+          setServiciosDestacados(destacados.slice(0, 6)); // Limitar a 6 para UI
+          console.log(`✅ Servicios destacados cargados: ${destacados.length}`);
+        } catch (err) {
+          console.error('❌ Error cargando destacados:', err);
+          // Fallback: intentar filtrar manualmente si falla el endpoint
+          const serviciosData = await api.getServicios();
+          const todosServicios = serviciosData.results || serviciosData;
+          const destacados = todosServicios.filter((s: Servicio) => s.destacado).slice(0, 6);
+          setServiciosDestacados(destacados);
+        }
 
         setLoading(false);
       } catch (err) {
