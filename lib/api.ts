@@ -4,6 +4,24 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
 const API_DOMAIN = 'https://api.dzsalon.com';  // ← ✅ SIN ESPACIOS AL FINAL
 
+// ← AGREGAR ESTA INTERFAZ LOCALMENTE ✅
+export interface Servicio {
+  id: number;
+  nombre: string;
+  slug: string;
+  precio_min: string;
+  precio_max: string | null;
+  duracion: string;
+  categoria: number;
+  categoria_nombre: string;
+  imagen: string | null;
+  imagen_url: string | null;
+  disponible_salon: boolean;
+  disponible_domicilio: boolean;
+  adicional_domicilio?: string;
+  disponible?: boolean;
+}
+
 export const api = {
   // ==========================================
   // CONFIGURACIÓN
