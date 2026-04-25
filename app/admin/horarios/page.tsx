@@ -1,4 +1,5 @@
 // app\admin\horarios\page.tsx
+// app\admin\horarios\page.tsx
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -8,6 +9,7 @@ interface Profesional {
   nombre: string;
   especialidad: string;
   activo: boolean;
+  foto_url?: string | null;
 }
 
 interface Horario {
@@ -21,14 +23,13 @@ interface Horario {
   activo: boolean;
 }
 
-// ← NUEVO: Interfaces para el modal semanal
 interface CitaSemana {
   id: number;
   cliente_nombre: string;
   cliente_telefono: string;
   servicio_nombre: string;
-  profesional?: number | null;        // ← ID del profesional (opcional)
-  profesional_nombre?: string | null; // ← Nombre para mostrar (opcional)
+  profesional?: number | null;
+  profesional_nombre?: string | null;
   fecha: string;
   hora_inicio: string;
   hora_fin: string;
@@ -57,12 +58,10 @@ export default function AdminHorariosPage() {
   const [filtroActivo, setFiltroActivo] = useState<string>('todos');
   const [busqueda, setBusqueda] = useState<string>('');
   
-  // Modal
+  // Modal horario individual (DETALLADO)
   const [modalAbierto, setModalAbierto] = useState(false);
   const [modoEdicion, setModoEdicion] = useState(false);
   const [horarioSeleccionado, setHorarioSeleccionado] = useState<Horario | null>(null);
-  
-  // Formulario
   const [formData, setFormData] = useState<Partial<Horario>>({
     profesional: 0,
     dia_semana: 'lunes',
@@ -77,13 +76,25 @@ export default function AdminHorariosPage() {
   const [paginaActual, setPaginaActual] = useState(1);
   const [horariosPorPagina, setHorariosPorPagina] = useState(20);
 
-  // ← NUEVO: Estados para el modal semanal
+  // Modal detalle semanal
   const [modalSemanaAbierto, setModalSemanaAbierto] = useState(false);
   const [profesionalSemana, setProfesionalSemana] = useState<Profesional | null>(null);
   const [semanaActual, setSemanaActual] = useState<Date>(new Date());
   const [diasSemana, setDiasSemana] = useState<DiaSemana[]>([]);
   const [cargandoSemana, setCargandoSemana] = useState(false);
   const [errorSemana, setErrorSemana] = useState<string | null>(null);
+
+  // ← MODIFICADO: Modal editar día (24 horas) - ahora recibe día específico
+  const [modalEditarDiaAbierto, setModalEditarDiaAbierto] = useState(false);
+  const [diaEditar, setDiaEditar] = useState<{profesional: Profesional, dia: string, fecha?: string} | null>(null);
+  const [horasSeleccionadas, setHorasSeleccionadas] = useState<Record<string, boolean>>({});
+  const [diaActivo, setDiaActivo] = useState(true);
+  const [guardandoDia, setGuardandoDia] = useState(false);
+
+  // ← NUEVO: Estado para selección múltiple de días en creación
+  const [diasSeleccionadosCreacion, setDiasSeleccionadosCreacion] = useState<Record<string, boolean>>({
+    lunes: false, martes: false, miercoles: false, jueves: false, viernes: false, sabado: false, domingo: false
+  });
 
   // Días de la semana
   const diasSemanaLista = [
@@ -96,10 +107,9 @@ export default function AdminHorariosPage() {
     { value: 'domingo', label: 'Domingo' },
   ];
 
-  // ← NUEVO: Horas del día para el calendario (9 AM - 8 PM)
-  const horasDia = Array.from({ length: 12 }, (_, i) => {
-    const hora = i + 9;
-    return `${hora.toString().padStart(2, '0')}:00`;
+  // Todas las horas del día (24 horas)
+  const horasDia24 = Array.from({ length: 24 }, (_, i) => {
+    return `${i.toString().padStart(2, '0')}:00`;
   });
 
   useEffect(() => {
@@ -107,7 +117,6 @@ export default function AdminHorariosPage() {
     cargarProfesionales();
   }, []);
 
-  // Resetear paginación al filtrar
   useEffect(() => {
     setPaginaActual(1);
   }, [filtroProfesional, filtroDia, filtroActivo, busqueda]);
@@ -118,17 +127,12 @@ export default function AdminHorariosPage() {
       const token = localStorage.getItem('admin_token');
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
       
-      console.log('🔄 Cargando horarios con paginación...');
-      
       let allHorarios: Horario[] = [];
-      // ← Page size grande para reducir requests
       let nextPage: string | null = `${apiUrl}/horarios/?ordering=profesional__nombre,dia_semana&page_size=200`;
       let page = 1;
-      const maxPages = 20;  // ← Límite de seguridad
+      const maxPages = 20;
       
       while (nextPage && page <= maxPages) {
-        console.log(`📡 Página ${page}:`, nextPage);
-        
         const res: Response = await fetch(nextPage, {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -146,41 +150,29 @@ export default function AdminHorariosPage() {
 
         const data = await res.json();
         
-        // ← Manejar respuesta paginada o array directo
         if (data.results && Array.isArray(data.results)) {
           allHorarios = [...allHorarios, ...data.results];
-          console.log(`✅ Página ${page}: ${data.results.length} horarios (total: ${allHorarios.length}/${data.count})`);
         } else if (Array.isArray(data)) {
-          // Respuesta sin paginación
           allHorarios = [...allHorarios, ...data];
-          console.log(`✅ Respuesta directa: ${data.length} horarios`);
           break;
         } else {
-          console.warn('⚠️ Formato de respuesta inesperado:', data);
           break;
         }
         
-        // ← Manejar siguiente página
         if (data.next) {
           try {
-            // Corregir URL si el backend devuelve dominio diferente
             const nextUrl = new URL(data.next);
             const apiOrigin = apiUrl.replace(/\/api\/?$/, '');
             nextPage = `${apiOrigin}${nextUrl.pathname}${nextUrl.search}`;
-            console.log('🔗 Next URL corregida:', nextPage);
           } catch (e) {
-            console.warn('⚠️ Error parseando next URL, usando raw:', data.next);
             nextPage = data.next;
           }
         } else {
           nextPage = null;
-          console.log('✅ No hay más páginas');
         }
-        
         page++;
       }
       
-      console.log('✅ Total de horarios cargados:', allHorarios.length);
       setHorarios(allHorarios);
       
     } catch (err: any) {
@@ -196,7 +188,7 @@ export default function AdminHorariosPage() {
       const token = localStorage.getItem('admin_token');
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
       
-      const res = await fetch(`${apiUrl}/profesionales/?activo=true&ordering=nombre`, {
+      const res = await fetch(`${apiUrl}/profesionales/?ordering=nombre`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -211,7 +203,7 @@ export default function AdminHorariosPage() {
     }
   };
 
-  // ← NUEVO: Funciones de utilidad para fechas
+  // Funciones de utilidad para fechas
   const getInicioSemana = (fecha: Date): Date => {
     const d = new Date(fecha);
     const dia = d.getDay();
@@ -262,7 +254,6 @@ export default function AdminHorariosPage() {
     return dias;
   };
 
-  // ← NUEVO: Navegación entre semanas
   const irASemana = (direccion: 'anterior' | 'siguiente') => {
     const nuevaSemana = new Date(semanaActual);
     nuevaSemana.setDate(semanaActual.getDate() + (direccion === 'anterior' ? -7 : 7));
@@ -279,94 +270,248 @@ export default function AdminHorariosPage() {
     }
   };
 
-  // ← NUEVO: Cargar citas de la semana
-const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) => {
-  try {
-    setCargandoSemana(true);
-    setErrorSemana(null);
+  const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) => {
+    try {
+      setCargandoSemana(true);
+      setErrorSemana(null);
+      
+      const token = localStorage.getItem('admin_token');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+      
+      const inicio = getInicioSemana(fechaSemana);
+      const fin = new Date(inicio);
+      fin.setDate(inicio.getDate() + 6);
+      
+      const fechaInicio = formatDateForAPI(inicio);
+      const fechaFin = formatDateForAPI(fin);
+      
+      const res = await fetch(`${apiUrl}/citas/?profesional=${profesional.id}&fecha_min=${fechaInicio}&fecha_max=${fechaFin}&ordering=fecha,hora_inicio`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!res.ok) {
+        throw new Error('Error al cargar citas');
+      }
+      
+      const data = await res.json();
+      const citasList: CitaSemana[] = Array.isArray(data) ? data : (data.results || []);
+      
+      const diasConCitas = getDiasDeSemana(fechaSemana).map(dia => ({
+        ...dia,
+        citas: citasList.filter(cita => cita.fecha === dia.fecha),
+      }));
+      
+      setDiasSemana(diasConCitas);
+      
+    } catch (err: any) {
+      console.error('❌ Error cargando citas:', err);
+      setErrorSemana(err.message || 'Error al cargar citas');
+      setDiasSemana(getDiasDeSemana(fechaSemana));
+    } finally {
+      setCargandoSemana(false);
+    }
+  };
+
+  const abrirDetalleSemana = async (profesional: Profesional) => {
+    setProfesionalSemana(profesional);
+    setSemanaActual(new Date());
+    setModalSemanaAbierto(true);
+    await cargarCitasSemana(profesional, new Date());
+  };
+
+  // ← MODIFICADO: Abrir modal para editar un día específico (24 horas)
+  const abrirModalEditarDia = async (profesional: Profesional, dia: string, fecha?: string) => {
+   
     
+    setDiaEditar({ profesional, dia, fecha });
+    
+    // Cargar horarios existentes para este profesional + día
+    const horariosExistentes = horarios.filter(
+      h => h.profesional === profesional.id && h.dia_semana === dia
+    );
+    
+    // Inicializar horas seleccionadas
+    const horasInit: Record<string, boolean> = {};
+    horasDia24.forEach(hora => {
+      const estaActiva = horariosExistentes.some(h => {
+        const inicio = parseInt(h.hora_inicio.replace(':', ''));
+        const fin = parseInt(h.hora_fin.replace(':', ''));
+        const horaNum = parseInt(hora.replace(':', ''));
+        return horaNum >= inicio && horaNum < fin && h.activo;
+      });
+      horasInit[hora] = estaActiva;
+    });
+    
+    setHorasSeleccionadas(horasInit);
+    setDiaActivo(horariosExistentes.some(h => h.activo));
+    setModalEditarDiaAbierto(true);
+  };
+
+  // Toggle hora individual en modal de edición de día
+  const toggleHora = (hora: string) => {
+    setHorasSeleccionadas(prev => ({
+      ...prev,
+      [hora]: !prev[hora]
+    }));
+  };
+
+ // Guardar cambios del día (24 horas) - CON LOGS DETALLADOS
+const guardarCambiosDia = async () => {
+  if (!diaEditar) {
+    console.error('❌ No hay día seleccionado para editar');
+    return;
+  }
+  
+  try {
+    setGuardandoDia(true);
     const token = localStorage.getItem('admin_token');
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
     
-    const inicio = getInicioSemana(fechaSemana);
-    const fin = new Date(inicio);
-    fin.setDate(inicio.getDate() + 6);
+    const { profesional, dia } = diaEditar;
     
-    const fechaInicio = formatDateForAPI(inicio);
-    const fechaFin = formatDateForAPI(fin);
+    console.log('\n=== 💾 GUARDANDO CAMBIOS DEL DÍA ===');
+    console.log('👤 Profesional:', profesional.nombre, '(ID:', profesional.id + ')');
+    console.log('📅 Día:', dia);
+    console.log('✅ Día activo:', diaActivo);
+    console.log('🕐 Horas seleccionadas:', Object.entries(horasSeleccionadas).filter(([_, activa]) => activa).length);
     
-    // ← AGREGAR: Logs detallados
-    console.log(`\n📅 ========== CARGANDO CITAS ==========`);
-    console.log(`👤 Profesional ID: ${profesional.id}`);
-    console.log(`👤 Profesional Nombre: ${profesional.nombre}`);
-    console.log(`📅 Rango: ${fechaInicio} a ${fechaFin}`);
+    // Obtener rangos continuos de horas seleccionadas
+    const horasActivas = Object.entries(horasSeleccionadas)
+      .filter(([_, activa]) => activa)
+      .map(([hora]) => hora)
+      .sort();
     
-    // ← Verificar URL completa que se va a llamar
-    const urlCompleta = `${apiUrl}/citas/?profesional=${profesional.id}&fecha_min=${fechaInicio}&fecha_max=${fechaFin}&ordering=fecha,hora_inicio`;
-    console.log(`🔗 URL: ${urlCompleta}`);
+    console.log('📋 Horas activas:', horasActivas);
     
-    const res = await fetch(urlCompleta, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+   // ← FUNCIÓN AUXILIAR: Sumar 1 hora a una hora en formato HH:MM
+      const sumarUnaHora = (hora: string): string => {
+        const [h, m] = hora.split(':').map(Number);
+        const nuevaHora = (h + 1) % 24;
+        return `${nuevaHora.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+      };
+
+      // Convertir horas activas en rangos [inicio, fin]
+      const rangos: { inicio: string; fin: string }[] = [];
+      if (horasActivas.length > 0) {
+        let rangoInicio = horasActivas[0];
+        let rangoFin = horasActivas[0];
+        
+        for (let i = 1; i < horasActivas.length; i++) {
+          const horaActual = horasActivas[i];
+          const horaAnterior = horasActivas[i - 1];
+          
+          // ← CORREGIR: Comparar horas correctamente (parsear HH:MM)
+          const [hActual] = horaActual.split(':').map(Number);
+          const [hAnterior] = horaAnterior.split(':').map(Number);
+          const diff = hActual - hAnterior;
+          
+          if (diff === 1) {
+            // Hora continua, extender rango
+            rangoFin = horaActual;
+          } else {
+            // Hora discontinua, guardar rango anterior e iniciar nuevo
+            const horaFinCompleta = sumarUnaHora(rangoFin);
+            rangos.push({ inicio: rangoInicio, fin: horaFinCompleta });
+            console.log('  ➕ Rango creado:', rangoInicio, '-', horaFinCompleta);
+            rangoInicio = horaActual;
+            rangoFin = horaActual;
+          }
+        }
+        // Guardar último rango
+        const horaFinCompleta = sumarUnaHora(rangoFin);
+        rangos.push({ inicio: rangoInicio, fin: horaFinCompleta });
+        console.log('  ➕ Rango creado:', rangoInicio, '-', horaFinCompleta);
+      }
     
-    if (!res.ok) {
-      console.error(`❌ Error HTTP ${res.status}`);
-      throw new Error('Error al cargar citas');
+    console.log('📊 Total de rangos a crear:', rangos.length);
+    
+    // Eliminar horarios existentes primero
+    const horariosExistentes = horarios.filter(
+      h => h.profesional === profesional.id && h.dia_semana === dia
+    );
+    
+    console.log('🗑️ Horarios existentes a eliminar:', horariosExistentes.length);
+    
+    for (const h of horariosExistentes) {
+      console.log('   Eliminando horario ID:', h.id, h.hora_inicio, '-', h.hora_fin);
+      const deleteRes = await fetch(`${apiUrl}/horarios/${h.id}/`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      
+      if (!deleteRes.ok) {
+        console.error('   ❌ Error eliminando:', deleteRes.status);
+      }
     }
     
-    const data = await res.json();
-    const citasList: CitaSemana[] = Array.isArray(data) ? data : (data.results || []);
-    
-    // ← AGREGAR: Mostrar detalles de cada cita
-    console.log(`\n✅ Citas recibidas: ${citasList.length}`);
-    console.log('📋 Detalle de citas:');
-    citasList.forEach((cita, idx) => {
-      console.log(`  ${idx + 1}. [${cita.fecha} ${cita.hora_inicio}] ${cita.cliente_nombre} - ${cita.servicio_nombre}`);
-      console.log(`     Profesional ID en cita: ${cita.profesional}`);  // ← Importante ver esto
-    });
-    
-    const diasConCitas = getDiasDeSemana(fechaSemana).map(dia => {
-      const citasDelDia = citasList.filter(cita => cita.fecha === dia.fecha);
-      
-      return {
-        ...dia,
-        citas: citasDelDia,
+    // Crear nuevos horarios para los rangos
+    console.log('✨ Creando nuevos horarios...');
+    for (const rango of rangos) {
+      const body = {
+        profesional: profesional.id,
+        dia_semana: dia,
+        hora_inicio: rango.inicio,
+        hora_fin: rango.fin,
+        activo: diaActivo,
       };
-    });
+      
+      console.log('   POST:', body);
+      
+      const createRes = await fetch(`${apiUrl}/horarios/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+      
+      if (createRes.ok) {
+        const nuevoHorario = await createRes.json();
+        console.log('   ✅ Creado:', nuevoHorario);
+      } else {
+        const errorData = await createRes.json().catch(() => ({}));
+        console.error('   ❌ Error creando horario:', createRes.status, errorData);
+      }
+    }
     
-    setDiasSemana(diasConCitas);
-    console.log(`\n=====================================\n`);
+    console.log('✅ Proceso completado');
+    console.log('===============================\n');
+    
+    alert(`✅ Horario del ${diasSemanaLista.find(d => d.value === dia)?.label} actualizado\n\n📊 Rangos creados: ${rangos.length}\n⏰ Horas activas: ${horasActivas.length}`);
+    
+    setModalEditarDiaAbierto(false);
+    await cargarHorarios();
     
   } catch (err: any) {
-    console.error('❌ Error cargando citas:', err);
-    setErrorSemana(err.message || 'Error al cargar citas');
-    setDiasSemana(getDiasDeSemana(fechaSemana));
+    console.error('❌ Error guardando día:', err);
+    alert(`❌ Error: ${err.message}`);
   } finally {
-    setCargandoSemana(false);
+    setGuardandoDia(false);
   }
 };
 
-  // ← NUEVO: Abrir modal de detalle semanal
-  const abrirDetalleSemana = async (profesional: Profesional) => {
-  console.log(`\n🎯 ABRIR DETALLE SEMANAL`);
-  console.log(`👤 Profesional recibido:`);
-  console.log(`   ID: ${profesional.id}`);
-  console.log(`   Nombre: ${profesional.nombre}`);
-  console.log(`   Especialidad: ${profesional.especialidad}`);
+ const abrirModalCrear = (profesionalSinHorario?: Profesional) => {
+  setModoEdicion(false);
+  setHorarioSeleccionado(null);
   
-  setProfesionalSemana(profesional);
-  setSemanaActual(new Date());
-  setModalSemanaAbierto(true);
+  // ← NUEVO: Resetear selección de días
+  setDiasSeleccionadosCreacion({
+    lunes: false, martes: false, miercoles: false, jueves: false, viernes: false, sabado: false, domingo: false
+  });
   
-  await cargarCitasSemana(profesional, new Date());
-};
-
-  const abrirModalCrear = () => {
-    setModoEdicion(false);
-    setHorarioSeleccionado(null);
+  if (profesionalSinHorario) {
+    setFormData({
+      profesional: profesionalSinHorario.id,
+      dia_semana: 'lunes',  // ← Valor por defecto (se usará si no hay días seleccionados)
+      hora_inicio: '09:00',
+      hora_fin: '19:00',
+      activo: true,
+    });
+  } else {
     setFormData({
       profesional: profesionales[0]?.id || 0,
       dia_semana: 'lunes',
@@ -374,8 +519,10 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
       hora_fin: '19:00',
       activo: true,
     });
-    setModalAbierto(true);
-  };
+  }
+  
+  setModalAbierto(true);
+};
 
   const abrirModalEditar = (horario: Horario) => {
     setModoEdicion(true);
@@ -394,36 +541,63 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  // ← NUEVO: Toggle para selección múltiple de días
+const toggleDiaCreacion = (dia: string) => {
+  setDiasSeleccionadosCreacion(prev => ({
+    ...prev,
+    [dia]: !prev[dia]
+  }));
+};
+
+// ← NUEVO: Seleccionar/deseleccionar todos los días
+const toggleTodosDiasCreacion = (activo: boolean) => {
+  setDiasSeleccionadosCreacion({
+    lunes: activo, martes: activo, miercoles: activo, 
+    jueves: activo, viernes: activo, sabado: activo, domingo: activo
+  });
+};
+
   const guardarHorario = async () => {
-    // Validaciones
-    if (!formData.profesional) {
-      alert('❌ Debes seleccionar un profesional');
-      return;
-    }
-    if (!formData.hora_inicio || !formData.hora_fin) {
-      alert('❌ Debes definir hora de inicio y fin');
-      return;
-    }
-    if (formData.hora_inicio >= formData.hora_fin) {
-      alert('❌ La hora de inicio debe ser anterior a la hora de fin');
-      return;
-    }
+  if (!formData.profesional) {
+    alert('❌ Debes seleccionar un profesional');
+    return;
+  }
+  if (!formData.hora_inicio || !formData.hora_fin) {
+    alert('❌ Debes definir hora de inicio y fin');
+    return;
+  }
+  if (formData.hora_inicio >= formData.hora_fin) {
+    alert('❌ La hora de inicio debe ser anterior a la hora de fin');
+    return;
+  }
 
-    try {
-      setGuardando(true);
-      const token = localStorage.getItem('admin_token');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
+  // ← NUEVO: Obtener días a crear (seleccionados o el día único del form)
+  const diasAProcesar = Object.entries(diasSeleccionadosCreacion)
+    .filter(([_, seleccionado]) => seleccionado)
+    .map(([dia]) => dia);
+  
+  // Si no hay días seleccionados, usar el día del formulario (comportamiento original)
+  const diasFinales = diasAProcesar.length > 0 ? diasAProcesar : [formData.dia_semana || 'lunes'];
+
+  try {
+    setGuardando(true);
+    const token = localStorage.getItem('admin_token');
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
+    
+    const bodyBase = {
+      profesional: formData.profesional,
+      hora_inicio: formData.hora_inicio,
+      hora_fin: formData.hora_fin,
+      activo: formData.activo,
+    };
+
+    // ← NUEVO: Crear un horario por cada día seleccionado
+    for (const dia of diasFinales) {
+      const body = { ...bodyBase, dia_semana: dia };
       
-      const body = {
-        profesional: formData.profesional,
-        dia_semana: formData.dia_semana,
-        hora_inicio: formData.hora_inicio,
-        hora_fin: formData.hora_fin,
-        activo: formData.activo,
-      };
-
-      let res;
-      if (modoEdicion && horarioSeleccionado) {
+      let res: Response;
+      if (modoEdicion && horarioSeleccionado && diasFinales.length === 1) {
+        // Modo edición tradicional (un solo día)
         res = await fetch(`${apiUrl}/horarios/${horarioSeleccionado.id}/`, {
           method: 'PUT',
           headers: {
@@ -433,6 +607,7 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
           body: JSON.stringify(body),
         });
       } else {
+        // Creación nueva (uno o múltiples días)
         res = await fetch(`${apiUrl}/horarios/`, {
           method: 'POST',
           headers: {
@@ -445,19 +620,21 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.detail || errorData.non_field_errors?.[0] || 'Error al guardar');
+        throw new Error(`Error en ${dia}: ${errorData.detail || errorData.non_field_errors?.[0] || 'Error al guardar'}`);
       }
-
-      alert(`✅ Horario ${modoEdicion ? 'actualizado' : 'creado'} exitosamente`);
-      setModalAbierto(false);
-      cargarHorarios();
-    } catch (err: any) {
-      console.error('Error guardando horario:', err);
-      alert(`❌ Error: ${err.message}`);
-    } finally {
-      setGuardando(false);
     }
-  };
+
+    alert(`✅ Horario ${modoEdicion ? 'actualizado' : 'creado'} exitosamente en ${diasFinales.length} día(s)`);
+    setModalAbierto(false);
+    cargarHorarios();
+    
+  } catch (err: any) {
+    console.error('Error guardando horario:', err);
+    alert(`❌ Error: ${err.message}`);
+  } finally {
+    setGuardando(false);
+  }
+};
 
   const eliminarHorario = async (horario: Horario) => {
     if (!confirm(`¿Eliminar horario de ${horario.profesional_nombre} los ${horario.dia_nombre}?`)) {
@@ -488,43 +665,31 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
   };
 
   const toggleActivo = async (horario: Horario) => {
-  try {
-    const token = localStorage.getItem('admin_token');
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
-    
-    console.log(`🔄 Toggle activo para horario ID ${horario.id}: ${horario.activo} → ${!horario.activo}`);
-    
-    const body = JSON.stringify({ activo: !horario.activo });
-    console.log('📦 Body enviado:', body);
-    
-    const res = await fetch(`${apiUrl}/horarios/${horario.id}/`, {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: body,
-    });
+    try {
+      const token = localStorage.getItem('admin_token');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+      
+      const res = await fetch(`${apiUrl}/horarios/${horario.id}/`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ activo: !horario.activo }),
+      });
 
-    console.log('📥 Response status:', res.status);
-    
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
-      console.error('❌ Error del backend:', errorData);
-      throw new Error(errorData.detail || `Error ${res.status}`);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Error ${res.status}`);
+      }
+
+      cargarHorarios();
+    } catch (err: any) {
+      console.error('❌ Error actualizando estado:', err);
+      alert(`❌ Error: ${err.message}`);
+      cargarHorarios();
     }
-
-    const data = await res.json();
-    console.log('✅ Horario actualizado:', data);
-    
-    cargarHorarios();
-    
-  } catch (err: any) {
-    console.error('❌ Error actualizando estado:', err);
-    alert(`❌ Error: ${err.message}`);
-    cargarHorarios();
-  }
-};
+  };
 
   // Filtros
   const horariosFiltrados = horarios.filter((horario) => {
@@ -571,6 +736,48 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
     return colores[dia] || 'bg-gray-100 text-gray-800';
   };
 
+  // ← AGREGAR ESTA FUNCIÓN (antes del return del componente)
+const getCorrectImageUrl = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  
+  const PRODUCTION_DOMAIN = 'https://api.dzsalon.com';
+  const LOCAL_DOMAIN = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:8080';
+  
+  if (url.startsWith(PRODUCTION_DOMAIN)) {
+    return url;
+  }
+  
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url
+      .replace('https://179.43.112.64', PRODUCTION_DOMAIN)
+      .replace('http://179.43.112.64:8080', LOCAL_DOMAIN)
+      .replace('http://127.0.0.1:8080', LOCAL_DOMAIN)
+      .replace('http://localhost:8080', LOCAL_DOMAIN);
+  }
+  
+  if (url.startsWith('/media/')) {
+    const baseUrl = process.env.NODE_ENV === 'production' 
+      ? PRODUCTION_DOMAIN 
+      : LOCAL_DOMAIN;
+    return `${baseUrl}${url}`;
+  }
+  
+  return null;
+};
+
+  // ← NUEVO: Helpers para cards
+  const profesionalesActivos = profesionales.filter(p => p.activo);
+  
+  // Profesionales SIN horario asignado (para el botón "+")
+  const profesionalesSinHorario = profesionalesActivos.filter(
+    prof => !horarios.some(h => h.profesional === prof.id)
+  );
+  
+  // Profesionales CON horario asignado (para mostrar en cards)
+  const profesionalesConHorario = profesionalesActivos.filter(
+    prof => horarios.some(h => h.profesional === prof.id)
+  );
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -578,6 +785,8 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
       </div>
     );
   }
+
+
 
   return (
     <div className="p-4 lg:p-8">
@@ -587,71 +796,169 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
           <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">🕐 Gestión de Horarios</h1>
           <p className="text-gray-600 mt-2">Configura la disponibilidad de tus profesionales</p>
         </div>
+        {/* ← MODIFICADO: Solo botón "Nuevo Horario Detallado"
         <button
-          onClick={abrirModalCrear}
+          onClick={() => abrirModalCrear()}
           className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center gap-2"
+          title="Crear horario detallado para un profesional"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          Nuevo Horario
-        </button>
+           Nuevo Horario Detallado
+        </button> */}
       </div>
 
-      {/* Vista Resumen por Profesional */}
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">📊 Resumen de Disponibilidad</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {profesionales.map((prof) => {
-            const horariosProf = horarios.filter(h => h.profesional === prof.id && h.activo);
-            const diasTrabaja: string[] = [...new Set(horariosProf.map(h => h.dia_semana))];
-            
-            return (
-              // ← MODIFICADO: Agregar onClick para abrir detalle semanal
-              <div 
-                key={prof.id} 
-                className="bg-white rounded-xl shadow-lg p-4 border-l-4 border-blue-500 cursor-pointer hover:shadow-xl transition-shadow"
-                onClick={() => abrirDetalleSemana(prof)}
-                title="Clic para ver horario semanal detallado"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold text-gray-900">{prof.nombre}</h3>
-                  <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                    {diasTrabaja.length} días
+        {/* ← MODIFICADO: Sección para profesionales SIN horario (con fotos) */}
+        {profesionalesSinHorario.length > 0 && (
+          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
+            <h3 className="text-sm font-semibold text-yellow-800 mb-3">
+              ⚠️ Profesionales sin horario configurado
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {profesionalesSinHorario.map((prof) => (
+                <button
+                  key={prof.id}
+                  onClick={() => abrirModalCrear(prof)}
+                  className="flex items-center gap-2 px-3 py-2 bg-white border border-yellow-300 rounded-lg hover:border-yellow-500 hover:shadow transition-all text-left"
+                  title="Crear horario para este profesional"
+                >
+                  {/* ← AGREGAR: Foto del profesional con fallback */}
+                  {prof.foto_url ? (
+                    <img 
+                      src={getCorrectImageUrl(prof.foto_url) ?? 'data:image/svg+xml,...'} 
+                      alt={prof.nombre}
+                      className="w-8 h-8 rounded-full object-cover border border-gray-200"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="2"%3E%3Ccircle cx="12" cy="8" r="4"%3E%3C/circle%3E%3Cpath d="M20 21a8 8 0 10-16 0"%3E%3C/path%3E%3C/svg%3E';
+                      }}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                    </div>
+                  )}
+                  
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{prof.nombre}</p>
+                    <p className="text-[10px] text-gray-500 truncate">{prof.especialidad}</p>
+                  </div>
+                  <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded-full flex-shrink-0">
+                    + Configurar
                   </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+      {/* Vista Resumen por Profesional - SOLO CON HORARIO */}
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">📊 Profesionales con Horario</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {profesionalesConHorario.length === 0 ? (
+            <div className="col-span-full text-center py-8 text-gray-500">
+              📭 No hay profesionales con horario configurado
+            </div>
+          ) : (
+            profesionalesConHorario.map((prof) => {
+              const horariosProf = horarios.filter(h => h.profesional === prof.id && h.activo);
+              const diasTrabaja: string[] = [...new Set(horariosProf.map(h => h.dia_semana))];
+              
+              return (
+                // ← MODIFICADO: Card con imagen, días clickeables, sin botones redundantes
+                <div 
+                  key={prof.id} 
+                  className="bg-white rounded-xl shadow-lg overflow-hidden border-l-4 border-blue-500 cursor-pointer hover:shadow-xl transition-all hover:scale-[1.02]"
+                  onClick={() => abrirDetalleSemana(prof)}
+                  title="Clic en la card para ver horario semanal detallado"
+                >
+                  {/* ← IMAGEN DEL PROFESIONAL con fallback a icono */}
+                  {/* ← IMAGEN DEL PROFESIONAL - Igual que en Profesionales */}
+                  <div className="relative h-32 bg-gradient-to-br from-blue-100 to-indigo-100 overflow-hidden">
+                    {prof.foto_url ? (
+                      <img 
+                        src={getCorrectImageUrl(prof.foto_url) ?? 'data:image/svg+xml,...'} 
+                        alt={prof.nombre}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        onError={(e) => {
+                          // ← Fallback con SVG inline (igual que en Profesionales)
+                          (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="2"%3E%3Ccircle cx="12" cy="8" r="4"%3E%3C/circle%3E%3Cpath d="M20 21a8 8 0 10-16 0"%3E%3C/path%3E%3C/svg%3E';
+                        }}
+                        loading="lazy"
+                      />
+                    ) : (
+                      /* ← Icono fallback cuando no hay foto_url */
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <svg className="w-16 h-16 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                      </div>
+                    )}
+                    
+                    {/* Overlay para contraste */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                    
+                    {/* Info sobre la imagen */}
+                    <div className="absolute bottom-0 left-0 right-0 p-3 text-white">
+                      <h3 className="font-bold text-sm">{prof.nombre}</h3>
+                      <p className="text-xs opacity-90">{prof.especialidad}</p>
+                    </div>
+                    
+                    {/* Badge de días */}
+                    <div className="absolute top-2 right-2">
+                      <span className="text-xs bg-blue-500 text-white px-2 py-1 rounded-full font-semibold">
+                        {diasTrabaja.length} días
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {/* ← Días de trabajo - TODOS LOS DÍAS SON CLICKEABLES */}
+                    <div className="p-3">
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {diasSemanaLista.map((dia) => {
+                          const estaActivo = diasTrabaja.includes(dia.value as string);
+                          return (
+                            <button
+                              key={dia.value}
+                              onClick={(e) => {
+                                e.stopPropagation(); // ← Evitar que abra el modal semanal
+                                // ← PERMITIR CLIC en todos los días (activos e inactivos)
+                                abrirModalEditarDia(prof, dia.value as string);
+                              }}
+                              className={`text-[10px] px-2 py-1 rounded font-medium transition-all ${
+                                estaActivo
+                                  ? 'bg-green-100 text-green-800 hover:bg-green-200 hover:scale-105 cursor-pointer ring-2 ring-green-300'
+                                  : 'bg-gray-100 text-gray-400 hover:bg-gray-200 hover:scale-105 cursor-pointer ring-1 ring-gray-200 hover:ring-gray-300'
+                              }`}
+                              title={`Clic para ${estaActivo ? 'editar' : 'agregar'} horario del ${dia.label}`}
+                            >
+                              {dia.label.slice(0, 3)}
+                              {estaActivo && <span className="ml-0.5">✓</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      
+                      {/* Indicador visual */}
+                      <p className="text-[10px] text-gray-400 text-center">
+                        💡 Clic en cualquier día para {diasTrabaja.length > 0 ? 'editar/agregar' : 'configurar'} horarios
+                      </p>
+                    </div>
+
                 </div>
-                <p className="text-sm text-gray-600 mb-3">{prof.especialidad}</p>
-                <div className="flex flex-wrap gap-1">
-                  {diasSemanaLista.map((dia) => (
-                    <span
-                      key={dia.value}
-                      className={`text-xs px-2 py-1 rounded ${
-                        diasTrabaja.includes(dia.value as string)
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-400'
-                      }`}
-                    >
-                      {dia.label.slice(0, 3)}
-                    </span>
-                  ))}
-                </div>
-                {/* ← Indicador visual de que es clickable */}
-                <div className="mt-3 text-xs text-blue-600 flex items-center gap-1">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                  Ver horario semanal
-                </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </div>
 
-      {/* Filtros */}
+      {/* Filtros 
       <div className="bg-white rounded-xl shadow-lg p-4 lg:p-6 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          {/* Búsqueda */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">🔍 Buscar</label>
             <input
@@ -663,7 +970,6 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
             />
           </div>
 
-          {/* Profesional */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Profesional</label>
             <select
@@ -678,7 +984,6 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
             </select>
           </div>
 
-          {/* Día */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Día</label>
             <select
@@ -693,7 +998,6 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
             </select>
           </div>
 
-          {/* Estado */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Estado</label>
             <select
@@ -707,7 +1011,6 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
             </select>
           </div>
 
-          {/* Limpiar */}
           <div className="flex items-end">
             <button
               onClick={() => {
@@ -723,13 +1026,12 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
           </div>
         </div>
 
-        {/* Contador */}
         <div className="mt-4 text-sm text-gray-600">
           Mostrando <strong>{horariosFiltrados.length}</strong> de <strong>{horarios.length}</strong> horarios
         </div>
-      </div>
+      </div>*/}
 
-      {/* Tabla de Horarios */}
+      {/* Tabla de Horarios 
       <div className="bg-white rounded-xl shadow-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -801,9 +1103,9 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
             </tbody>
           </table>
         </div>
-      </div>
+      </div>*/}
 
-      {/* Paginación */}
+      {/* Paginación 
       {totalPaginas > 1 && (
         <div className="bg-white rounded-xl shadow-lg p-4 mt-6">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
@@ -845,21 +1147,18 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
             </div>
           </div>
         </div>
-      )}
+      )}*/}
 
-      {/* Modal Crear/Editar */}
+      {/* Modal Crear/Editar Horario Detallado */}
       {modalAbierto && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full">
-            {/* Header */}
             <div className="sticky top-0 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold">
-                  {modoEdicion ? '✏️ Editar Horario' : '➕ Nuevo Horario'}
+                  {modoEdicion ? '✏️ Editar Horario' : '➕ Nuevo Horario Detallado'}
                 </h2>
-                <p className="text-sm opacity-90">
-                  Configura la disponibilidad del profesional
-                </p>
+                <p className="text-sm opacity-90">Configura la disponibilidad del profesional</p>
               </div>
               <button
                 onClick={() => setModalAbierto(false)}
@@ -871,9 +1170,7 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
               </button>
             </div>
 
-            {/* Contenido */}
             <div className="p-6 space-y-4">
-              {/* Profesional */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Profesional *</label>
                 <select
@@ -884,26 +1181,89 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
                 >
                   <option value={0}>Seleccionar...</option>
                   {profesionales.map((p) => (
-                    <option key={p.id} value={p.id}>{p.nombre} - {p.especialidad}</option>
+                    <option key={p.id} value={p.id} disabled={horarios.some(h => h.profesional === p.id && !modoEdicion)}>
+                      {p.nombre} - {p.especialidad}
+                      {horarios.some(h => h.profesional === p.id) && !modoEdicion ? ' (ya tiene horario)' : ''}
+                    </option>
                   ))}
                 </select>
+                {/* ← Hint para profesionales sin horario */}
+                {!modoEdicion && formData.profesional && horarios.some(h => h.profesional === formData.profesional) && (
+                  <p className="text-[10px] text-yellow-600 mt-1">
+                    ⚠️ Este profesional ya tiene horarios configurados. ¿Quieres editarlos en su lugar?
+                  </p>
+                )}
               </div>
 
-              {/* Día */}
+              {/* ← NUEVO: Selector múltiple de días (solo en modo creación) */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Día de la semana *</label>
-                <select
-                  value={formData.dia_semana}
-                  onChange={(e) => handleInputChange('dia_semana', e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                >
-                  {diasSemanaLista.map((d) => (
-                    <option key={d.value} value={d.value}>{d.label}</option>
-                  ))}
-                </select>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    {modoEdicion ? 'Día de la semana *' : 'Días de trabajo *'}
+                  </label>
+                  {!modoEdicion && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleTodosDiasCreacion(true)}
+                        className="text-[10px] text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        Seleccionar todos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleTodosDiasCreacion(false)}
+                        className="text-[10px] text-gray-500 hover:text-gray-700"
+                      >
+                        Limpiar
+                      </button>
+                    </div>
+                  )}
+                </div>
+                
+                {modoEdicion ? (
+                  /* ← Modo edición: select tradicional (un solo día) */
+                  <select
+                    value={formData.dia_semana}
+                    onChange={(e) => handleInputChange('dia_semana', e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    {diasSemanaLista.map((d) => (
+                      <option key={d.value} value={d.value}>{d.label}</option>
+                    ))}
+                  </select>
+                ) : (
+                  /* ← Modo creación: checkboxes para múltiples días */
+                  <div className="grid grid-cols-4 gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    {diasSemanaLista.map((dia) => (
+                      <label 
+                        key={dia.value}
+                        className={`flex flex-col items-center gap-1 p-2 rounded-lg cursor-pointer transition-all ${
+                          diasSeleccionadosCreacion[dia.value]
+                            ? 'bg-blue-100 border-2 border-blue-500 text-blue-800'
+                            : 'bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={diasSeleccionadosCreacion[dia.value]}
+                          onChange={() => toggleDiaCreacion(dia.value)}
+                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                        />
+                        <span className="text-[10px] font-medium">{dia.label.slice(0, 3)}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                
+                {/* ← Hint informativo */}
+                {!modoEdicion && (
+                  <p className="text-[10px] text-gray-500 mt-2">
+                    💡 Selecciona uno o varios días. Todos usarán el mismo horario: {formData.hora_inicio} - {formData.hora_fin}
+                  </p>
+                )}
               </div>
 
-              {/* Horas */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Hora Inicio *</label>
@@ -925,7 +1285,6 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
                 </div>
               </div>
 
-              {/* Estado */}
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -939,21 +1298,40 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
                 </label>
               </div>
 
-              {/* Vista Previa */}
               <div className="bg-gray-50 rounded-lg p-4">
                 <h4 className="text-sm font-semibold text-gray-700 mb-2">👁️ Vista Previa</h4>
-                <p className="text-sm text-gray-900">
-                  <strong>{profesionales.find(p => p.id === formData.profesional)?.nombre || 'Profesional'}</strong>
-                  {' '}trabaja los{' '}
-                  <strong>{diasSemanaLista.find(d => d.value === formData.dia_semana)?.label}</strong>
-                  {' '}de{' '}
-                  <strong className="font-mono">{formData.hora_inicio}</strong> a{' '}
-                  <strong className="font-mono">{formData.hora_fin}</strong>
-                </p>
+                
+                {/* ← Mostrar días seleccionados o el día único */}
+                {(() => {
+                  const diasAProcesar = Object.entries(diasSeleccionadosCreacion)
+                    .filter(([_, seleccionado]) => seleccionado)
+                    .map(([dia]) => diasSemanaLista.find(d => d.value === dia)?.label);
+                  
+                  const diasDisplay = diasAProcesar.length > 0 
+                    ? diasAProcesar.join(', ') 
+                    : diasSemanaLista.find(d => d.value === formData.dia_semana)?.label;
+                  
+                  return (
+                    <p className="text-sm text-gray-900">
+                      <strong>{profesionales.find(p => p.id === formData.profesional)?.nombre || 'Profesional'}</strong>
+                      {' '}trabaja los{' '}
+                      <strong className="text-blue-600">{diasDisplay}</strong>
+                      {' '}de{' '}
+                      <strong className="font-mono">{formData.hora_inicio}</strong> a{' '}
+                      <strong className="font-mono">{formData.hora_fin}</strong>
+                    </p>
+                  );
+                })()}
+                
+                {/* ← Contador de días */}
+                {!modoEdicion && Object.values(diasSeleccionadosCreacion).some(d => d) && (
+                  <p className="text-[10px] text-green-600 mt-2">
+                    ✅ Se crearán {Object.values(diasSeleccionadosCreacion).filter(d => d).length} registros de horario
+                  </p>
+                )}
               </div>
             </div>
 
-            {/* Footer */}
             <div className="sticky bottom-0 bg-gray-50 px-6 py-4 border-t border-gray-200 rounded-b-2xl flex gap-3">
               <button
                 onClick={() => setModalAbierto(false)}
@@ -973,30 +1351,137 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
         </div>
       )}
 
-      {/* ← NUEVO: Modal Detalle Semanal de Profesional */}
+      {/* Modal Editar Día (24 horas con toggle) */}
+      {modalEditarDiaAbierto && diaEditar && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-2">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col">
+            {/* Header */}
+            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-4 py-3 rounded-t-xl flex items-center justify-between flex-shrink-0">
+              <div>
+                <h2 className="text-lg font-bold">✏️ Editar Horario - {diasSemanaLista.find(d => d.value === diaEditar.dia)?.label}</h2>
+                <p className="text-xs opacity-90">{diaEditar.profesional.nombre}</p>
+              </div>
+              <button
+                onClick={() => setModalEditarDiaAbierto(false)}
+                className="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Toggle día activo/inactivo */}
+            <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-700">Estado del día:</span>
+              <button
+                onClick={() => setDiaActivo(!diaActivo)}
+                className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+                  diaActivo 
+                    ? 'bg-green-100 text-green-800 hover:bg-green-200' 
+                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                }`}
+              >
+                {diaActivo ? '✅ Día Activo' : '⏸️ Día Inactivo'}
+              </button>
+            </div>
+
+            {/* Grid de 24 horas - AHORA SIEMPRE CLICKEABLES */}
+              <div className="p-4 overflow-y-auto flex-1">
+                <p className="text-xs text-gray-500 mb-3">
+                  💡 Haz clic en las horas para activar/desactivar
+                  {!diaActivo && (
+                    <span className="text-yellow-600 font-semibold ml-1">
+                      • Al activar una hora, el día se activará automáticamente
+                    </span>
+                  )}
+                </p>
+                
+                <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-12 gap-2">
+                  {horasDia24.map((hora) => {
+                    const estaActiva = horasSeleccionadas[hora];
+                    return (
+                      <button
+                        key={hora}
+                        onClick={() => {
+                          toggleHora(hora);
+                          // ← AUTOMÁTICAMENTE activar el día si se activa una hora
+                          if (!horasSeleccionadas[hora] && !diaActivo) {
+                            setDiaActivo(true);
+                          }
+                        }}
+                        // ← REMOVIDO: disabled={!diaActivo} - ahora siempre se puede hacer clic
+                        className={`p-2 rounded-lg text-xs font-medium transition-all ${
+                          estaActiva
+                            ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md scale-105'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:scale-105'
+                        }`}
+                        title={`${hora} - ${estaActiva ? 'Disponible' : 'No disponible'}`}
+                      >
+                        {hora}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                {/* Leyenda */}
+                <div className="flex items-center gap-4 mt-4 text-xs text-gray-600">
+                  <div className="flex items-center gap-1">
+                    <span className="w-4 h-4 rounded bg-blue-600"></span>
+                    <span>Activa</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="w-4 h-4 rounded bg-gray-100 border border-gray-300"></span>
+                    <span>Inactiva</span>
+                  </div>
+                  {!diaActivo && Object.values(horasSeleccionadas).some(h => h) && (
+                    <div className="flex items-center gap-1 text-yellow-600 ml-auto">
+                      <span className="text-lg">⚠️</span>
+                      <span className="font-semibold">Activa el día para guardar</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+            {/* Footer */}
+            <div className="sticky bottom-0 bg-gray-50 px-4 py-3 border-t rounded-b-xl flex gap-2 flex-shrink-0">
+              <button
+                onClick={() => setModalEditarDiaAbierto(false)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={guardarCambiosDia}
+                disabled={guardandoDia}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              >
+                {guardandoDia ? 'Guardando...' : '💾 Guardar Cambios'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Detalle Semanal de Profesional */}
       {modalSemanaAbierto && profesionalSemana && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full my-8">
-            
-            {/* Header del Modal */}
             <div className="sticky top-0 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold">📅 Horario Semanal</h2>
                 <p className="text-sm opacity-90">{profesionalSemana.nombre} - {profesionalSemana.especialidad}</p>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setModalSemanaAbierto(false)}
-                  className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
+              <button
+                onClick={() => setModalSemanaAbierto(false)}
+                className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
             
-            {/* Navegación de Semanas */}
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
               <button
                 onClick={() => irASemana('anterior')}
@@ -1004,21 +1489,13 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
               >
                 ← Semana anterior
               </button>
-              
               <div className="text-center">
                 <p className="font-semibold text-gray-900">
                   {getInicioSemana(semanaActual).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} - 
-                  {' '}
                   {new Date(getInicioSemana(semanaActual).getTime() + 6 * 24 * 60 * 60 * 1000).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </p>
-                <button
-                  onClick={irAHoy}
-                  className="text-xs text-indigo-600 hover:underline mt-1"
-                >
-                  Ir a hoy
-                </button>
+                <button onClick={irAHoy} className="text-xs text-indigo-600 hover:underline mt-1">Ir a hoy</button>
               </div>
-              
               <button
                 onClick={() => irASemana('siguiente')}
                 className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded-lg transition-colors flex items-center gap-2"
@@ -1027,7 +1504,6 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
               </button>
             </div>
             
-            {/* Contenido del Calendario */}
             <div className="p-6 max-h-[70vh] overflow-y-auto">
               {cargandoSemana ? (
                 <div className="flex items-center justify-center py-12">
@@ -1035,9 +1511,7 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
                   <span className="ml-3 text-gray-600">Cargando citas...</span>
                 </div>
               ) : errorSemana ? (
-                <div className="text-center py-8 text-red-600">
-                  ❌ {errorSemana}
-                </div>
+                <div className="text-center py-8 text-red-600">❌ {errorSemana}</div>
               ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-7 gap-4">
                   {diasSemana.map((dia) => (
@@ -1047,87 +1521,43 @@ const cargarCitasSemana = async (profesional: Profesional, fechaSemana: Date) =>
                         dia.esHoy ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 bg-white'
                       }`}
                     >
-                      {/* Cabecera del Día */}
                       <div className={`text-center pb-2 border-b ${dia.esHoy ? 'border-indigo-200' : 'border-gray-100'}`}>
                         <p className={`font-semibold ${dia.esHoy ? 'text-indigo-700' : 'text-gray-900'}`}>
                           {dia.diaNombre}
                         </p>
-                        {dia.esHoy && (
-                          <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
-                            Hoy
-                          </span>
-                        )}
-                        <p className="text-xs text-gray-500 mt-1">
-                          {dia.citas.length} cita{dia.citas.length !== 1 ? 's' : ''}
-                        </p>
+                        {dia.esHoy && <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Hoy</span>}
+                        <p className="text-xs text-gray-500 mt-1">{dia.citas.length} cita{dia.citas.length !== 1 ? 's' : ''}</p>
                       </div>
-                      
-                      {/* Lista de Citas por Hora */}
-                        <div className="space-y-2 mt-3 max-h-96 overflow-y-auto">
-                          {horasDia.map((hora) => {
-                            // ← CORREGIR: Normalizar formato de hora (quitar segundos si existen)
-                            const citaEnHora = dia.citas.find(c => {
-                              const horaCita = c.hora_inicio.split(':').slice(0, 2).join(':');  // "09:00:00" → "09:00"
-                              const horaBuscada = hora.split(':').slice(0, 2).join(':');  // "09:00" → "09:00"
-                              return horaCita === horaBuscada;
-                            });
-                            
-                            // ← DEBUG: Si hay citas pero no se encuentran, mostrar warning
-                            if (dia.citas.length > 0 && !citaEnHora) {
-                              console.log(`⚠️ ${dia.diaNombre}: Hora ${hora} no tiene cita. Citas disponibles:`, 
-                                dia.citas.map(c => c.hora_inicio));
-                            }
-                            
-                            return (
-                              <div key={hora} className="min-h-[60px]">
-                                {citaEnHora ? (
-                                  <div 
-                                    className={`p-2 rounded-lg text-xs border-l-4 cursor-pointer hover:shadow transition-shadow ${
-                                      citaEnHora.estado === 'cancelada'
-                                        ? 'bg-red-50 border-red-400 text-red-800'
-                                        : citaEnHora.estado === 'confirmada'
-                                        ? 'bg-green-50 border-green-400 text-green-800'
-                                        : citaEnHora.estado === 'completada'
-                                        ? 'bg-gray-100 border-gray-400 text-gray-700'
-                                        : 'bg-yellow-50 border-yellow-400 text-yellow-800'
-                                    }`}
-                                    title={`${citaEnHora.servicio_nombre}\n${citaEnHora.cliente_nombre}\n${citaEnHora.cliente_telefono}`}
-                                  >
-                                    <p className="font-semibold truncate">{citaEnHora.cliente_nombre}</p>
-                                    <p className="truncate text-gray-600">{citaEnHora.servicio_nombre}</p>
-                                    <p className="text-gray-500">
-                                      {citaEnHora.hora_inicio} - {citaEnHora.hora_fin}
-                                    </p>
-                                    <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] ${
-                                      citaEnHora.estado === 'cancelada' ? 'bg-red-200' :
-                                      citaEnHora.estado === 'confirmada' ? 'bg-green-200' :
-                                      citaEnHora.estado === 'completada' ? 'bg-gray-200' :
-                                      'bg-yellow-200'
-                                    }`}>
-                                      {citaEnHora.estado}
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <div className="p-2 text-gray-300 text-xs border border-dashed border-gray-200 rounded">
-                                    {hora}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
+                      <div className="space-y-2 mt-3 max-h-96 overflow-y-auto">
+                        {Array.from({ length: 12 }, (_, i) => `${(i + 9).toString().padStart(2, '0')}:00`).map((hora) => {
+                          const citaEnHora = dia.citas.find(c => c.hora_inicio.startsWith(hora));
+                          return (
+                            <div key={hora} className="min-h-[60px]">
+                              {citaEnHora ? (
+                                <div className={`p-2 rounded-lg text-xs border-l-4 cursor-pointer hover:shadow transition-shadow ${
+                                  citaEnHora.estado === 'cancelada' ? 'bg-red-50 border-red-400 text-red-800' :
+                                  citaEnHora.estado === 'confirmada' ? 'bg-green-50 border-green-400 text-green-800' :
+                                  citaEnHora.estado === 'completada' ? 'bg-gray-100 border-gray-400 text-gray-700' :
+                                  'bg-yellow-50 border-yellow-400 text-yellow-800'
+                                }`}>
+                                  <p className="font-semibold truncate">{citaEnHora.cliente_nombre}</p>
+                                  <p className="truncate text-gray-600">{citaEnHora.servicio_nombre}</p>
+                                </div>
+                              ) : (
+                                <div className="p-2 text-gray-300 text-xs border border-dashed border-gray-200 rounded">{hora}</div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
             
-            {/* Footer */}
             <div className="sticky bottom-0 bg-gray-50 px-6 py-4 border-t border-gray-200 rounded-b-2xl flex justify-end">
-              <button
-                onClick={() => setModalSemanaAbierto(false)}
-                className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors"
-              >
+              <button onClick={() => setModalSemanaAbierto(false)} className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300">
                 Cerrar
               </button>
             </div>

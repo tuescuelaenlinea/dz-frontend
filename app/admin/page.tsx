@@ -48,6 +48,23 @@ interface NuevoClienteData {
 
 type TabType = 'control' | 'citas' | 'profesionales';  // ← CAMBIO: 'clientes' → 'profesionales'
 
+// ← FUNCIÓN AUXILIAR: Obtener fecha local YYYY-MM-DD (sin conversión UTC)
+const getFechaLocal = (): string => {
+  const ahora = new Date();
+  const year = ahora.getFullYear();
+  const month = String(ahora.getMonth() + 1).padStart(2, '0');
+  const day = String(ahora.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// ← FUNCIÓN AUXILIAR: Obtener hora local HH:MM
+const getHoraLocal = (): string => {
+  const ahora = new Date();
+  const hours = String(ahora.getHours()).padStart(2, '0');
+  const minutes = String(ahora.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
+
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<TabType>('control');
   const [servicios, setServicios] = useState<Servicio[]>([]);
@@ -94,9 +111,8 @@ export default function AdminPage() {
     servicio: null,
     profesional: null,
     profesionalData: null,  // ← Agregar este campo
-    fecha: new Date().toISOString().split('T')[0],
-    // ← Hora actual por defecto
-    hora_inicio: new Date().toTimeString().slice(0, 5),
+    fecha: getFechaLocal(),
+    hora_inicio: getHoraLocal(),
     hora_fin: '',
     duracion_minutos: 60,  // ← NUEVO: Default 1 hora
     precio_total: 0,
@@ -586,6 +602,23 @@ export default function AdminPage() {
 
       alert(`✅ Cita creada exitosamente\nCódigo: ${codigoReserva}`);
 
+      // Resetear formulario
+setCitaEnCreacion({
+  servicio: null,
+  profesional: null,
+  profesionalData: null,
+  // ← USAR funciones locales:
+  fecha: getFechaLocal(),
+  hora_inicio: getHoraLocal(),
+  hora_fin: '',
+  duracion_minutos: 60,
+  precio_total: 0,
+  metodo_pago: '',
+  cliente_nombre: '',
+  cliente_telefono: '',
+  cliente_email: '',
+});
+
       // ← CAMBIO: Usar setTimeout para asegurar que el alert se cierre antes de redirigir
       setTimeout(() => {
         setActiveTab('citas');
@@ -597,8 +630,8 @@ export default function AdminPage() {
         servicio: null,
         profesional: null,
         profesionalData: null,
-        fecha: new Date().toISOString().split('T')[0],
-        hora_inicio: new Date().toTimeString().slice(0, 5),
+        fecha: getFechaLocal(),
+        hora_inicio: getHoraLocal(),
         hora_fin: '',
         duracion_minutos: 60,
         precio_total: 0,
@@ -624,8 +657,8 @@ export default function AdminPage() {
         servicio: null,
         profesional: null,
         profesionalData: null,
-        fecha: new Date().toISOString().split('T')[0],
-        hora_inicio: new Date().toTimeString().slice(0, 5),
+        fecha: getFechaLocal(),
+        hora_inicio: getHoraLocal(),
         hora_fin: '',
         duracion_minutos: 60,
         precio_total: 0,

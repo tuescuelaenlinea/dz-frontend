@@ -123,6 +123,26 @@ export default function CitasContent() {
   const [montoValidado, setMontoValidado] = useState(false);
   const [saldoPendiente, setSaldoPendiente] = useState<number | null>(null);
 
+  // ← FUNCIÓN AUXILIAR: Formatear fecha en zona horaria local (Colombia)
+const formatDateLocal = (date: Date | null): string => {
+  if (!date) return '';
+  
+  // Usar Intl para formatear en zona horaria local
+  const formatter = new Intl.DateTimeFormat('es-CO', {
+    timeZone: 'America/Bogota',  // ← Zona horaria de Colombia
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  
+  const parts = formatter.formatToParts(date);
+  const year = parts.find(p => p.type === 'year')?.value;
+  const month = parts.find(p => p.type === 'month')?.value;
+  const day = parts.find(p => p.type === 'day')?.value;
+  
+  return `${year}-${month}-${day}`;
+};
+
   // Cargar configuración de Bold
   useEffect(() => {
     async function loadConfig() {
@@ -187,6 +207,24 @@ useEffect(() => {
     }
   }, [selectedProfessional]);
 
+// ← NUEVO: Resetear profesional y pasos siguientes al cambiar servicio
+useEffect(() => {
+  if (!selectedService) {
+    // Si no hay servicio, resetear todo lo demás
+    setSelectedProfessional(null);
+    setSelectedProfessionalData(null);
+    setSelectedDate(null);
+    setSelectedTime(null);
+    
+    // Si estamos en pasos avanzados, volver al paso 1
+    if (Number(currentStep) > 1) {
+      setCurrentStep(1);
+    }
+    
+    console.log('🔄 Servicio eliminado, reseteando pasos posteriores');
+  }
+}, [selectedService]);
+
      // ← NUEVO: Detectar si se está editando una cita existente
     useEffect(() => {
       const editarCitaId = searchParams?.get('editar_cita');
@@ -210,6 +248,25 @@ useEffect(() => {
             
             const cita: CitaParaEditar = await res.json();
             console.log('📋 Cita cargada para edición:', cita);
+
+             // Parsear fecha en zona horaria local para evitar desfase UTC
+        if (cita.fecha) {
+          try {
+            // ← Asumir que la fecha viene en formato YYYY-MM-DD local
+            const [year, month, day] = cita.fecha.split('-').map(Number);
+            // ← Crear Date en zona horaria local (mes es 0-indexed)
+            const fechaLocal = new Date(year, month - 1, day, 0, 0, 0, 0);
+            console.log('📅 Fecha parseada:', cita.fecha, '→', fechaLocal);
+            setSelectedDate(fechaLocal);
+          } catch (err) {
+            console.error('❌ Error parseando fecha:', cita.fecha, err);
+            // Fallback: intentar con new Date() si falla el parseo manual
+            const fallback = new Date(cita.fecha);
+            if (!isNaN(fallback.getTime())) {
+              setSelectedDate(fallback);
+            }
+          }
+        }
             
             // ← NUEVO: Verificar si ya tiene pagos (NO es primer pago)
             const pagosRes = await fetch(`${apiUrl}/citas/${editarCitaId}/pagos/`, {
@@ -271,7 +328,7 @@ useEffect(() => {
               if (prof) setSelectedProfessionalData(prof);
             }
             
-            setSelectedDate(cita.fecha ? new Date(cita.fecha) : null);
+         
             setSelectedTime(cita.hora_inicio);
             
             setClientData({
@@ -677,11 +734,12 @@ const getBoldPaymentUrl = () => {
         const horaFin = endDate.toTimeString().slice(0, 5);
         
         const validacion = await api.validarDisponibilidadCita({
-          profesional_id: selectedProfessional,
-          fecha: selectedDate?.toISOString().split('T')[0] || '',
-          hora_inicio: selectedTime,
-          hora_fin: horaFin,
-        });
+        profesional_id: selectedProfessional,
+        // ← CORREGIR: Usar formatDateLocal en lugar de toISOString()
+        fecha: selectedDate ? formatDateLocal(selectedDate) : '',
+        hora_inicio: selectedTime,
+        hora_fin: horaFin,
+      });
         
         if (!validacion.disponible) {
           setError(`⚠️ ${validacion.mensaje}`);
@@ -699,7 +757,7 @@ const getBoldPaymentUrl = () => {
       const citaData: any = {
         servicio: selectedService.id,
         profesional: selectedProfessional,
-        fecha: selectedDate?.toISOString().split('T')[0],
+        fecha: formatDateLocal(selectedDate),
         hora_inicio: selectedTime,
         hora_fin: calculateEndTime(selectedTime, selectedService.duracion),
         precio_total: total,
@@ -920,44 +978,135 @@ const getBoldPaymentUrl = () => {
   };
 
   const renderProgressBar = () => {
-    // ← CAMBIO #3: Actualizar steps para incluir paso 6
-    const steps = [
-      { num: 1, label: 'Servicio' },
-      { num: 2, label: 'Profesional' },
-      { num: 3, label: 'Fecha y Hora' },
-      { num: 4, label: 'Tus Datos' },
-      { num: 5, label: 'Monto' },
-      { num: 6, label: 'Pago' },
-    ];
+  // ← Funciones auxiliares para obtener texto de cada paso
+  const getStep1Text = () => {
+    if (selectedService) {
+      return selectedService.nombre.length > 15 
+        ? `${selectedService.nombre.slice(0, 15)}...` 
+        : selectedService.nombre;
+    }
+    return 'Servicio';
+  };
 
-    return (
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          {steps.map((step, index) => {
-            const isActive = Number(currentStep) === step.num;
-            const isCompleted = Number(currentStep) > step.num;
-            return (
-              <div key={step.num} className="flex-1 flex items-center">
-                <div className="flex flex-col items-center">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold transition-all ${
-                    isCompleted ? 'bg-green-600 text-white' : isActive ? 'bg-blue-600 text-white ring-4 ring-blue-200' : 'bg-gray-200 text-gray-500'
-                  }`}>
-                    {isCompleted ? '✓' : step.num}
-                  </div>
-                  <span className={`text-xs mt-2 font-medium ${isActive || isCompleted ? 'text-blue-600' : 'text-gray-400'}`}>
-                    {step.label}
-                  </span>
+  const getStep2Text = () => {
+    if (selectedProfessionalData) {
+      const nombre = selectedProfessionalData.nombre.split(' ')[0]; // Solo primer nombre
+      return nombre.length > 12 ? `${nombre.slice(0, 12)}...` : nombre;
+    }
+    return 'Profesional';
+  };
+
+  const getStep3Text = () => {
+  if (selectedDate && selectedTime) {
+    // ← USAR formateo local para mostrar
+    const formatter = new Intl.DateTimeFormat('es-CO', {
+      timeZone: 'America/Bogota',
+      day: 'numeric',
+      month: 'short',
+    });
+    const fechaFormateada = formatter.format(selectedDate);
+    const hora = selectedTime.slice(0, 5);
+    return `${fechaFormateada} - ${hora}`;
+  }
+  return 'Fecha y Hora';
+};
+
+  const getStep4Text = () => {
+    if (clientData.cliente_nombre.trim()) {
+      const nombre = clientData.cliente_nombre.split(' ')[0];
+      return nombre.length > 12 ? `${nombre.slice(0, 12)}...` : nombre;
+    }
+    return 'Tus Datos';
+  };
+
+  const getStep5Text = () => {
+    if (montoPago !== null) {
+      return `$${montoPago.toLocaleString()}`;
+    }
+    return 'Monto';
+  };
+
+  const getStep6Text = () => {
+    if (selectedPaymentMethod) {
+      const metodos: Record<string, string> = {
+        'bold': 'Bold',
+        'efectivo': 'Efectivo',
+        'transferencia': 'Transf.',
+        'pendiente': 'Después',
+      };
+      return metodos[selectedPaymentMethod] || 'Pago';
+    }
+    return 'Pago';
+  };
+
+  const steps = [
+    { num: 1, label: 'Servicio', dynamic: getStep1Text() },
+    { num: 2, label: 'Profesional', dynamic: getStep2Text() },
+    { num: 3, label: 'Fecha y Hora', dynamic: getStep3Text() },
+    { num: 4, label: 'Tus Datos', dynamic: getStep4Text() },
+    { num: 5, label: 'Monto', dynamic: getStep5Text() },
+    { num: 6, label: 'Pago', dynamic: getStep6Text() },
+  ];
+
+  return (
+    <div className="mb-8">
+      <div className="flex items-center justify-between">
+        {steps.map((step, index) => {
+          const isActive = Number(currentStep) === step.num;
+          const isCompleted = Number(currentStep) > step.num;
+          
+          // ← Determinar si el paso tiene información seleccionada
+          const hasSelection = step.dynamic !== step.label;
+          
+          return (
+            <div key={step.num} className="flex-1 flex items-center">
+              <div className="flex flex-col items-center">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold transition-all ${
+                  isCompleted 
+                    ? 'bg-green-600 text-white' 
+                    : isActive 
+                      ? 'bg-blue-600 text-white ring-4 ring-blue-200' 
+                      : 'bg-gray-200 text-gray-500'
+                }`}>
+                  {isCompleted ? '✓' : step.num}
                 </div>
-                {index < steps.length - 1 && (
-                  <div className={`flex-1 h-1 mx-2 rounded ${Number(currentStep) > step.num ? 'bg-green-600' : 'bg-gray-200'}`} />
+                
+                {/* ← Label dinámico */}
+                <span className={`text-xs mt-2 font-medium text-center max-w-[80px] ${
+                  isActive || isCompleted || hasSelection
+                    ? 'text-blue-600' 
+                    : 'text-gray-400'
+                }`}>
+                  {hasSelection ? (
+                    <>
+                      <span className="hidden lg:inline">{step.dynamic}</span>
+                      <span className="lg:hidden">{step.num}</span>
+                    </>
+                  ) : (
+                    step.label
+                  )}
+                </span>
+                
+                {/* ← Tooltip para móviles con información completa */}
+                {hasSelection && (
+                  <span className="lg:hidden text-[9px] text-gray-500 mt-0.5">
+                    {step.dynamic}
+                  </span>
                 )}
               </div>
-            );
-          })}
-        </div>
+              
+              {index < steps.length - 1 && (
+                <div className={`flex-1 h-1 mx-2 rounded ${
+                  Number(currentStep) > step.num ? 'bg-green-600' : 'bg-gray-200'
+                }`} />
+              )}
+            </div>
+          );
+        })}
       </div>
-    );
-  };
+    </div>
+  );
+};
 
   const renderStepContent = () => {
     switch (currentStep) {

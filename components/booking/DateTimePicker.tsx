@@ -1,6 +1,14 @@
+// /components/booking/DateTimePicker.tsx
 'use client';
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
+
+interface HorarioOcupado {
+  hora_inicio: string;
+  hora_fin: string;
+  cita_id: number;
+  servicio: string;
+}
 
 interface DateTimePickerProps {
   selectedDate: Date | null;
@@ -13,12 +21,20 @@ interface DateTimePickerProps {
   onAvailabilityError?: (message: string) => void;
 }
 
-interface HorarioOcupado {
-  hora_inicio: string;
-  hora_fin: string;
-  cita_id: number;
-  servicio: string;
-}
+// ← FUNCIÓN SIMPLIFICADA: Formatear Date a YYYY-MM-DD en zona local
+const formatDateLocal = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// ← FUNCIÓN SIMPLIFICADA: Parsear YYYY-MM-DD a Date (mediodía para evitar DST)
+const parseDateLocal = (dateString: string): Date => {
+  const [year, month, day] = dateString.split('-').map(Number);
+  // ← Usar 12:00 (mediodía) para evitar problemas con timezone/DST
+  return new Date(year, month - 1, day, 12, 0, 0, 0);
+};
 
 export default function DateTimePicker({
   selectedDate,
@@ -36,7 +52,6 @@ export default function DateTimePicker({
   const [minDate, setMinDate] = useState<string>('');
   const [showOccupiedMessage, setShowOccupiedMessage] = useState<string | null>(null);
 
-  // Generar todos los horarios del día (9 AM - 7 PM)
   const generateAllDaySlots = () => {
     const slots: string[] = [];
     for (let hour = 9; hour <= 19; hour++) {
@@ -45,52 +60,39 @@ export default function DateTimePicker({
     return slots;
   };
 
-  // Establecer fecha mínima (hoy + 1 día)
+  // Establecer fecha mínima (hoy + 1 día) - EN ZONA HORARIA LOCAL
   useEffect(() => {
     const today = new Date();
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    setMinDate(tomorrow.toISOString().split('T')[0]);
-    
-    // Generar todos los slots al inicio
+    // ← Usar formateo local simplificado
+    setMinDate(formatDateLocal(tomorrow));
     setAllDaySlots(generateAllDaySlots());
   }, []);
 
   // Cargar horarios ocupados cuando cambia la fecha
   useEffect(() => {
-    console.log('🔍 DateTimePicker - selectedDate:', selectedDate);
-    console.log('🔍 DateTimePicker - profesionalId:', profesionalId);
-    
-    // ← VALIDACIÓN TEMPRANA: Salir si faltan datos requeridos
+    // ← Validación temprana
     if (!selectedDate || !profesionalId) {
-      console.log('⚠️ No hay fecha o profesional seleccionado');
       setOccupiedTimes([]);
       setAllDaySlots([]);
       return;
     }
 
-    // ← GUARDAR EN VARIABLES LOCALES PARA QUE TYPESCRIPT INFIERA LOS TIPOS
-    const dateToUse: Date = selectedDate;
-    const profesionalIdToUse: number = profesionalId;
+    // ← CORREGIDO: Obtener fecha como string LOCAL directamente del Date
+    // Sin pasar por toISOString() que convierte a UTC
+    const fechaStr = formatDateLocal(selectedDate);
+    const profesionalIdToUse = profesionalId;
 
     async function loadAvailability() {
       setLoading(true);
-      console.log('🔄 Cargando disponibilidad...');
       
       try {
-        // ← AHORA dateToUse es definitivamente Date (no null)
-        const fechaStr: string = dateToUse.toISOString().split('T')[0];
-
-        console.log('📅 Fecha:', fechaStr, '| Profesional ID:', profesionalIdToUse);
-        
-        // ← LLAMADA AL ENDPOINT CON VARIABLES VALIDADAS
-        // profesionalIdToUse es definitivamente number, fechaStr es string
+        // ← Enviar string YYYY-MM-DD directamente al backend
+        // El backend debe interpretar esto como fecha LOCAL, no UTC
         const data = await api.getDisponibilidadProfesional(profesionalIdToUse, fechaStr);
-        console.log('📦 Respuesta del API:', data);
         
-        // Si no trabaja ese día
         if (data.no_trabaja) {
-          console.log('⚠️ El profesional no trabaja este día');
           setAllDaySlots([]);
           setOccupiedTimes([]);
           if (onAvailabilityError) {
@@ -99,22 +101,15 @@ export default function DateTimePicker({
           return;
         }
         
-        // Generar horarios basados en SU jornada laboral
         if (data.horario_laboral) {
-          console.log('⏰ Horario laboral:', data.horario_laboral);
           const [inicioHour] = data.horario_laboral.inicio.split(':').map(Number);
           const [finHour] = data.horario_laboral.fin.split(':').map(Number);
-          
-          console.log(`🕐 Generando slots de ${inicioHour}:00 a ${finHour}:00`);
           
           const slots: string[] = [];
           for (let h = inicioHour; h < finHour; h++) {
             slots.push(`${h.toString().padStart(2, '0')}:00`);
           }
-          console.log('✅ Slots generados:', slots);
           setAllDaySlots(slots);
-        } else {
-          console.error('❌ No hay horario_laboral en la respuesta');
         }
         
         setOccupiedTimes(data.horarios_ocupados || []);
@@ -132,26 +127,26 @@ export default function DateTimePicker({
     }
     
     loadAvailability();
-  }, [selectedDate, profesionalId, onAvailabilityError]);  // ← Agregar onAvailabilityError a dependencias
+  }, [selectedDate, profesionalId, onAvailabilityError]);
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const date = new Date(e.target.value);
+    // ← CORREGIDO: Parsear fecha con mediodía para evitar problemas de timezone
+    const dateString = e.target.value;  // "YYYY-MM-DD" del input
+    const date = dateString ? parseDateLocal(dateString) : null;
+    
     onDateChange(date);
     onTimeChange(null);
     setShowOccupiedMessage(null);
   };
 
-  // Verificar si un horario está ocupado
   const isTimeOccupied = (time: string): boolean => {
     return occupiedTimes.some(occ => occ.hora_inicio === time);
   };
 
-  // Obtener info del horario ocupado
   const getOccupiedInfo = (time: string): HorarioOcupado | null => {
     return occupiedTimes.find(occ => occ.hora_inicio === time) || null;
   };
 
-  // Manejar clic en horario
   const handleTimeClick = (time: string) => {
     if (isTimeOccupied(time)) {
       const info = getOccupiedInfo(time);
@@ -189,7 +184,8 @@ export default function DateTimePicker({
         
         <input
           type="date"
-          value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
+          // ← CORREGIDO: Usar formateo local simplificado
+          value={selectedDate ? formatDateLocal(selectedDate) : ''}
           onChange={handleDateChange}
           min={minDate}
           className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer"
@@ -214,16 +210,12 @@ export default function DateTimePicker({
             </div>
           ) : (
             <>
-              {/* Mensaje de horario ocupado */}
               {showOccupiedMessage && (
                 <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg animate-pulse">
-                  <p className="text-sm text-red-800 font-medium">
-                    {showOccupiedMessage}
-                  </p>
+                  <p className="text-sm text-red-800 font-medium">{showOccupiedMessage}</p>
                 </div>
               )}
               
-              {/* Leyenda */}
               <div className="flex gap-4 text-xs mb-3">
                 <div className="flex items-center gap-2">
                   <div className="w-4 h-4 bg-gray-100 border border-gray-300 rounded"></div>
@@ -239,7 +231,6 @@ export default function DateTimePicker({
                 </div>
               </div>
               
-              {/* Grid de TODOS los horarios */}
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                 {allDaySlots.map((time) => {
                   const isOccupied = isTimeOccupied(time);
@@ -273,7 +264,6 @@ export default function DateTimePicker({
                 })}
               </div>
               
-              {/* Información adicional */}
               {occupiedTimes.length > 0 && (
                 <p className="text-xs text-gray-500 mt-3 text-center">
                   💡 {occupiedTimes.length} horario(s) ocupado(s) - Selecciona un horario disponible

@@ -1,11 +1,10 @@
 // app\admin\categorias\page.tsx
+// app\admin\categorias\page.tsx
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-// ← AGREGAR: Import del modal de asignación de servicios
 import CategoryServicesModal from '@/components/admin/CategoryServicesModal';
 
-// ← ACTUALIZAR: Interfaz con campo opcional para contador
 interface Categoria {
   id: number;
   nombre: string;
@@ -15,7 +14,6 @@ interface Categoria {
   imagen_url?: string | null;
   orden: number;
   activo: boolean;
-  // ← NUEVO: Campo opcional para contador de servicios (puede no venir del backend)
   servicios_count?: number;
 }
 
@@ -29,12 +27,12 @@ export default function AdminCategoriasPage() {
   const [filtroActivo, setFiltroActivo] = useState<string>('todos');
   const [busqueda, setBusqueda] = useState<string>('');
   
-  // Modal principal (crear/editar categoría)
+  // Modal principal
   const [modalAbierto, setModalAbierto] = useState(false);
   const [modoEdicion, setModoEdicion] = useState(false);
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<Categoria | null>(null);
   
-  // ← NUEVO: Estados para modal de asignación de servicios
+  // Modal de servicios
   const [modalServiciosAbierto, setModalServiciosAbierto] = useState(false);
   const [categoriaParaServicios, setCategoriaParaServicios] = useState<Categoria | null>(null);
   
@@ -55,7 +53,6 @@ export default function AdminCategoriasPage() {
   const [paginaActual, setPaginaActual] = useState(1);
   const [categoriasPorPagina, setCategoriasPorPagina] = useState(20);
 
-  // Íconos disponibles (emojis)
   const iconosDisponibles = [
     '✂️', '💇', '💅', '💄', '🧖', '🧘', '💆', '👁️', '👄', '🦶',
     '🎨', '🌟', '⭐', '🔥', '💎', '👑', '🌸', '🌺', '🌹', '💐',
@@ -67,7 +64,6 @@ export default function AdminCategoriasPage() {
     cargarCategorias();
   }, []);
 
-  // Resetear paginación al filtrar
   useEffect(() => {
     setPaginaActual(1);
   }, [filtroActivo, busqueda]);
@@ -96,7 +92,6 @@ export default function AdminCategoriasPage() {
       const data = await res.json();
       const categoriasList = Array.isArray(data) ? data : (data.results || []);
       
-      console.log('📦 Categorías cargadas:', categoriasList.length);
       setCategorias(categoriasList);
     } catch (err: any) {
       console.error('❌ Error cargando categorías:', err);
@@ -113,7 +108,7 @@ export default function AdminCategoriasPage() {
       nombre: '',
       icono: '',
       imagen: null,
-      orden: categorias.length > 0 ? Math.max(...categorias.map(c => c.orden)) + 1 : 0,
+      orden: categorias.length > 0 ? Math.max(...categorias.map(c => c.orden ?? 0)) + 1 : 0,
       activo: true,
     });
     setImagenFile(null);
@@ -136,7 +131,6 @@ export default function AdminCategoriasPage() {
     setModalAbierto(true);
   };
 
-  // ← NUEVA FUNCIÓN: Abrir modal de asignación de servicios
   const abrirModalServicios = (categoria: Categoria) => {
     setCategoriaParaServicios(categoria);
     setModalServiciosAbierto(true);
@@ -158,7 +152,6 @@ export default function AdminCategoriasPage() {
     }
   };
 
-  // ← FUNCIÓN PARA CORREGIR URLs DE IMÁGENES
   const getCorrectImageUrl = (url: string | null | undefined): string | null => {
     if (!url) return null;
     
@@ -180,114 +173,78 @@ export default function AdminCategoriasPage() {
     return url;
   };
 
-const guardarCategoria = async () => {
-  if (!formData.nombre?.trim()) {
-    alert('❌ El nombre es obligatorio');
-    return;
-  }
+  const guardarCategoria = async () => {
+    if (!formData.nombre?.trim()) {
+      alert('❌ El nombre es obligatorio');
+      return;
+    }
 
-  try {
-    setGuardando(true);
-    const token = localStorage.getItem('admin_token');
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
-    
-    console.log('💾 Guardando categoría...', { modoEdicion, formData });
-    
-    let res: Response;
-    let url: string;
-    
-    if (modoEdicion && categoriaSeleccionada) {
-      url = `${apiUrl}/categorias/${categoriaSeleccionada.id}/`;
-      console.log('🔗 URL:', url, '(PATCH + JSON)');
+    try {
+      setGuardando(true);
+      const token = localStorage.getItem('admin_token');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
       
-      const datosJson: any = {
-        nombre: formData.nombre,
-        orden: formData.orden,
-        activo: formData.activo,
-      };
+      let res: Response;
       
-      if (formData.icono) {
-        datosJson.icono = formData.icono;
-      }
-      
-      if (imagenFile) {
-        console.log('📎 Imagen nueva detectada, usando FormData solo para imagen...');
-        const formDataImagen = new FormData();
-        formDataImagen.append('imagen', imagenFile);
+      if (modoEdicion && categoriaSeleccionada) {
+        const datosJson: any = {
+          nombre: formData.nombre,
+          orden: formData.orden,
+          activo: formData.activo,
+        };
+        if (formData.icono) datosJson.icono = formData.icono;
         
-        const resImagen = await fetch(url, {
-          method: 'PATCH',
-          headers: { 'Authorization': `Bearer ${token}` },
-          body: formDataImagen,
-        });
-        
-        if (!resImagen.ok) {
-          console.error('❌ Error actualizando imagen:', resImagen.status);
+        if (imagenFile) {
+          const formDataImagen = new FormData();
+          formDataImagen.append('imagen', imagenFile);
+          await fetch(`${apiUrl}/categorias/${categoriaSeleccionada.id}/`, {
+            method: 'PATCH',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formDataImagen,
+          });
         }
-      }
-      
-      res = await fetch(url, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(datosJson),
-      });
-      
-    } else {
-      url = `${apiUrl}/categorias/`;
-      console.log('🔗 URL:', url, '(POST + FormData)');
-      
-      const datosFormData = new FormData();
-      if (formData.nombre) datosFormData.append('nombre', formData.nombre);
-      if (formData.icono) datosFormData.append('icono', formData.icono);
-      if (formData.orden !== undefined) datosFormData.append('orden', formData.orden.toString());
-      if (formData.activo !== undefined) datosFormData.append('activo', formData.activo.toString());
-      if (imagenFile) datosFormData.append('imagen', imagenFile);
-      
-      res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: datosFormData,
-      });
-    }
-
-    console.log('📥 Response status:', res.status);
-    
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
-      console.error('❌ Error del backend:', errorData);
-      
-      let errorMessage = `Error ${res.status}: `;
-      if (errorData.nombre) {
-        errorMessage += `Nombre: ${Array.isArray(errorData.nombre) ? errorData.nombre.join(', ') : errorData.nombre}`;
-      } else if (errorData.detail) {
-        errorMessage += errorData.detail;
+        
+        res = await fetch(`${apiUrl}/categorias/${categoriaSeleccionada.id}/`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(datosJson),
+        });
       } else {
-        errorMessage += 'Error al guardar categoría';
+        const datosFormData = new FormData();
+        if (formData.nombre) datosFormData.append('nombre', formData.nombre);
+        if (formData.icono) datosFormData.append('icono', formData.icono);
+        if (formData.orden !== undefined) datosFormData.append('orden', formData.orden.toString());
+        if (formData.activo !== undefined) datosFormData.append('activo', formData.activo.toString());
+        if (imagenFile) datosFormData.append('imagen', imagenFile);
+        
+        res = await fetch(`${apiUrl}/categorias/`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: datosFormData,
+        });
       }
-      
-      throw new Error(errorMessage);
-    }
 
-    const data = await res.json();
-    console.log('✅ Categoría guardada:', data);
-    
-    alert(`✅ Categoría ${modoEdicion ? 'actualizada' : 'creada'} exitosamente`);
-    setModalAbierto(false);
-    cargarCategorias();
-    
-  } catch (err: any) {
-    console.error('❌ Error guardando categoría:', err);
-    alert(`❌ Error: ${err.message}`);
-  } finally {
-    setGuardando(false);
-  }
-};
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || errorData.nombre?.[0] || 'Error al guardar');
+      }
+
+      alert(`✅ Categoría ${modoEdicion ? 'actualizada' : 'creada'} exitosamente`);
+      setModalAbierto(false);
+      cargarCategorias();
+    } catch (err: any) {
+      console.error('❌ Error guardando categoría:', err);
+      alert(`❌ Error: ${err.message}`);
+    } finally {
+      setGuardando(false);
+    }
+  };
 
   const eliminarCategoria = async (categoria: Categoria) => {
-    if (!confirm(`¿Estás seguro de eliminar la categoría "${categoria.nombre}"? Esta acción no se puede deshacer.`)) {
+    if (!confirm(`¿Estás seguro de eliminar la categoría "${categoria.nombre}"?`)) {
       return;
     }
 
@@ -333,7 +290,7 @@ const guardarCategoria = async () => {
     }
   };
 
-  // Filtros
+  // ← CORREGIR: Filtro con optional chaining para null-safety
   const categoriasFiltradas = categorias.filter((cat) => {
     if (filtroActivo !== 'todos') {
       const activo = filtroActivo === 'si';
@@ -341,7 +298,7 @@ const guardarCategoria = async () => {
     }
     if (busqueda) {
       const busquedaLower = busqueda.toLowerCase();
-      return cat.nombre.toLowerCase().includes(busquedaLower);
+      return cat.nombre?.toLowerCase().includes(busquedaLower);
     }
     return true;
   });
@@ -423,99 +380,108 @@ const guardarCategoria = async () => {
         </div>
       </div>
 
-      {/* Tabla de Categorías */}
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Orden</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ícono</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Imagen</th>
-                {/* ← NUEVA COLUMNA: Servicios */}
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicios</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {categoriasPaginadas.length === 0 ? (
-                <tr>
-                  {/* ← Actualizar colSpan a 7 por la nueva columna */}
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                    📭 No hay categorías registradas
-                  </td>
-                </tr>
-              ) : (
-                categoriasPaginadas.map((categoria) => (
-                  <tr key={categoria.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-sm font-medium text-gray-900">#{categoria.orden}</span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+      {/* ← GRID DE CARDS - Nuevo diseño igual que servicios */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        {categoriasPaginadas.length === 0 ? (
+          <div className="col-span-full py-12 text-center text-gray-500 bg-white rounded-xl shadow-lg">
+            📭 No hay categorías registradas
+          </div>
+        ) : (
+          categoriasPaginadas.map((categoria) => (
+            <div key={categoria.id} className="flex flex-col">
+              {/* Card clickeable para editar */}
+              <div
+                onClick={() => abrirModalEditar(categoria)}
+                className={`relative h-48 rounded-xl overflow-hidden cursor-pointer transition-all hover:shadow-2xl hover:scale-[1.02] ${
+                  !categoria.activo ? 'opacity-75 ring-2 ring-red-400' : 'ring-1 ring-gray-200'
+                }`}
+              >
+                {/* Imagen de fondo o fallback */}
+                {categoria.imagen_url ? (
+                  <img 
+                    src={getCorrectImageUrl(categoria.imagen_url)!} 
+                    alt={categoria.nombre}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="2"%3E%3Crect x="3" y="3" width="18" height="18" rx="2" ry="2"%3E%3C/rect%3E%3Ccircle cx="8.5" cy="8.5" r="1.5"%3E%3C/circle%3E%3Cpolyline points="21 15 16 10 5 21"%3E%3C/polyline%3E%3C/svg%3E';
+                    }}
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="absolute inset-0 bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center">
+                    <span className="text-5xl">{categoria.icono || '📁'}</span>
+                  </div>
+                )}
+                
+                {/* Overlay para contraste */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-transparent" />
+                
+                {/* Información sobre la imagen */}
+                <div className="absolute inset-0 p-3 flex flex-col justify-between text-white">
+                  {/* Badge de estado */}
+                  <div className="flex justify-end">
+                    {!categoria.activo && (
+                      <span className="px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full">Inactiva</span>
+                    )}
+                  </div>
+                  
+                  {/* Info principal */}
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
                       <span className="text-2xl">{categoria.icono || '📁'}</span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-sm font-medium text-gray-900">{categoria.nombre}</span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {categoria.imagen_url ? (
-                        <img 
-                          src={getCorrectImageUrl(categoria.imagen_url) || ''} 
-                          alt={categoria.nombre} 
-                          className="w-12 h-12 object-cover rounded-lg"
-                        />
-                      ) : (
-                        <span className="text-xs text-gray-400">Sin imagen</span>
-                      )}
-                    </td>
-                    {/* ← NUEVA CELDA: Botón para abrir modal de servicios */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <button
-                        onClick={() => abrirModalServicios(categoria)}
-                        className="text-indigo-600 hover:text-indigo-800 text-sm font-medium flex items-center gap-1"
-                        title="Gestionar servicios de esta categoría"
-                      >
-                        🛠️ {categoria.servicios_count ?? 0} servicios
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <button
-                        onClick={() => toggleActivo(categoria)}
-                        className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                          categoria.activo
-                            ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                      >
-                        {categoria.activo ? '✅ Activa' : '⏸️ Inactiva'}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => abrirModalEditar(categoria)}
-                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                          title="Editar"
-                        >
-                          ✏️ Editar
-                        </button>
-                        <button
-                          onClick={() => eliminarCategoria(categoria)}
-                          className="text-red-600 hover:text-red-800 text-sm font-medium"
-                          title="Eliminar"
-                        >
-                          🗑️ Eliminar
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                      <h3 className="font-bold text-sm leading-tight">{categoria.nombre}</h3>
+                    </div>
+                    <p className="text-xs text-gray-300">Orden: #{categoria.orden}</p>
+                  </div>
+                  
+                  {/* Badge de servicios */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-gray-300">
+                      {categoria.servicios_count ?? 0} servicios
+                    </span>
+                    <span className={`px-2 py-1 rounded-full text-[10px] font-semibold ${
+                      categoria.activo ? 'bg-green-500/80' : 'bg-gray-500/80'
+                    }`}>
+                      {categoria.activo ? '✅' : '⏸️'}
+                    </span>
+                  </div>
+                </div>
+                
+                {/* Indicador visual de clickeable */}
+                <div className="absolute top-2 right-2 w-6 h-6 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
+                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                </div>
+              </div>
+              
+              {/* Botones de acción FUERA de la card */}
+              <div className="flex items-center justify-between gap-1 mt-2 px-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    abrirModalServicios(categoria);
+                  }}
+                  className="flex-1 px-2 py-1.5 text-[10px] font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded transition-colors flex items-center justify-center gap-1"
+                  title="Gestionar servicios"
+                >
+                  🛠️ Servicios
+                </button>
+                
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    eliminarCategoria(categoria);
+                  }}
+                  className="flex-1 px-2 py-1.5 text-[10px] font-medium text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors flex items-center justify-center gap-1"
+                  title="Eliminar categoría"
+                >
+                  🗑️
+                </button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Paginación */}
@@ -559,136 +525,158 @@ const guardarCategoria = async () => {
         </div>
       )}
 
-      {/* Modal Crear/Editar */}
+      {/* ← MODAL HORIZONTAL TIPO CARNET */}
       {modalAbierto && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full my-8">
-            {/* Header */}
-            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-2">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col">
+            {/* Header compacto */}
+            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-3 rounded-t-2xl flex items-center justify-between flex-shrink-0">
               <div>
-                <h2 className="text-xl font-bold">
-                  {modoEdicion ? '✏️ Editar Categoría' : '➕ Nueva Categoría'}
+                <h2 className="text-lg font-bold">
+                  {modoEdicion ? '✏️ Editar' : '➕ Nueva'} Categoría
                 </h2>
-                <p className="text-sm opacity-90">
-                  {modoEdicion ? 'Actualiza la información' : 'Crea una nueva categoría'}
-                </p>
+                <p className="text-xs opacity-90">{categoriaSeleccionada?.nombre || 'Información de la categoría'}</p>
               </div>
               <button
                 onClick={() => setModalAbierto(false)}
-                className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center"
+                className="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            {/* Contenido */}
-            <div className="p-6 max-h-[70vh] overflow-y-auto space-y-4">
-              {/* Nombre */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Nombre *</label>
-                <input
-                  type="text"
-                  value={formData.nombre ?? ''}
-                  onChange={(e) => handleInputChange('nombre', e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="Ej: Peluquería, Estética, Uñas..."
-                />
-              </div>
-
-              {/* Ícono */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Ícono</label>
-                <div className="grid grid-cols-10 gap-2 mb-2">
-                  {iconosDisponibles.map((icono) => (
-                    <button
-                      key={icono}
-                      type="button"
-                      onClick={() => handleInputChange('icono', icono)}
-                      className={`text-2xl p-2 rounded-lg transition-colors ${
-                        formData.icono === icono
-                          ? 'bg-blue-100 border-2 border-blue-500'
-                          : 'bg-gray-100 hover:bg-gray-200'
-                      }`}
-                    >
-                      {icono}
-                    </button>
-                  ))}
+            {/* Contenido horizontal tipo carnet */}
+            <div className="p-4 overflow-y-auto flex-1">
+              <div className="grid grid-cols-3 gap-4">
+                
+                {/* ← Columna izquierda: Imagen grande */}
+                <div className="col-span-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Imagen</label>
+                  <div className="relative aspect-square bg-gray-100 rounded-xl overflow-hidden border-2 border-dashed border-gray-300 hover:border-blue-400 transition-colors">
+                    {imagenPreview ? (
+                      <img 
+                        src={getCorrectImageUrl(imagenPreview)!} 
+                        alt="Vista previa" 
+                        className="w-full h-full object-cover"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+                        <svg className="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <span className="text-xs">Subir imagen</span>
+                      </div>
+                    )}
+                  </div>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    onChange={handleImageChange} 
+                    className="w-full mt-2 px-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
-                <input
-                  type="text"
-                  value={formData.icono ?? ''}
-                  onChange={(e) => handleInputChange('icono', e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="O escribe un emoji: ✂️"
-                />
-              </div>
 
-              {/* Orden */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Orden</label>
-                <input
-                  type="number"
-                  value={formData.orden ?? ''}
-                  onChange={(e) => handleInputChange('orden', Number(e.target.value))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="0"
-                  min="0"
-                />
-                <p className="text-xs text-gray-500 mt-1">Las categorías con menor orden aparecen primero</p>
-              </div>
-
-              {/* Imagen */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Imagen</label>
-                {imagenPreview && (
-                  <div className="mb-2">
-                    <img 
-                      src={getCorrectImageUrl(imagenPreview) || ''} 
-                      alt="Vista previa" 
-                      className="w-32 h-32 object-cover rounded-lg"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
+                {/* ← Columna derecha: Información */}
+                <div className="col-span-2 space-y-3">
+                  {/* Fila 1: Nombre */}
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">Nombre *</label>
+                    <input
+                      type="text"
+                      value={formData.nombre ?? ''}
+                      onChange={(e) => handleInputChange('nombre', e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="Ej: Peluquería, Estética..."
                     />
                   </div>
-                )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
 
-              {/* Estado */}
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="activo"
-                  checked={formData.activo}
-                  onChange={(e) => handleInputChange('activo', e.target.checked)}
-                  className="w-4 h-4 text-blue-600 rounded"
-                />
-                <label htmlFor="activo" className="text-sm text-gray-700">
-                  ✅ Categoría activa (visible en el sitio)
-                </label>
+                  {/* Fila 2: Ícono selector */}
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">Ícono</label>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 grid grid-cols-8 gap-1 max-h-16 overflow-y-auto p-2 bg-gray-50 rounded-lg border">
+                        {iconosDisponibles.map((icono) => (
+                          <button
+                            key={icono}
+                            type="button"
+                            onClick={() => handleInputChange('icono', icono)}
+                            className={`text-lg p-1 rounded transition-colors ${
+                              formData.icono === icono
+                                ? 'bg-blue-100 border-2 border-blue-500'
+                                : 'hover:bg-gray-200'
+                            }`}
+                            title={icono}
+                          >
+                            {icono}
+                          </button>
+                        ))}
+                      </div>
+                      <input
+                        type="text"
+                        value={formData.icono ?? ''}
+                        onChange={(e) => handleInputChange('icono', e.target.value)}
+                        className="w-20 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        placeholder="✏️"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Fila 3: Orden y Estado */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-700 mb-1">Orden</label>
+                      <input
+                        type="number"
+                        value={formData.orden ?? ''}
+                        onChange={(e) => handleInputChange('orden', Number(e.target.value))}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        placeholder="0"
+                        min="0"
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <label className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 w-full">
+                        <input
+                          type="checkbox"
+                          checked={formData.activo}
+                          onChange={(e) => handleInputChange('activo', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 rounded"
+                        />
+                        <span className="text-[11px] text-gray-700 font-semibold">✅ Activa</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Vista previa compacta */}
+                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                    <h4 className="text-[11px] font-semibold text-blue-800 mb-2">👁️ Vista Previa</h4>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{formData.icono || '📁'}</span>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{formData.nombre || 'Nombre de categoría'}</p>
+                        <p className="text-[10px] text-gray-500">Orden: #{formData.orden || 0}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
             {/* Footer */}
-            <div className="sticky bottom-0 bg-gray-50 px-6 py-4 border-t border-gray-200 rounded-b-2xl flex gap-3">
+            <div className="sticky bottom-0 bg-gray-50 px-4 py-3 border-t border-gray-200 rounded-b-2xl flex gap-2 flex-shrink-0">
               <button
                 onClick={() => setModalAbierto(false)}
-                className="flex-1 px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors"
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors"
               >
                 Cancelar
               </button>
               <button
                 onClick={guardarCategoria}
                 disabled={guardando}
-                className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {guardando ? 'Guardando...' : (modoEdicion ? 'Actualizar' : 'Crear')}
               </button>
@@ -697,7 +685,7 @@ const guardarCategoria = async () => {
         </div>
       )}
 
-      {/* ← NUEVO: Modal de Asignación de Servicios (al final, antes de cerrar el return) */}
+      {/* Modal de Asignación de Servicios */}
       {modalServiciosAbierto && categoriaParaServicios && (
         <CategoryServicesModal
           isOpen={modalServiciosAbierto}
@@ -707,10 +695,7 @@ const guardarCategoria = async () => {
           }}
           categoriaId={categoriaParaServicios.id}
           categoriaNombre={categoriaParaServicios.nombre}
-          onServicesUpdated={() => {
-            // Refrescar lista de categorías para actualizar contador
-            cargarCategorias();
-          }}
+          onServicesUpdated={() => cargarCategorias()}
         />
       )}
     </div>

@@ -338,10 +338,10 @@ const heroMobileImage = getImageUrl(
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
             {categorias.slice(0, 8).map((categoria) => (
               <Link
-                key={categoria.id}
-                href={`/servicios?categoria=${categoria.id}`}
-                className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow group"
-              >
+                  key={categoria.id}
+                  href={`/categorias/${categoria.slug}`}  // ← Esto lleva a /categorias/barberia
+                  className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow group"
+                >
                 <div className="relative h-40 overflow-hidden">
                   {categoria.imagen_url || categoria.imagen ? (
                     <img

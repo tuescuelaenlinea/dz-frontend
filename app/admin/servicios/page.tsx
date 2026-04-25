@@ -9,7 +9,7 @@ interface Categoria {
   nombre: string;
   slug: string;
   activo: boolean;
-  icono?: string | null;  // ← AGREGADO: propiedad opcional
+  icono?: string | null;
 }
 
 interface Servicio {
@@ -79,10 +79,9 @@ export default function AdminServiciosPage() {
   });
 
   const abrirModalProfesionales = (servicio: Servicio) => {
-  setServicioParaProfesionales(servicio);
-  setModalProfesionalesAbierto(true);
-};
-
+    setServicioParaProfesionales(servicio);
+    setModalProfesionalesAbierto(true);
+  };
   
   const [imagenFile, setImagenFile] = useState<File | null>(null);
   const [imagenPreview, setImagenPreview] = useState<string | null>(null);
@@ -97,112 +96,85 @@ export default function AdminServiciosPage() {
     cargarCategorias();
   }, [mostrarInactivos]);
 
-  // Resetear paginación al filtrar
   useEffect(() => {
     setPaginaActual(1);
   }, [filtroCategoria, filtroDisponible, busqueda]);
 
-const cargarServicios = async () => {
-  try {
-    setLoading(true);
-    const token = localStorage.getItem('admin_token');
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
-    
-    if (!token) {
-      router.push('/admin/login');
-      return;
-    }
-    
-    console.log('🔄 Cargando servicios con paginación corregida...');
-    
-    let todosLosServicios: Servicio[] = [];
-    
-    // ← URL INICIAL CON PAGE_SIZE GRANDE (aunque el backend lo ignore)
-    let url: string = `${apiUrl}/servicios/?ordering=nombre&page_size=1000`;
-    if (mostrarInactivos) {
-      url += '&incluir_inactivos=true';  // ← AGREGAR ESTO
-    }
-    let pageCount = 0;
-    const maxPages = 20; // Límite de seguridad
-    
-    while (url && pageCount < maxPages) {
-      pageCount++;
-      console.log(`📡 Página ${pageCount}:`, url);
+  const cargarServicios = async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('admin_token');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
       
-      // ← CORREGIR URL: Reemplazar HTTPS/IP por la apiUrl correcta
-      const correctedUrl = url
-        .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
-        .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''));
-      
-      console.log(`🔗 URL corregida:`, correctedUrl);
-      
-      const res: Response = await fetch(correctedUrl, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!res.ok) {
-        console.error(`❌ Error HTTP ${res.status}:`, res.statusText);
-        if (res.status === 401) {
-          router.push('/admin/login');
-          return;
-        }
-        throw new Error(`Error ${res.status}: ${res.statusText}`);
+      if (!token) {
+        router.push('/admin/login');
+        return;
       }
-
-      const data = await res.json();
       
-      // Si es respuesta paginada
-      if (data.results && Array.isArray(data.results)) {
-        todosLosServicios = [...todosLosServicios, ...data.results];
-        console.log(`📄 Página ${pageCount} cargada. Total acumulado: ${todosLosServicios.length}`);
+      let todosLosServicios: Servicio[] = [];
+      let url: string = `${apiUrl}/servicios/?ordering=nombre&page_size=1000`;
+      if (mostrarInactivos) {
+        url += '&incluir_inactivos=true';
+      }
+      let pageCount = 0;
+      const maxPages = 20;
+      
+      while (url && pageCount < maxPages) {
+        pageCount++;
+        const correctedUrl = url
+          .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
+          .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''));
         
-        // ← CORREGIR LA URL DE 'next' ANTES DE USARLA
-        if (data.next) {
-          url = data.next
-            .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
-            .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''));
-          console.log(`🔗 Siguiente página corregida:`, url);
-        } else {
-          url = ''; // No hay más páginas
-          console.log('✅ No hay más páginas');
+        const res: Response = await fetch(correctedUrl, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!res.ok) {
+          if (res.status === 401) {
+            router.push('/admin/login');
+            return;
+          }
+          throw new Error(`Error ${res.status}: ${res.statusText}`);
         }
-      } 
-      // Si es array directo (no paginado)
-      else if (Array.isArray(data)) {
-        todosLosServicios = data;
-        console.log(`✅ Carga completa (array directo): ${todosLosServicios.length} servicios`);
-        break;
+
+        const data = await res.json();
+        
+        if (data.results && Array.isArray(data.results)) {
+          todosLosServicios = [...todosLosServicios, ...data.results];
+          
+          if (data.next) {
+            url = data.next
+              .replace('https://179.43.112.64', apiUrl.replace('/api', ''))
+              .replace('http://179.43.112.64:8080', apiUrl.replace('/api', ''));
+          } else {
+            url = '';
+          }
+        } else if (Array.isArray(data)) {
+          todosLosServicios = data;
+          break;
+        } else {
+          break;
+        }
       }
-      // Formato inesperado
-      else {
-        console.warn('⚠️ Formato de respuesta inesperado:', data);
-        break;
-      }
+      
+      setServicios(todosLosServicios);
+      
+    } catch (err: any) {
+      console.error('❌ Error cargando servicios:', err);
+      setError(err.message || 'Error al cargar servicios');
+    } finally {
+      setLoading(false);
     }
-    
-    if (pageCount >= maxPages) {
-      console.warn(`⚠️ Se alcanzó el límite de ${maxPages} páginas`);
-    }
-    
-    console.log(`✅ Total final de servicios cargados: ${todosLosServicios.length}`);
-    setServicios(todosLosServicios);
-    
-  } catch (err: any) {
-    console.error('❌ Error cargando servicios:', err);
-    setError(err.message || 'Error al cargar servicios');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
+
   const cargarCategorias = async () => {
     try {
       const token = localStorage.getItem('admin_token');
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
       
-      // ← AGREGAR TIPO EXPLÍCITO: Response
       const res: Response = await fetch(`${apiUrl}/categorias/?activo=true`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -246,7 +218,6 @@ const cargarServicios = async () => {
 
   const abrirModalEditar = (servicio: Servicio) => {
     console.log('✏️ Editando servicio:', servicio);
-    console.log('🖼️ Imagen del servicio:', servicio.imagen, servicio.imagen_url);
     
     setModoEdicion(true);
     setServicioSeleccionado(servicio);
@@ -254,22 +225,22 @@ const cargarServicios = async () => {
       nombre: servicio.nombre,
       descripcion: servicio.descripcion,
       descripcion_corta: servicio.descripcion_corta,
-      categoria: servicio.categoria,
+      categoria: servicio.categoria ?? 0,
       tipo_precio: servicio.tipo_precio,
       precio_min: servicio.precio_min,
-      precio_max: servicio.precio_max || '',
-      duracion: servicio.duracion,
-      sesiones_incluidas: servicio.sesiones_incluidas,
-      es_medico: servicio.es_medico,
-      requiere_valoracion: servicio.requiere_valoracion,
-      disponible_salon: servicio.disponible_salon,
-      disponible_domicilio: servicio.disponible_domicilio,
-      adicional_domicilio: servicio.adicional_domicilio,
-      destacado: servicio.destacado,
-      disponible: servicio.disponible,
+      precio_max: servicio.precio_max ?? '',
+      duracion: servicio.duracion ?? '',
+      sesiones_incluidas: servicio.sesiones_incluidas ?? 1,
+      es_medico: servicio.es_medico ?? false,
+      requiere_valoracion: servicio.requiere_valoracion ?? false,
+      disponible_salon: servicio.disponible_salon ?? true,
+      disponible_domicilio: servicio.disponible_domicilio ?? false,
+      adicional_domicilio: servicio.adicional_domicilio ?? '0',
+      destacado: servicio.destacado ?? false,
+      disponible: servicio.disponible ?? true,
     });
     
-    setImagenPreview(servicio.imagen_url || null);
+    setImagenPreview(servicio.imagen_url ?? null);
     setImagenFile(null);
     setModalAbierto(true);
   };
@@ -290,17 +261,13 @@ const cargarServicios = async () => {
     }
   };
 
-  // ← FUNCIÓN PARA CORREGIR URLs DE IMÁGENES (IP → DOMINIO)
   const getCorrectImageUrl = (url: string | null | undefined): string | null => {
     if (!url) return null;
-    
     const API_DOMAIN = 'https://api.dzsalon.com';
     const IP_PATTERN = /https:\/\/179\.43\.112\.64/;
-    
     if (IP_PATTERN.test(url)) {
       return url.replace(IP_PATTERN, API_DOMAIN);
     }
-    
     return url;
   };
 
@@ -327,7 +294,13 @@ const cargarServicios = async () => {
       
       Object.entries(formData).forEach(([key, value]) => {
         if (value !== null && value !== undefined) {
-          datosFormData.append(key, value.toString());
+          if (typeof value === 'boolean') {
+            datosFormData.append(key, value ? '1' : '0');
+          } else if (typeof value === 'number') {
+            datosFormData.append(key, value.toString());
+          } else {
+            datosFormData.append(key, String(value));
+          }
         }
       });
       
@@ -335,7 +308,7 @@ const cargarServicios = async () => {
         datosFormData.append('imagen', imagenFile);
       }
 
-      let res: Response;  // ← AGREGAR TIPO EXPLÍCITO
+      let res: Response;
       if (modoEdicion && servicioSeleccionado) {
         res = await fetch(`${apiUrl}/servicios/${servicioSeleccionado.id}/`, {
           method: 'PUT',
@@ -379,7 +352,6 @@ const cargarServicios = async () => {
       const token = localStorage.getItem('admin_token');
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
       
-      // ← AGREGAR TIPO EXPLÍCITO: Response
       const res: Response = await fetch(`${apiUrl}/servicios/${servicio.id}/`, {
         method: 'DELETE',
         headers: {
@@ -399,10 +371,9 @@ const cargarServicios = async () => {
     }
   };
 
-  // Filtros - ← AGREGAR TIPOS EXPLÍCITOS EN CALLBACKS
-  // Filtros - ← AGREGAR VALIDACIÓN NULL-SAFE
   const serviciosFiltrados = servicios.filter((servicio: Servicio) => {
-    if (filtroCategoria !== 'todas' && servicio.categoria.toString() !== filtroCategoria) {
+    // ← CORREGIR: Optional chaining para evitar null.toString()
+    if (filtroCategoria !== 'todas' && servicio.categoria?.toString() !== filtroCategoria) {
       return false;
     }
     
@@ -426,7 +397,7 @@ const cargarServicios = async () => {
     
     return true;
   });
-  // Paginación
+
   const indiceUltimo = paginaActual * serviciosPorPagina;
   const indicePrimero = indiceUltimo - serviciosPorPagina;
   const serviciosPaginados = serviciosFiltrados.slice(indicePrimero, indiceUltimo);
@@ -472,7 +443,6 @@ const cargarServicios = async () => {
       {/* Filtros */}
       <div className="bg-white rounded-xl shadow-lg p-4 lg:p-6 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Búsqueda */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">🔍 Buscar</label>
             <input
@@ -484,7 +454,6 @@ const cargarServicios = async () => {
             />
           </div>
 
-          {/* Filtro por Categoría */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Categoría</label>
             <select
@@ -493,7 +462,7 @@ const cargarServicios = async () => {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
             >
               <option value="todas">Todas</option>
-              {categorias.map((cat: Categoria) => (  // ← TIPO EXPLÍCITO
+              {categorias.map((cat: Categoria) => (
                 <option key={cat.id} value={cat.id.toString()}>
                   {cat.nombre}
                 </option>
@@ -501,7 +470,6 @@ const cargarServicios = async () => {
             </select>
           </div>
 
-          {/* Filtro por Disponible */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Estado</label>
             <select
@@ -516,14 +484,10 @@ const cargarServicios = async () => {
           </div>
         </div>
 
-        {/* Contador */}
         <div className="mt-4 flex justify-between items-center">
           <p className="text-sm text-gray-600">
             Mostrando <strong>{serviciosFiltrados.length}</strong> de <strong>{servicios.length}</strong> servicios
-
           </p>
-
-
           <button
             onClick={() => {
               setFiltroCategoria('todas');
@@ -537,152 +501,129 @@ const cargarServicios = async () => {
         </div>
       </div>
 
-
-      {/* Tabla de Servicios */}
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Imagen</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoría</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Precio</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duración</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Profesionales</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
-
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {serviciosPaginados.length === 0 ? (
-                <tr>
-                  {/* ← Actualizar colSpan a 8 porque ahora hay 8 columnas */}
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                    📭 No hay servicios que mostrar
-                  </td>
-                </tr>
-              ) : (
-                serviciosPaginados.map((servicio) => (
-                  <tr key={servicio.id} className="hover:bg-gray-50 transition-colors">
-                    
-                    {/* Columna 1: Imagen */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {servicio.imagen_url ? (
-                        <img 
-                          src={getCorrectImageUrl(servicio.imagen_url) || ''} 
-                          alt={servicio.nombre} 
-                          className="w-12 h-12 object-cover rounded-lg"
-                          onError={(e) => {
-                            console.error('❌ Error cargando imagen:', servicio.imagen_url);
-                            (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="2"%3E%3Crect x="3" y="3" width="18" height="18" rx="2" ry="2"%3E%3C/rect%3E%3Ccircle cx="8.5" cy="8.5" r="1.5"%3E%3C/circle%3E%3Cpolyline points="21 15 16 10 5 21"%3E%3C/polyline%3E%3C/svg%3E';
-                          }}
-                        />
+      {/* GRID DE CARDS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-10 gap-4">
+        {serviciosPaginados.length === 0 ? (
+          <div className="col-span-full py-12 text-center text-gray-500 bg-white rounded-xl shadow-lg">
+            📭 No hay servicios que mostrar
+          </div>
+        ) : (
+          serviciosPaginados.map((servicio) => (
+            <div key={servicio.id} className="flex flex-col">
+              {/* Card con información sobre la imagen */}
+              <div
+                onClick={() => abrirModalEditar(servicio)}
+                className={`relative h-48 rounded-xl overflow-hidden cursor-pointer transition-all hover:shadow-2xl hover:scale-105 ${
+                  !servicio.disponible ? 'opacity-75 ring-2 ring-red-400' : 'ring-1 ring-gray-200'
+                }`}
+              >
+                {servicio.imagen_url ? (
+                  <img 
+                    src={getCorrectImageUrl(servicio.imagen_url) || ''} 
+                    alt={servicio.nombre} 
+                    className="absolute inset-0 w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="2"%3E%3Crect x="3" y="3" width="18" height="18" rx="2" ry="2"%3E%3C/rect%3E%3Ccircle cx="8.5" cy="8.5" r="1.5"%3E%3C/circle%3E%3Cpolyline points="21 15 16 10 5 21"%3E%3C/polyline%3E%3C/svg%3E';
+                    }}
+                  />
+                ) : (
+                  <div className="absolute inset-0 bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center">
+                    <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                )}
+                
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-transparent" />
+                
+                <div className="absolute inset-0 p-3 flex flex-col justify-between text-white">
+                  <div className="flex flex-wrap gap-1">
+                    {servicio.destacado && (
+                      <span className="px-2 py-0.5 bg-yellow-400 text-yellow-900 text-[10px] font-bold rounded-full">⭐</span>
+                    )}
+                    {!servicio.disponible && (
+                      <span className="px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full">INACTIVO</span>
+                    )}
+                    {servicio.es_medico && (
+                      <span className="px-2 py-0.5 bg-purple-500 text-white text-[10px] font-bold rounded-full">🩺</span>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <h3 className="font-bold text-sm line-clamp-2 leading-tight">{servicio.nombre}</h3>
+                    <p className="text-xs text-gray-300 line-clamp-1">
+                      {servicio.categoria_nombre ? (
+                        <>📁 {servicio.categoria_nombre}</>
                       ) : (
-                        <div className="w-12 h-12 bg-gray-200 rounded-lg flex items-center justify-center">
-                          <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                        </div>
+                        <span className="text-yellow-300/80">⚠️ Sin categoría</span>
                       )}
-                    </td>
-                    
-                    {/* Columna 2: Nombre */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">{servicio.nombre}</div>
-                          {servicio.destacado && (
-                            <span className="text-xs text-yellow-600">⭐ Destacado</span>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    
-                    {/* Columna 3: Categoría */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-sm text-gray-900">{servicio.categoria_nombre}</span>
-                    </td>
-                    
-                    {/* Columna 4: Precio */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
+                    </p>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-base font-bold text-green-400">
                         {servicio.tipo_precio === 'rango' 
                           ? `${formatPrice(servicio.precio_min)} - ${formatPrice(servicio.precio_max || '0')}`
                           : formatPrice(servicio.precio_min)
                         }
-                      </div>
-                    </td>
-                    
-                    {/* Columna 5: Duración */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-sm text-gray-900">{servicio.duracion || 'N/A'}</span>
-                    </td>
-                    
-                    {/* Columna 6: Estado */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex flex-col gap-1">
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                          servicio.disponible 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          {servicio.disponible ? '✅ Disponible' : '❌ No disponible'}
-                        </span>
-                        {servicio.es_medico && (
-                          <span className="px-2 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800">
-                            🩺 Médico
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    
-                    {/* ← Columna 7 NUEVA: Profesionales */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          console.log('🔗 Clic en profesionales:', servicio.id, servicio.nombre);
-                          abrirModalProfesionales(servicio);
-                        }}
-                        onMouseDown={(e) => e.preventDefault()}
-                        className="text-indigo-600 hover:text-indigo-800 text-sm font-medium flex items-center gap-1 cursor-pointer"
-                        title="Gestionar profesionales de este servicio"
-                        disabled={!servicio?.id}
-                      >
-                        👥 {servicio.profesionales_count ?? 0} profesionales
-                      </button>
-                    </td>
-                    
-                    {/* Columna 8: Acciones */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => abrirModalEditar(servicio)}
-                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                          title="Editar"
-                        >
-                          ✏️ Editar
-                        </button>
-                        <button
-                          onClick={() => eliminarServicio(servicio)}
-                          className="text-red-600 hover:text-red-800 text-sm font-medium"
-                          title="Eliminar"
-                        >
-                          🗑️ Eliminar
-                        </button>
-                      </div>
-                    </td>
-                    
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                      </span>
+                      <span className="text-[10px] text-gray-300">{servicio.duracion || 'N/A'}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {servicio.disponible_salon && (
+                        <span className="px-1.5 py-0.5 bg-white/20 backdrop-blur-sm text-[9px] rounded">🏠</span>
+                      )}
+                      {servicio.disponible_domicilio && (
+                        <span className="px-1.5 py-0.5 bg-white/20 backdrop-blur-sm text-[9px] rounded">🚗</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="absolute top-2 right-2 w-6 h-6 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
+                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                </div>
+              </div>
+              
+              {/* Botones de acción FUERA de la card */}
+              <div className="flex items-center justify-between gap-1 mt-2 px-1">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    abrirModalProfesionales(servicio);
+                  }}
+                  className="flex-1 px-2 py-1.5 text-[10px] font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded transition-colors flex items-center justify-center gap-1"
+                  title="Gestionar profesionales"
+                >
+                  👥 {servicio.profesionales_count ?? 0}
+                </button>
+                
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    abrirModalEditar(servicio);
+                  }}
+                  className="flex-1 px-2 py-1.5 text-[10px] font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors flex items-center justify-center gap-1"
+                  title="Editar"
+                >
+                  ✏️
+                </button>
+                
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    eliminarServicio(servicio);
+                  }}
+                  className="flex-1 px-2 py-1.5 text-[10px] font-medium text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors flex items-center justify-center gap-1"
+                  title="Eliminar"
+                >
+                  🗑️
+                </button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Paginación */}
@@ -729,260 +670,250 @@ const cargarServicios = async () => {
         </div>
       )}
 
-      {/* Modal Crear/Editar */}
+      {/* ← MODAL COMPACTO SIN SCROLL */}
       {modalAbierto && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full my-8">
-            {/* Header */}
-            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-2">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col">
+            {/* Header compacto */}
+            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-3 rounded-t-xl flex items-center justify-between flex-shrink-0">
               <div>
-                <h2 className="text-xl font-bold">
-                  {modoEdicion ? '✏️ Editar Servicio' : '➕ Nuevo Servicio'}
+                <h2 className="text-lg font-bold">
+                  {modoEdicion ? '✏️ Editar' : '➕ Nuevo'}
                 </h2>
-                <p className="text-sm opacity-90">
-                  {modoEdicion ? 'Actualiza la información del servicio' : 'Crea un nuevo servicio'}
+                <p className="text-xs opacity-90">
+                  {servicioSeleccionado?.nombre || 'Servicio'}
                 </p>
               </div>
               <button
                 onClick={() => setModalAbierto(false)}
-                className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center"
+                className="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            {/* Contenido */}
-            <div className="p-6 max-h-[70vh] overflow-y-auto">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Nombre */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Nombre *</label>
-                  <input
-                    type="text"
-                    value={formData.nombre}
-                    onChange={(e) => handleInputChange('nombre', e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="Ej: Corte de Cabello Dama"
-                  />
-                </div>
-
-                {/* Categoría */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Categoría *</label>
-                  <select
-                    value={formData.categoria}
-                    onChange={(e) => handleInputChange('categoria', Number(e.target.value))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value={0}>Seleccionar...</option>
-                    {categorias.map((cat: Categoria) => (  // ← TIPO EXPLÍCITO
-                      <option key={cat.id} value={cat.id}>{cat.nombre}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Tipo de Precio */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Tipo de Precio</label>
-                  <select
-                    value={formData.tipo_precio}
-                    onChange={(e) => handleInputChange('tipo_precio', e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="fijo">Precio Fijo</option>
-                    <option value="rango">Rango de Precios</option>
-                    <option value="desde">Precio Desde</option>
-                  </select>
-                </div>
-
-                {/* Precio Mínimo */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Precio Mínimo *</label>
-                  <input
-                    type="number"
-                    value={formData.precio_min}
-                    onChange={(e) => handleInputChange('precio_min', e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="0"
-                  />
-                </div>
-
-                {/* Precio Máximo */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Precio Máximo</label>
-                  <input
-                    type="number"
-                    value={formData.precio_max ?? ''}  // ← AGREGAR ?? '' para convertir null a ''
-                    onChange={(e) => handleInputChange('precio_max', e.target.value)}
-                    disabled={formData.tipo_precio !== 'rango'}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-                    placeholder="0"
-                  />
-                </div>
-
-                {/* Duración */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Duración</label>
-                  <input
-                    type="text"
-                    value={formData.duracion  ?? ''}
-                    onChange={(e) => handleInputChange('duracion', e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="Ej: 60 minutos"
-                  />
-                </div>
-
-                {/* Sesiones Incluidas */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Sesiones Incluidas</label>
-                  <input
-                    type="number"
-                    value={formData.sesiones_incluidas  ?? ''}
-                    onChange={(e) => handleInputChange('sesiones_incluidas', Number(e.target.value))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    min="1"
-                  />
-                </div>
-
-                {/* Descripción Corta */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Descripción Corta</label>
-                  <input
-                    type="text"
-                    value={formData.descripcion_corta  ?? ''}
-                    onChange={(e) => handleInputChange('descripcion_corta', e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="Breve descripción para listados"
-                  />
-                </div>
-
-                {/* Descripción Larga */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Descripción Completa</label>
-                  <textarea
-                    value={formData.descripcion  ?? ''}
-                    onChange={(e) => handleInputChange('descripcion', e.target.value)}
-                    rows={4}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="Descripción detallada del servicio"
-                  />
-                </div>
-
-                {/* Imagen */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Imagen</label>
-                  {imagenPreview && (
-                    <div className="mb-2">
-                      <img 
-                        src={getCorrectImageUrl(imagenPreview) || ''} 
-                        alt="Vista previa" 
-                        className="w-32 h-32 object-cover rounded-lg"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    </div>
-                  )}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                {/* Checkboxes - Columna 1 */}
+            {/* Contenido compacto - Grid 3 columnas */}
+            <div className="p-4 overflow-y-auto flex-1">
+              <div className="grid grid-cols-3 gap-3">
+                {/* Columna 1: Datos básicos */}
                 <div className="space-y-3">
-                  <label className="flex items-center gap-2">
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">Nombre *</label>
                     <input
-                      type="checkbox"
-                      checked={formData.es_medico}
-                      onChange={(e) => handleInputChange('es_medico', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 rounded"
+                      type="text"
+                      value={formData.nombre}
+                      onChange={(e) => handleInputChange('nombre', e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                      placeholder="Nombre del servicio"
                     />
-                    <span className="text-sm text-gray-700">🩺 Es servicio médico</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={formData.requiere_valoracion}
-                      onChange={(e) => handleInputChange('requiere_valoracion', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 rounded"
-                    />
-                    <span className="text-sm text-gray-700">⭐ Requiere valoración</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={formData.destacado}
-                      onChange={(e) => handleInputChange('destacado', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 rounded"
-                    />
-                    <span className="text-sm text-gray-700">⭐ Destacado</span>
-                  </label>
-                </div>
-
-                {/* Checkboxes - Columna 2 */}
-                <div className="space-y-3">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={formData.disponible_salon}
-                      onChange={(e) => handleInputChange('disponible_salon', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 rounded"
-                    />
-                    <span className="text-sm text-gray-700">🏠 Disponible en salón</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={formData.disponible_domicilio}
-                      onChange={(e) => handleInputChange('disponible_domicilio', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 rounded"
-                    />
-                    <span className="text-sm text-gray-700">🚗 Disponible a domicilio</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={formData.disponible}
-                      onChange={(e) => handleInputChange('disponible', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 rounded"
-                    />
-                    <span className="text-sm text-gray-700">✅ Activo/Disponible</span>
-                  </label>
-                </div>
-
-                {/* Adicional Domicilio */}
-                {formData.disponible_domicilio && (
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Adicional a Domicilio</label>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">Categoría *</label>
+                    <select
+                      value={formData.categoria ?? 0}
+                      onChange={(e) => handleInputChange('categoria', Number(e.target.value))}
+                      className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value={0}>Seleccionar...</option>
+                      {categorias.map((cat: Categoria) => (
+                        <option key={cat.id} value={cat.id}>{cat.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">Tipo Precio</label>
+                    <select
+                      value={formData.tipo_precio}
+                      onChange={(e) => handleInputChange('tipo_precio', e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value="fijo">Fijo</option>
+                      <option value="rango">Rango</option>
+                      <option value="desde">Desde</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">Precio Mín *</label>
                     <input
                       type="number"
-                      value={formData.adicional_domicilio  ?? ''}
-                      onChange={(e) => handleInputChange('adicional_domicilio', e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={formData.precio_min}
+                      onChange={(e) => handleInputChange('precio_min', e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
                       placeholder="0"
                     />
                   </div>
-                )}
+                  
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">Precio Max</label>
+                    <input
+                      type="number"
+                      value={formData.precio_max ?? ''}
+                      onChange={(e) => handleInputChange('precio_max', e.target.value)}
+                      disabled={formData.tipo_precio !== 'rango'}
+                      className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+
+                {/* Columna 2: Detalles */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">Duración</label>
+                    <input
+                      type="text"
+                      value={formData.duracion ?? ''}
+                      onChange={(e) => handleInputChange('duracion', e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                      placeholder="Ej: 45 min"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">Sesiones</label>
+                    <input
+                      type="number"
+                      value={formData.sesiones_incluidas ?? ''}
+                      onChange={(e) => handleInputChange('sesiones_incluidas', Number(e.target.value))}
+                      className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                      min="1"
+                    />
+                  </div>
+                  
+                  <div className="col-span-1">
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">Desc. Corta</label>
+                    <input
+                      type="text"
+                      value={formData.descripcion_corta ?? ''}
+                      onChange={(e) => handleInputChange('descripcion_corta', e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                      placeholder="Breve descripción"
+                    />
+                  </div>
+                  
+                  <div className="col-span-1">
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">Imagen</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageChange}
+                      className="w-full px-2 py-1 text-[10px] border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                    />
+                    {imagenPreview && (
+                      <img 
+                        src={getCorrectImageUrl(imagenPreview) || ''} 
+                        alt="Preview" 
+                        className="w-16 h-16 object-cover rounded mt-2"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Columna 3: Descripciones y opciones */}
+                <div className="space-y-3">
+                  <div className="col-span-1">
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">Descripción</label>
+                    <textarea
+                      value={formData.descripcion ?? ''}
+                      onChange={(e) => handleInputChange('descripcion', e.target.value)}
+                      rows={3}
+                      className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 resize-none"
+                      placeholder="Descripción detallada"
+                    />
+                  </div>
+                  
+                  {/* Checkboxes compactos */}
+                  <div className="grid grid-cols-2 gap-2 pt-2">
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={formData.es_medico}
+                        onChange={(e) => handleInputChange('es_medico', e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 rounded"
+                      />
+                      <span className="text-[10px] text-gray-700">🩺 Médico</span>
+                    </label>
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={formData.requiere_valoracion}
+                        onChange={(e) => handleInputChange('requiere_valoracion', e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 rounded"
+                      />
+                      <span className="text-[10px] text-gray-700">⭐ Valora</span>
+                    </label>
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={formData.destacado}
+                        onChange={(e) => handleInputChange('destacado', e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 rounded"
+                      />
+                      <span className="text-[10px] text-gray-700">⭐ Destacado</span>
+                    </label>
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={formData.disponible_salon}
+                        onChange={(e) => handleInputChange('disponible_salon', e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 rounded"
+                      />
+                      <span className="text-[10px] text-gray-700">🏠 Salón</span>
+                    </label>
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={formData.disponible_domicilio}
+                        onChange={(e) => handleInputChange('disponible_domicilio', e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 rounded"
+                      />
+                      <span className="text-[10px] text-gray-700">🚗 Domicilio</span>
+                    </label>
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={formData.disponible}
+                        onChange={(e) => handleInputChange('disponible', e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 rounded"
+                      />
+                      <span className="text-[10px] text-gray-700 font-semibold">✅ Activo</span>
+                    </label>
+                  </div>
+                  
+                  {formData.disponible_domicilio && (
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-700 mb-1">Adic. Domicilio</label>
+                      <input
+                        type="number"
+                        value={formData.adicional_domicilio ?? ''}
+                        onChange={(e) => handleInputChange('adicional_domicilio', e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                        placeholder="0"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Footer */}
-            <div className="sticky bottom-0 bg-gray-50 px-6 py-4 border-t border-gray-200 rounded-b-2xl flex gap-3">
+            {/* Footer compacto */}
+            <div className="sticky bottom-0 bg-gray-50 px-4 py-3 border-t border-gray-200 rounded-b-xl flex gap-2 flex-shrink-0">
               <button
                 onClick={() => setModalAbierto(false)}
-                className="flex-1 px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors"
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors"
               >
                 Cancelar
               </button>
               <button
                 onClick={guardarServicio}
                 disabled={guardando}
-                className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {guardando ? 'Guardando...' : (modoEdicion ? 'Actualizar' : 'Crear')}
               </button>
@@ -990,6 +921,7 @@ const cargarServicios = async () => {
           </div>
         </div>
       )}
+      
       {modalProfesionalesAbierto && servicioParaProfesionales && (
         <ServicioProfesionalesModal
           isOpen={modalProfesionalesAbierto}

@@ -1,3 +1,4 @@
+// app\admin\profesionales\page.tsx
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -53,7 +54,6 @@ interface Profesional {
   telefono_whatsapp: string;
   email_notificaciones: string;
   activo_reservas: boolean;
-  // ← NUEVO: Campo porcentaje_global
   porcentaje_global?: number | string;
   serviciosCount?: number;
   servicios?: Array<{id: number; nombre: string}>;
@@ -61,7 +61,6 @@ interface Profesional {
   citas_pendientes?: number;
 }
 
-// ← AGREGAR ESTA FUNCIÓN (fuera del componente AdminProfesionalesPage):
 const fixPaginationUrl = (nextUrl: string, apiUrl: string): string => {
   try {
     const next = new URL(nextUrl);
@@ -110,7 +109,6 @@ export default function AdminProfesionalesPage() {
     telefono_whatsapp: '',
     email_notificaciones: '',
     activo_reservas: true,
-    // ← NUEVO: Porcentaje global por defecto
     porcentaje_global: 50.00,
     servicios: [],
   });
@@ -123,8 +121,6 @@ export default function AdminProfesionalesPage() {
   const [modalServiciosAbierto, setModalServiciosAbierto] = useState(false);
   const [serviciosSeleccionados, setServiciosSeleccionados] = useState<number[]>([]);
   const [filtroServicioCategoria, setFiltroServicioCategoria] = useState<string>('todas');
-  
-  // ← NUEVO: Estado para porcentajes específicos por servicio
   const [porcentajesPorServicio, setPorcentajesPorServicio] = useState<Record<number, number | string>>({});
 
   // Paginación
@@ -137,79 +133,67 @@ export default function AdminProfesionalesPage() {
     cargarServicios();
   }, []);
 
-  // Resetear paginación al filtrar
   useEffect(() => {
     setPaginaActual(1);
   }, [filtroEspecialidad, filtroActivo, busqueda]);
 
   const cargarProfesionales = async () => {
-  try {
-    setLoading(true);
-    const token = localStorage.getItem('admin_token');
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
-    
-    console.log('🔄 Cargando profesionales...');
-    
-    const res: Response = await fetch(`${apiUrl}/profesionales/?ordering=orden,nombre`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('admin_token');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+      
+      const res: Response = await fetch(`${apiUrl}/profesionales/?ordering=orden,nombre`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
-    if (!res.ok) {
-      if (res.status === 401) {
-        router.push('/admin/login');
-        return;
-      }
-      throw new Error('Error al cargar profesionales');
-    }
-
-    const data = await res.json();
-    let profesionalesList = Array.isArray(data) ? data : (data.results || []);
-    
-    console.log(`📦 Profesionales cargados: ${profesionalesList.length}`);
-    
-    // ← AGREGAR: Cargar conteo de servicios para cada profesional
-    console.log('📊 Cargando conteo de servicios para cada profesional...');
-    
-    const profesionalesConServicios = await Promise.all(
-      profesionalesList.map(async (prof: Profesional) => {
-        try {
-          const serviciosRes = await fetch(
-            `${apiUrl}/servicios-profesionales/?profesional=${prof.id}&activo=true`,
-            { headers: { 'Authorization': `Bearer ${token}` } }
-          );
-          
-          if (serviciosRes.ok) {
-            const serviciosData = await serviciosRes.json();
-            const serviciosCount = serviciosData.count || serviciosData.length || 0;
-            
-            // ← AGREGAR el conteo al objeto profesional
-            return {
-              ...prof,
-              servicios: Array.from({ length: serviciosCount }, (_, i) => i),
-              serviciosCount: serviciosCount,
-            };
-          }
-        } catch (err) {
-          console.error(`❌ Error cargando servicios para ${prof.nombre}:`, err);
+      if (!res.ok) {
+        if (res.status === 401) {
+          router.push('/admin/login');
+          return;
         }
-        
-        return { ...prof, servicios: [], serviciosCount: 0 };
-      })
-    );
-    
-    console.log('✅ Profesionales con conteo de servicios:', profesionalesConServicios.length);
-    setProfesionales(profesionalesConServicios);
-    
-  } catch (err: any) {
-    console.error('❌ Error cargando profesionales:', err);
-    setError(err.message || 'Error al cargar profesionales');
-  } finally {
-    setLoading(false);
-  }
-};
+        throw new Error('Error al cargar profesionales');
+      }
+
+      const data = await res.json();
+      let profesionalesList = Array.isArray(data) ? data : (data.results || []);
+      
+      const profesionalesConServicios = await Promise.all(
+        profesionalesList.map(async (prof: Profesional) => {
+          try {
+            const serviciosRes = await fetch(
+              `${apiUrl}/servicios-profesionales/?profesional=${prof.id}&activo=true`,
+              { headers: { 'Authorization': `Bearer ${token}` } }
+            );
+            
+            if (serviciosRes.ok) {
+              const serviciosData = await serviciosRes.json();
+              const serviciosCount = serviciosData.count || serviciosData.length || 0;
+              return {
+                ...prof,
+                servicios: Array.from({ length: serviciosCount }, (_, i) => i),
+                serviciosCount: serviciosCount,
+              };
+            }
+          } catch (err) {
+            console.error(`❌ Error cargando servicios para ${prof.nombre}:`, err);
+          }
+          return { ...prof, servicios: [], serviciosCount: 0 };
+        })
+      );
+      
+      setProfesionales(profesionalesConServicios);
+      
+    } catch (err: any) {
+      console.error('❌ Error cargando profesionales:', err);
+      setError(err.message || 'Error al cargar profesionales');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const cargarCategorias = async () => {
     try {
@@ -234,72 +218,65 @@ export default function AdminProfesionalesPage() {
     return `$${num.toLocaleString('es-CO', { minimumFractionDigits: 0 })}`;
   };
 
- const cargarServicios = async () => {
-  try {
-    const token = localStorage.getItem('admin_token');
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
-    
-    if (!token) {
-      console.error('❌ No hay token');
-      router.push('/admin/login');
-      return;
-    }
-    
-    console.log('🔄 Cargando servicios para asignación...');
-    
-    let todosLosServicios: Servicio[] = [];
-    let url: string = `${apiUrl}/servicios/?disponible=true&ordering=nombre&page_size=1000`;
-    let pageCount = 0;
-    const maxPages = 20;
-    
-    while (url && pageCount < maxPages) {
-      pageCount++;
+  const cargarServicios = async () => {
+    try {
+      const token = localStorage.getItem('admin_token');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
       
-      try {
-        const res: Response = await fetch(url, {
-          headers: { 
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
+      if (!token) {
+        router.push('/admin/login');
+        return;
+      }
+      
+      let todosLosServicios: Servicio[] = [];
+      let url: string = `${apiUrl}/servicios/?disponible=true&ordering=nombre&page_size=1000`;
+      let pageCount = 0;
+      const maxPages = 20;
+      
+      while (url && pageCount < maxPages) {
+        pageCount++;
+        try {
+          const res: Response = await fetch(url, {
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          });
 
-        if (!res.ok) {
-          if (res.status === 401) {
-            router.push('/admin/login');
-            return;
+          if (!res.ok) {
+            if (res.status === 401) {
+              router.push('/admin/login');
+              return;
+            }
+            break;
           }
-          break;
-        }
 
-        const data = await res.json();
-        
-        if (data.results && Array.isArray(data.results)) {
-          todosLosServicios = [...todosLosServicios, ...data.results];
+          const data = await res.json();
           
-          if (data.next) {
-            url = fixPaginationUrl(data.next, apiUrl);
+          if (data.results && Array.isArray(data.results)) {
+            todosLosServicios = [...todosLosServicios, ...data.results];
+            if (data.next) {
+              url = fixPaginationUrl(data.next, apiUrl);
+            } else {
+              url = '';
+            }
+          } else if (Array.isArray(data)) {
+            todosLosServicios = data;
+            url = '';
           } else {
             url = '';
           }
-        } else if (Array.isArray(data)) {
-          todosLosServicios = data;
-          url = '';
-        } else {
-          url = '';
+        } catch (fetchError: any) {
+          console.error('❌ Error en fetch:', fetchError);
+          break;
         }
-        
-      } catch (fetchError: any) {
-        console.error('❌ Error en fetch:', fetchError);
-        break;
       }
+      
+      setServicios(todosLosServicios);
+    } catch (err) {
+      console.error('❌ Error general cargando servicios:', err);
     }
-    
-    console.log(`✅ Total de servicios cargados: ${todosLosServicios.length}`);
-    setServicios(todosLosServicios);
-  } catch (err) {
-    console.error('❌ Error general cargando servicios:', err);
-  }
-};
+  };
 
   const abrirModalCrear = () => {
     setModoEdicion(false);
@@ -317,7 +294,7 @@ export default function AdminProfesionalesPage() {
       telefono_whatsapp: '',
       email_notificaciones: '',
       activo_reservas: true,
-      porcentaje_global: 50.00,  // ← NUEVO: Default 50%
+      porcentaje_global: 50.00,
       servicios: [],
     });
     setFotoFile(null);
@@ -341,7 +318,6 @@ export default function AdminProfesionalesPage() {
       telefono_whatsapp: profesional.telefono_whatsapp,
       email_notificaciones: profesional.email_notificaciones,
       activo_reservas: profesional.activo_reservas,
-      // ← NUEVO: Cargar porcentaje global existente
       porcentaje_global: profesional.porcentaje_global || 50.00,
       servicios: profesional.servicios || [],
     });
@@ -352,77 +328,58 @@ export default function AdminProfesionalesPage() {
     setModalAbierto(true);
   };
 
-const abrirModalAsignarServicios = async (profesional: Profesional) => {
-  console.log('\n=== 🎯 ABRIR MODAL ASIGNACIÓN ===');
-  console.log('Profesional:', profesional.nombre, '| ID:', profesional.id);
-  
-  setProfesionalSeleccionado(profesional);
-  setFiltroServicioCategoria('todas');
-  
-  // ← NUEVO: Resetear porcentajes por servicio
-  setPorcentajesPorServicio({});
-  
-  // ← PROFESIONAL NUEVO: Sin servicios asignados
-  if (!profesional.id || profesional.id === 0) {
-    console.log('✅ Profesional nuevo → 0 servicios seleccionados');
-    setServiciosSeleccionados([]);
-    setModalServiciosAbierto(true);
-    return;
-  }
-  
-  try {
-    const token = localStorage.getItem('admin_token');
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+  const abrirModalAsignarServicios = async (profesional: Profesional) => {
+    setProfesionalSeleccionado(profesional);
+    setFiltroServicioCategoria('todas');
+    setPorcentajesPorServicio({});
     
-    console.log(`🔄 Cargando servicios ASIGNADOS al profesional ${profesional.id}...`);
-    
-    let idsAsignados: number[] = [];
-    let url = `${apiUrl}/servicios-profesionales/?profesional=${profesional.id}&activo=true&page_size=100`;
-    
-    while (url) {
-      const res = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      
-      if (!res.ok) {
-        console.error('❌ Error:', res.status);
-        break;
-      }
-      
-      const data = await res.json();
-      
-      if (data.results && Array.isArray(data.results)) {
-        // ← EXTRAER IDs y porcentajes específicos (precio_especial)
-        data.results.forEach((sp: any) => {
-          idsAsignados.push(sp.servicio);
-          
-          // ← NUEVO: Si tiene precio_especial, usarlo como porcentaje específico
-          if (sp.precio_especial) {
-            setPorcentajesPorServicio(prev => ({
-              ...prev,
-              [sp.servicio]: parseFloat(sp.precio_especial)
-            }));
-          }
-        });
-        
-        url = data.next ? fixPaginationUrl(data.next, apiUrl) : '';
-      } else {
-        url = '';
-      }
+    if (!profesional.id || profesional.id === 0) {
+      setServiciosSeleccionados([]);
+      setModalServiciosAbierto(true);
+      return;
     }
     
-    const unicos = [...new Set(idsAsignados)];
-    console.log(`✅ Servicios ASIGNADOS: ${unicos.length}`);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+      
+      let idsAsignados: number[] = [];
+      let url = `${apiUrl}/servicios-profesionales/?profesional=${profesional.id}&activo=true&page_size=100`;
+      
+      while (url) {
+        const res = await fetch(url, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        
+        if (!res.ok) break;
+        
+        const data = await res.json();
+        
+        if (data.results && Array.isArray(data.results)) {
+          data.results.forEach((sp: any) => {
+            idsAsignados.push(sp.servicio);
+            if (sp.precio_especial) {
+              setPorcentajesPorServicio(prev => ({
+                ...prev,
+                [sp.servicio]: parseFloat(sp.precio_especial)
+              }));
+            }
+          });
+          url = data.next ? fixPaginationUrl(data.next, apiUrl) : '';
+        } else {
+          url = '';
+        }
+      }
+      
+      setServiciosSeleccionados([...new Set(idsAsignados)]);
+      
+    } catch (err) {
+      console.error('❌ Error:', err);
+      setServiciosSeleccionados([]);
+    }
     
-    setServiciosSeleccionados(unicos);
-    
-  } catch (err) {
-    console.error('❌ Error:', err);
-    setServiciosSeleccionados([]);
-  }
-  
-  setModalServiciosAbierto(true);
-};
+    setModalServiciosAbierto(true);
+  };
 
   const handleInputChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -506,102 +463,77 @@ const abrirModalAsignarServicios = async (profesional: Profesional) => {
     }
   };
 
-const guardarServiciosAsignados = async () => {
-  if (!profesionalSeleccionado) return;
+  const guardarServiciosAsignados = async () => {
+    if (!profesionalSeleccionado) return;
 
-  try {
-    setGuardando(true);
-    const token = localStorage.getItem('admin_token');
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
-    
-    console.log('💾 Guardando servicios...');
-    
-    // ← 1. OBTENER TODOS los servicios actualmente asignados
-    console.log('🔄 Obteniendo servicios actuales...');
-    let todosLosIdsActuales: number[] = [];
-    let url: string = `${apiUrl}/servicios-profesionales/?profesional=${profesionalSeleccionado.id}&page_size=100`;
-    
-    while (url) {
-      const resActual: Response = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
+    try {
+      setGuardando(true);
+      const token = localStorage.getItem('admin_token');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
       
-      if (!resActual.ok) {
-        console.error('❌ Error obteniendo servicios actuales:', resActual.status);
-        break;
-      }
+      let todosLosIdsActuales: number[] = [];
+      let url: string = `${apiUrl}/servicios-profesionales/?profesional=${profesionalSeleccionado.id}&page_size=100`;
       
-      const data = await resActual.json();
-      
-      if (data.results && Array.isArray(data.results)) {
-        const idsPage = data.results.map((sp: any) => sp.id);
-        todosLosIdsActuales = [...todosLosIdsActuales, ...idsPage];
+      while (url) {
+        const resActual: Response = await fetch(url, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
         
-        if (data.next) {
-          url = fixPaginationUrl(data.next, apiUrl);
+        if (!resActual.ok) break;
+        
+        const data = await resActual.json();
+        
+        if (data.results && Array.isArray(data.results)) {
+          const idsPage = data.results.map((sp: any) => sp.id);
+          todosLosIdsActuales = [...todosLosIdsActuales, ...idsPage];
+          url = data.next ? fixPaginationUrl(data.next, apiUrl) : '';
+        } else if (Array.isArray(data)) {
+          todosLosIdsActuales = data.map((sp: any) => sp.id);
+          url = '';
         } else {
           url = '';
         }
-      } else if (Array.isArray(data)) {
-        todosLosIdsActuales = data.map((sp: any) => sp.id);
-        url = '';
-      } else {
-        url = '';
       }
-    }
-    
-    console.log('  Total de servicios actuales a eliminar:', todosLosIdsActuales.length);
-    
-    // ← 2. ELIMINAR TODOS los servicios actuales
-    console.log('🗑️ Eliminando servicios antiguos...');
-    for (const spId of todosLosIdsActuales) {
-      await fetch(`${apiUrl}/servicios-profesionales/${spId}/`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-    }
-    
-    // ← 3. CREAR nuevos servicios seleccionados CON PORCENTAJE
-    console.log('✨ Creando nuevos servicios...');
-    for (const servicioId of serviciosSeleccionados) {
-      // ← NUEVO: Obtener porcentaje específico o usar null para usar el global
-      const porcentajeEspecifico = porcentajesPorServicio[servicioId];
-      const precioEspecial = porcentajeEspecifico !== undefined && porcentajeEspecifico !== '' 
-        ? parseFloat(String(porcentajeEspecifico)) 
-        : null;
       
-      const postRes = await fetch(`${apiUrl}/servicios-profesionales/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          profesional: profesionalSeleccionado.id,
-          servicio: servicioId,
-          activo: true,
-          // ← NUEVO: Enviar precio_especial como porcentaje (null = usar global)
-          precio_especial: precioEspecial,
-        }),
-      });
-      
-      if (!postRes.ok) {
-        console.error(`❌ Error creando servicio ${servicioId}:`, postRes.status);
+      for (const spId of todosLosIdsActuales) {
+        await fetch(`${apiUrl}/servicios-profesionales/${spId}/`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
       }
+      
+      for (const servicioId of serviciosSeleccionados) {
+        const porcentajeEspecifico = porcentajesPorServicio[servicioId];
+        const precioEspecial = porcentajeEspecifico !== undefined && porcentajeEspecifico !== '' 
+          ? parseFloat(String(porcentajeEspecifico)) 
+          : null;
+        
+        await fetch(`${apiUrl}/servicios-profesionales/`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            profesional: profesionalSeleccionado.id,
+            servicio: servicioId,
+            activo: true,
+            precio_especial: precioEspecial,
+          }),
+        });
+      }
+      
+      alert(`✅ Servicios actualizados exitosamente\n\n📊 Servicios guardados: ${serviciosSeleccionados.length}`);
+      setModalServiciosAbierto(false);
+      cargarProfesionales();
+      
+    } catch (err: any) {
+      console.error('❌ Error asignando servicios:', err);
+      alert(`❌ Error: ${err.message}`);
+    } finally {
+      setGuardando(false);
     }
-    
-    alert(`✅ Servicios actualizados exitosamente\n\n📊 Servicios guardados: ${serviciosSeleccionados.length}`);
-    
-    setModalServiciosAbierto(false);
-    cargarProfesionales();
-    
-  } catch (err: any) {
-    console.error('❌ Error asignando servicios:', err);
-    alert(`❌ Error: ${err.message}`);
-  } finally {
-    setGuardando(false);
-  }
-};
+  };
 
   const eliminarProfesional = async (profesional: Profesional) => {
     if (!confirm(`¿Eliminar a "${profesional.nombre}"? Esta acción no se puede deshacer.`)) {
@@ -665,7 +597,6 @@ const guardarServiciosAsignados = async () => {
     return true;
   });
 
-  // Paginación
   const indiceUltimo = paginaActual * profesionalesPorPagina;
   const indicePrimero = indiceUltimo - profesionalesPorPagina;
   const profesionalesPaginados = profesionalesFiltrados.slice(indicePrimero, indiceUltimo);
@@ -676,38 +607,35 @@ const guardarServiciosAsignados = async () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-const getCorrectImageUrl = (url: string | null | undefined): string | null => {
-  if (!url) return null;
-  
-  const PRODUCTION_DOMAIN = 'https://api.dzsalon.com';
-  const LOCAL_DOMAIN = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:8080';
-  
-  if (url.startsWith(PRODUCTION_DOMAIN)) {
-    return url;
-  }
-  
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    return url
-      .replace('https://179.43.112.64', PRODUCTION_DOMAIN)
-      .replace('http://179.43.112.64:8080', LOCAL_DOMAIN)
-      .replace('http://127.0.0.1:8080', LOCAL_DOMAIN)
-      .replace('http://localhost:8080', LOCAL_DOMAIN);
-  }
-  
-  if (url.startsWith('/media/')) {
-    const baseUrl = process.env.NODE_ENV === 'production' 
-      ? PRODUCTION_DOMAIN 
-      : LOCAL_DOMAIN;
-    return `${baseUrl}${url}`;
-  }
-  
-  return null;
-};
+  const getCorrectImageUrl = (url: string | null | undefined): string | null => {
+    if (!url) return null;
+    
+    const PRODUCTION_DOMAIN = 'https://api.dzsalon.com';
+    const LOCAL_DOMAIN = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:8080';
+    
+    if (url.startsWith(PRODUCTION_DOMAIN)) return url;
+    
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url
+        .replace('https://179.43.112.64', PRODUCTION_DOMAIN)
+        .replace('http://179.43.112.64:8080', LOCAL_DOMAIN)
+        .replace('http://127.0.0.1:8080', LOCAL_DOMAIN)
+        .replace('http://localhost:8080', LOCAL_DOMAIN);
+    }
+    
+    if (url.startsWith('/media/')) {
+      const baseUrl = process.env.NODE_ENV === 'production' ? PRODUCTION_DOMAIN : LOCAL_DOMAIN;
+      return `${baseUrl}${url}`;
+    }
+    
+    return null;
+  };
 
   const serviciosFiltradosPorCategoria = servicios.filter((s: Servicio) => {
-    if (filtroServicioCategoria === 'todas') return true;
-    return s.categoria.toString() === filtroServicioCategoria;
-  });
+  if (filtroServicioCategoria === 'todas') return true;
+  // ← CORREGIR: Usar optional chaining y validar que categoria no sea null
+  return s.categoria?.toString() === filtroServicioCategoria;
+});
 
   if (loading) {
     return (
@@ -730,7 +658,6 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
           target="_blank"
           rel="noopener noreferrer"
           className="px-6 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors flex items-center gap-2"
-          title="Ir a asignación masiva de servicios"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -769,7 +696,7 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
             >
               <option value="todas">Todas</option>
-              {[...new Set(profesionales.map((p: Profesional) => p.especialidad))].map((esp: string) => (
+              {[...new Set(profesionales.map((p: Profesional) => p.especialidad).filter(Boolean))].map((esp: string) => (
                 <option key={esp} value={esp}>{esp}</option>
               ))}
             </select>
@@ -800,83 +727,125 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
         </div>
       </div>
 
-      {/* Tabla de Profesionales */}
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Foto</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Especialidad</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicios</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {profesionalesPaginados.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">📭 No hay profesionales</td></tr>
-              ) : (
-                profesionalesPaginados.map((prof: Profesional) => (
-                  <tr key={prof.id} className="hover:bg-gray-50 transition-colors">
-                   <td className="px-4 py-3 whitespace-nowrap">
-                      {prof.foto_url ? (
-                        <img 
-                          src={getCorrectImageUrl(prof.foto_url) || ''} 
-                          alt={prof.nombre} 
-                          className="w-12 h-12 object-cover rounded-full border-2 border-gray-200"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="2"%3E%3Ccircle cx="12" cy="8" r="4"%3E%3C/circle%3E%3Cpath d="M20 21a8 8 0 10-16 0"%3E%3C/path%3E%3C/svg%3E';
-                          }}
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
-                          <span className="text-gray-500 text-lg">👤</span>
-                        </div>
+      {/* ← GRID DE CARDS - Nuevo diseño */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {profesionalesPaginados.length === 0 ? (
+          <div className="col-span-full py-12 text-center text-gray-500 bg-white rounded-xl shadow-lg">
+            📭 No hay profesionales
+          </div>
+        ) : (
+          profesionalesPaginados.map((prof: Profesional) => (
+            // ← Card con imagen de fondo + info sobre imagen + botones abajo
+            <div key={prof.id} className="flex flex-col">
+              {/* Card clickeable para editar */}
+              <div
+                onClick={() => abrirModalEditar(prof)}
+                className={`relative h-56 rounded-xl overflow-hidden cursor-pointer transition-all hover:shadow-2xl hover:scale-[1.02] ${
+                  !prof.activo ? 'opacity-75 ring-2 ring-red-400' : 'ring-1 ring-gray-200'
+                }`}
+              >
+                {/* Imagen de fondo */}
+                {prof.foto_url ? (
+                  <img 
+                    src={getCorrectImageUrl(prof.foto_url)!} 
+                    alt={prof.nombre}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="2"%3E%3Ccircle cx="12" cy="8" r="4"%3E%3C/circle%3E%3Cpath d="M20 21a8 8 0 10-16 0"%3E%3C/path%3E%3C/svg%3E';
+                    }}
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center">
+                    <svg className="w-20 h-20 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                )}
+                
+                {/* Overlay oscuro para contraste */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-transparent" />
+                
+                {/* Información sobre la imagen */}
+                <div className="absolute inset-0 p-4 flex flex-col justify-between text-white">
+                  {/* Badges superiores */}
+                  <div className="flex flex-wrap gap-1">
+                    {prof.es_medico && (
+                      <span className="px-2 py-0.5 bg-purple-500 text-white text-[10px] font-bold rounded-full">🩺 Médico</span>
+                    )}
+                    {prof.es_responsable && (
+                      <span className="px-2 py-0.5 bg-yellow-500 text-yellow-900 text-[10px] font-bold rounded-full">⭐ Responsable</span>
+                    )}
+                    {!prof.activo && (
+                      <span className="px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full">Inactivo</span>
+                    )}
+                  </div>
+                  
+                  {/* Info principal */}
+                  <div className="space-y-1">
+                    {prof.titulo && <p className="text-xs text-gray-300">{prof.titulo}</p>}
+                    <h3 className="font-bold text-lg leading-tight">{prof.nombre}</h3>
+                    <p className="text-sm text-gray-300">{prof.especialidad}</p>
+                    
+                    {/* Tags de contacto */}
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {prof.instagram && (
+                        <span className="px-2 py-0.5 bg-white/20 backdrop-blur-sm text-[10px] rounded">📷 Instagram</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        {prof.titulo && <span className="text-gray-500 mr-1">{prof.titulo}</span>}
-                        {prof.nombre}
-                      </div>
-                      {prof.es_medico && <span className="text-xs text-purple-600">🩺 Médico</span>}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-sm text-gray-900">{prof.especialidad}</span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <button
-                        onClick={() => abrirModalAsignarServicios(prof)}
-                        className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
-                      >
-                        🛠️ {prof.serviciosCount || prof.servicios?.length || 0} servicios
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <button
-                        onClick={() => toggleActivo(prof)}
-                        className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                          prof.activo ? 'bg-green-100 text-green-800 hover:bg-green-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                      >
-                        {prof.activo ? '✅ Activo' : '⏸️ Inactivo'}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => abrirModalEditar(prof)} className="text-blue-600 hover:text-blue-800 text-sm font-medium" title="Editar">✏️ Editar</button>
-                        <button onClick={() => eliminarProfesional(prof)} className="text-red-600 hover:text-red-800 text-sm font-medium" title="Eliminar">🗑️ Eliminar</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                      {prof.telefono_whatsapp && (
+                        <span className="px-2 py-0.5 bg-white/20 backdrop-blur-sm text-[10px] rounded">💬 WhatsApp</span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Badge de servicios */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-300">
+                      {prof.serviciosCount || prof.servicios?.length || 0} servicios
+                    </span>
+                    <span className={`px-2 py-1 rounded-full text-[10px] font-semibold ${
+                      prof.activo ? 'bg-green-500/80' : 'bg-gray-500/80'
+                    }`}>
+                      {prof.activo ? '✅ Activo' : '⏸️ Inactivo'}
+                    </span>
+                  </div>
+                </div>
+                
+                {/* Indicador visual de clickeable */}
+                <div className="absolute top-3 right-3 w-7 h-7 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                </div>
+              </div>
+              
+              {/* ← Botones de acción FUERA de la card */}
+              <div className="flex items-center justify-between gap-2 mt-2 px-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    abrirModalAsignarServicios(prof);
+                  }}
+                  className="flex-1 px-3 py-2 text-xs font-medium text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition-colors flex items-center justify-center gap-1"
+                  title="Asignar servicios"
+                >
+                  🛠️ Servicios
+                </button>
+                
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    eliminarProfesional(prof);
+                  }}
+                  className="flex-1 px-3 py-2 text-xs font-medium text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center gap-1"
+                  title="Eliminar profesional"
+                >
+                  🗑️ Eliminar
+                </button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Paginación */}
@@ -902,120 +871,243 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
         </div>
       )}
 
-      {/* Modal Crear/Editar Profesional */}
+      {/* ← MODAL TIPO CARNET - Horizontal */}
       {modalAbierto && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full my-8">
-            <div className="sticky top-0 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-2">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col">
+            {/* Header compacto */}
+            <div className="sticky top-0 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-3 rounded-t-2xl flex items-center justify-between flex-shrink-0">
               <div>
-                <h2 className="text-xl font-bold">{modoEdicion ? '✏️ Editar Profesional' : '➕ Nuevo Profesional'}</h2>
-                <p className="text-sm opacity-90">{modoEdicion ? 'Actualiza la información' : 'Registra un nuevo miembro del equipo'}</p>
+                <h2 className="text-lg font-bold">{modoEdicion ? '✏️ Editar' : '➕ Nuevo'} Profesional</h2>
+                <p className="text-xs opacity-90">{profesionalSeleccionado?.nombre || 'Información del profesional'}</p>
               </div>
-              <button onClick={() => setModalAbierto(false)} className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              <button
+                onClick={() => setModalAbierto(false)}
+                className="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
-            <div className="p-6 max-h-[70vh] overflow-y-auto space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Nombre *</label>
-                  <input type="text" value={formData.nombre} onChange={(e) => handleInputChange('nombre', e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Ej: María López" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Título</label>
-                  <input type="text" value={formData.titulo} onChange={(e) => handleInputChange('titulo', e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Ej: Dra., Lic., Estilista" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Especialidad *</label>
-                  <input type="text" value={formData.especialidad} onChange={(e) => handleInputChange('especialidad', e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Ej: Peluquería, Dermatología" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Orden</label>
-                  <input type="number" value={formData.orden} onChange={(e) => handleInputChange('orden', Number(e.target.value))} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="0" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">WhatsApp</label>
-                  <input type="text" value={formData.telefono_whatsapp} onChange={(e) => handleInputChange('telefono_whatsapp', e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="+57 300 123 4567" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Email Notificaciones</label>
-                  <input type="email" value={formData.email_notificaciones} onChange={(e) => handleInputChange('email_notificaciones', e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="email@ejemplo.com" />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Instagram</label>
-                  <input type="text" value={formData.instagram} onChange={(e) => handleInputChange('instagram', e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="@usuario" />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Biografía</label>
-                  <textarea value={formData.bio} onChange={(e) => handleInputChange('bio', e.target.value)} rows={3} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Descripción profesional..." />
-                </div>
+
+            {/* Contenido horizontal tipo carnet */}
+            <div className="p-4 overflow-y-auto flex-1">
+              <div className="grid grid-cols-3 gap-4">
                 
-                {/* ← NUEVO: Campo Porcentaje Global */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    💰 Porcentaje de Ganancia Global (%)
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input 
-                      type="number" 
-                      min="0" 
-                      max="100" 
-                      step="0.01"
-                      value={formData.porcentaje_global ?? 50}
-                      onChange={(e) => handleInputChange('porcentaje_global', parseFloat(e.target.value) || 50)}
-                      className="w-32 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-500">
-                      Por defecto para todos los servicios (ej: 50 = 50% del precio)
-                    </span>
-                  </div>
-                </div>
-                
-                {/* Foto de Perfil */}
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Foto de Perfil</label>
-                    {fotoPreview && (
-                      <div className="mb-2">
-                        <img 
-                          src={getCorrectImageUrl(fotoPreview) || ''} 
-                          alt="Vista previa" 
-                          className="w-24 h-24 object-cover rounded-full border-2 border-gray-200"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = 'none';
-                          }}
-                          loading="lazy"
-                        />
-                        {!modoEdicion && <p className="text-xs text-gray-500 mt-1">Se mostrará al crear el profesional</p>}
-                        {modoEdicion && <p className="text-xs text-gray-500 mt-1">Foto actual. Sube una nueva para reemplazarla.</p>}
+                {/* ← Columna izquierda: Foto grande */}
+                <div className="col-span-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Foto de Perfil</label>
+                  <div className="relative aspect-square bg-gray-100 rounded-xl overflow-hidden border-2 border-dashed border-gray-300 hover:border-indigo-400 transition-colors">
+                    {fotoPreview ? (
+                      <img 
+                        src={getCorrectImageUrl(fotoPreview)!} 
+                        alt="Vista previa" 
+                        className="w-full h-full object-cover"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+                        <svg className="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <span className="text-xs">Subir foto</span>
                       </div>
                     )}
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      onChange={handleFotoChange} 
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                    {modoEdicion && !fotoPreview && (
-                      <p className="text-xs text-orange-600 mt-1">⚠️ Este profesional no tiene foto. Sube una nueva.</p>
-                    )}
                   </div>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    onChange={handleFotoChange} 
+                    className="w-full mt-2 px-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {modoEdicion && !fotoPreview && (
+                    <p className="text-[10px] text-orange-600 mt-1">⚠️ Sin foto. Sube una nueva.</p>
+                  )}
+                </div>
+
+                {/* ← Columna derecha: Información */}
+                <div className="col-span-2 space-y-3">
+                  {/* Fila 1: Nombre y Título */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-700 mb-1">Nombre *</label>
+                      <input
+                        type="text"
+                        value={formData.nombre}
+                        onChange={(e) => handleInputChange('nombre', e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                        placeholder="Ej: María López"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-700 mb-1">Título</label>
+                      <input
+                        type="text"
+                        value={formData.titulo}
+                        onChange={(e) => handleInputChange('titulo', e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                        placeholder="Ej: Dra., Lic."
+                      />
+                    </div>
+                  </div>
+
+                  {/* Fila 2: Especialidad y Orden */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-700 mb-1">Especialidad *</label>
+                      <input
+                        type="text"
+                        value={formData.especialidad}
+                        onChange={(e) => handleInputChange('especialidad', e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                        placeholder="Ej: Peluquería"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-700 mb-1">Orden</label>
+                      <input
+                        type="number"
+                        value={formData.orden}
+                        onChange={(e) => handleInputChange('orden', Number(e.target.value))}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Fila 3: Contacto */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-700 mb-1">WhatsApp</label>
+                      <input
+                        type="text"
+                        value={formData.telefono_whatsapp}
+                        onChange={(e) => handleInputChange('telefono_whatsapp', e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                        placeholder="+57 300..."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-700 mb-1">Email</label>
+                      <input
+                        type="email"
+                        value={formData.email_notificaciones}
+                        onChange={(e) => handleInputChange('email_notificaciones', e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                        placeholder="email@..."
+                      />
+                    </div>
+                  </div>
+
+                  {/* Fila 4: Instagram */}
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">Instagram</label>
+                    <input
+                      type="text"
+                      value={formData.instagram}
+                      onChange={(e) => handleInputChange('instagram', e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                      placeholder="@usuario"
+                    />
+                  </div>
+
+                  {/* Fila 5: Porcentaje Global */}
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">💰 Porcentaje Global (%)</label>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="number" 
+                        min="0" 
+                        max="100" 
+                        step="0.01"
+                        value={formData.porcentaje_global ?? 50}
+                        onChange={(e) => handleInputChange('porcentaje_global', parseFloat(e.target.value) || 50)}
+                        className="w-24 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <span className="text-[10px] text-gray-500">Para todos los servicios</span>
+                    </div>
+                  </div>
+
+                  {/* Fila 6: Biografía */}
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">Biografía</label>
+                    <textarea
+                      value={formData.bio}
+                      onChange={(e) => handleInputChange('bio', e.target.value)}
+                      rows={2}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 resize-none"
+                      placeholder="Descripción profesional..."
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t">
-                <label className="flex items-center gap-2"><input type="checkbox" checked={formData.es_medico} onChange={(e) => handleInputChange('es_medico', e.target.checked)} className="w-4 h-4 text-blue-600 rounded" /><span className="text-sm">🩺 Médico</span></label>
-                <label className="flex items-center gap-2"><input type="checkbox" checked={formData.es_responsable} onChange={(e) => handleInputChange('es_responsable', e.target.checked)} className="w-4 h-4 text-blue-600 rounded" /><span className="text-sm">⭐ Responsable</span></label>
-                <label className="flex items-center gap-2"><input type="checkbox" checked={formData.activo} onChange={(e) => handleInputChange('activo', e.target.checked)} className="w-4 h-4 text-blue-600 rounded" /><span className="text-sm">✅ Activo</span></label>
-                <label className="flex items-center gap-2"><input type="checkbox" checked={formData.activo_reservas} onChange={(e) => handleInputChange('activo_reservas', e.target.checked)} className="w-4 h-4 text-blue-600 rounded" /><span className="text-sm">📅 Recibe reservas</span></label>
+
+              {/* ← Checkboxes en la parte inferior */}
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <label className="block text-[11px] font-medium text-gray-700 mb-2">Estado y Permisos</label>
+                <div className="grid grid-cols-4 gap-3">
+                  <label className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={formData.es_medico}
+                      onChange={(e) => handleInputChange('es_medico', e.target.checked)}
+                      className="w-4 h-4 text-indigo-600 rounded"
+                    />
+                    <span className="text-[11px] text-gray-700">🩺 Médico</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={formData.es_responsable}
+                      onChange={(e) => handleInputChange('es_responsable', e.target.checked)}
+                      className="w-4 h-4 text-indigo-600 rounded"
+                    />
+                    <span className="text-[11px] text-gray-700">⭐ Responsable</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={formData.activo}
+                      onChange={(e) => handleInputChange('activo', e.target.checked)}
+                      className="w-4 h-4 text-indigo-600 rounded"
+                    />
+                    <span className="text-[11px] text-gray-700 font-semibold">✅ Activo</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={formData.activo_reservas}
+                      onChange={(e) => handleInputChange('activo_reservas', e.target.checked)}
+                      className="w-4 h-4 text-indigo-600 rounded"
+                    />
+                    <span className="text-[11px] text-gray-700">📅 Recibe reservas</span>
+                  </label>
+                </div>
               </div>
             </div>
-            <div className="sticky bottom-0 bg-gray-50 px-6 py-4 border-t border-gray-200 rounded-b-2xl flex gap-3">
-              <button onClick={() => setModalAbierto(false)} className="flex-1 px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors">Cancelar</button>
-              <button onClick={guardarProfesional} disabled={guardando} className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">{guardando ? 'Guardando...' : (modoEdicion ? 'Actualizar' : 'Crear')}</button>
+
+            {/* Footer */}
+            <div className="sticky bottom-0 bg-gray-50 px-4 py-3 border-t border-gray-200 rounded-b-2xl flex gap-2 flex-shrink-0">
+              <button
+                onClick={() => setModalAbierto(false)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={guardarProfesional}
+                disabled={guardando}
+                className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {guardando ? 'Guardando...' : (modoEdicion ? 'Actualizar' : 'Crear')}
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal Asignar Servicios - Mejorado con Porcentajes */}
+      {/* Modal Asignar Servicios (sin cambios) */}
       {modalServiciosAbierto && profesionalSeleccionado && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full my-8">
@@ -1023,9 +1115,8 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
               <div>
                 <h2 className="text-xl font-bold">🛠️ Asignar Servicios</h2>
                 <p className="text-sm opacity-90">{profesionalSeleccionado.nombre}</p>
-                {/* ← NUEVO: Mostrar porcentaje global de referencia */}
                 <p className="text-xs opacity-75 mt-1">
-                  💡 Porcentaje global: <strong>{formData.porcentaje_global || 50}%</strong> (se usará si no especificas uno por servicio)
+                  💡 Porcentaje global: <strong>{formData.porcentaje_global || 50}%</strong>
                 </p>
               </div>
               <button onClick={() => setModalServiciosAbierto(false)} className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center">
@@ -1034,7 +1125,6 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
             </div>
             
             <div className="p-6 max-h-[70vh] overflow-y-auto">
-              {/* Filtro por Categoría */}
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-2">📂 Filtrar por categoría</label>
                 <select 
@@ -1049,7 +1139,6 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                 </select>
               </div>
 
-              {/* Contador */}
               <div className="mb-4 flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg p-3">
                 <span className="text-sm text-emerald-800">
                   ✅ <strong>{serviciosSeleccionados.length}</strong> servicios seleccionados
@@ -1062,21 +1151,23 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                 </button>
               </div>
 
-              {/* Servicios agrupados por categoría */}
               <div className="space-y-4">
                 {categorias
-                  .filter((cat: Categoria) => filtroServicioCategoria === 'todas' || cat.id.toString() === filtroServicioCategoria)
+                  .filter((cat: Categoria) => 
+                    filtroServicioCategoria === 'todas' || cat.id?.toString() === filtroServicioCategoria
+                  )
                   .map((categoria: Categoria) => {
-                    const serviciosDeCategoria = servicios.filter((s: Servicio) => s.categoria === categoria.id);
-                    if (serviciosDeCategoria.length === 0) return null;
+                    // ← También usa optional chaining dentro del map:
+                    const serviciosDeCategoria = servicios.filter((s: Servicio) => s.categoria === categoria?.id);
+                    if (!categoria || serviciosDeCategoria.length === 0) return null;
                     
                     return (
-                      <div key={categoria.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                      <div key={categoria?.id} className="border border-gray-200 rounded-lg overflow-hidden">
                         <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
                           <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                            {categoria.icono && <span className="text-xl">{categoria.icono}</span>}
-                            {categoria.nombre}
-                            <span className="text-xs text-gray-500">({serviciosDeCategoria.length} servicios)</span>
+                            {categoria?.icono && <span className="text-xl">{categoria.icono}</span>}
+                            {categoria?.nombre || 'Sin nombre'}
+                            <span className="text-xs text-gray-500">({serviciosDeCategoria.length})</span>
                           </h3>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-4">
@@ -1093,7 +1184,6 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                                     : 'border-gray-200 hover:bg-gray-50'
                                 }`}
                               >
-                                {/* Checkbox para seleccionar servicio */}
                                 <label className="flex items-center gap-3 cursor-pointer mb-2">
                                   <input
                                     type="checkbox"
@@ -1103,7 +1193,6 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                                         setServiciosSeleccionados([...serviciosSeleccionados, servicio.id]);
                                       } else {
                                         setServiciosSeleccionados(serviciosSeleccionados.filter(id => id !== servicio.id));
-                                        // ← Limpiar porcentaje específico si se deselecciona
                                         setPorcentajesPorServicio(prev => {
                                           const newPrev = { ...prev };
                                           delete newPrev[servicio.id];
@@ -1123,7 +1212,6 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                                   </div>
                                 </label>
                                 
-                                {/* ← NUEVO: Input para porcentaje específico (solo si está seleccionado) */}
                                 {estaSeleccionado && (
                                   <div className="ml-7 pl-2 border-l-2 border-emerald-200">
                                     <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -1164,12 +1252,6 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                                         </button>
                                       )}
                                     </div>
-                                    <p className="text-[10px] text-gray-400 mt-1">
-                                      {porcentajeEspecifico !== undefined && porcentajeEspecifico !== '' 
-                                        ? `Se usará ${porcentajeEspecifico}% para este servicio`
-                                        : `Se usará el global: ${formData.porcentaje_global || 50}%`
-                                      }
-                                    </p>
                                   </div>
                                 )}
                               </div>
@@ -1180,24 +1262,13 @@ const getCorrectImageUrl = (url: string | null | undefined): string | null => {
                     );
                   })}
               </div>
-
-              {servicios.length === 0 && (
-                <p className="text-center text-gray-500 py-8">📭 No hay servicios disponibles</p>
-              )}
             </div>
             
             <div className="sticky bottom-0 bg-gray-50 px-6 py-4 border-t border-gray-200 rounded-b-2xl flex gap-3">
-              <button 
-                onClick={() => setModalServiciosAbierto(false)} 
-                className="flex-1 px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors"
-              >
+              <button onClick={() => setModalServiciosAbierto(false)} className="flex-1 px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors">
                 Cancelar
               </button>
-              <button 
-                onClick={guardarServiciosAsignados} 
-                disabled={guardando}
-                className="flex-1 px-6 py-3 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
+              <button onClick={guardarServiciosAsignados} disabled={guardando} className="flex-1 px-6 py-3 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
                 {guardando ? 'Guardando...' : `Guardar (${serviciosSeleccionados.length})`}
               </button>
             </div>
