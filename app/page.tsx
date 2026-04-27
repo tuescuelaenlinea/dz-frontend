@@ -19,17 +19,25 @@ interface Servicio {
   id: number;
   nombre: string;
   slug: string;
-  descripcion?: string;
+  descripcion?: string;              // ← TODOS con '?'
   descripcion_corta?: string;
-  precio_min: string;
-  precio_max: string | null;
   tipo_precio?: string;
-  duracion: string;
-  categoria: number;
-  categoria_nombre: string;
-  destacado?: boolean;
-  imagen: string | null;
-  imagen_url: string | null;
+  precio_min?: number;
+  precio_max?: number;
+  duracion?: string;
+  sesiones_incluidas?: number;
+  es_medico?: boolean;
+  requiere_valoracion?: boolean;
+  disponible_salon?: boolean;
+  disponible_domicilio?: boolean;
+  adicional_domicilio?: number;
+  destacado?: boolean;               // ← Este era el que faltaba
+  disponible?: boolean;
+  imagen?: string | null;
+  imagen_url?: string | null;
+  categoria?: number | null;
+  categoria_nombre?: string | null;
+  profesionales_count?: number;
 }
 
 interface Configuracion {
