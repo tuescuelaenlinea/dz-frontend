@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import EditCitaModal from './EditCitaModal';
 import ProfessionalModal from '../booking/ProfessionalModal';
 import PaymentMethodModal from '../booking/PaymentMethodModal';
+import ProductoModal, { ProductoSeleccionado } from './ProductoModal';
 
 interface Cita {
   id: number;
@@ -23,6 +24,7 @@ interface Cita {
   metodo_pago: string;
   estado: string;
   pago_estado: string;
+  total_productos?: number;  // ← NUEVO: Total de productos de la cita
 }
 
 interface Profesional {
@@ -32,6 +34,7 @@ interface Profesional {
   especialidad: string;
   foto?: string | null;
   porcentaje_global?: number | string;
+  foto_url?: string | null;
 }
 
 interface ServicioProfesional {
@@ -49,11 +52,12 @@ interface Configuracion {
 interface DetalleCita {
   cita: Cita;
   precioTotal: number;
-  comisionBold: number;
+  comisionBold: number;  // ← Ahora es "Impuesto" para todos los métodos
   porcentajeProfesional: number;
   gananciaProfesional: number;
   saldo: number;
   horasCita: number;
+  totalProductos: number;  // ← NUEVO
 }
 
 interface MetodoPago {
@@ -62,12 +66,22 @@ interface MetodoPago {
   nombre?: string;
 }
 
+interface CitaProductoForm {
+  productoId: number;
+  productoNombre: string;
+  productoMarca: string;
+  cantidad: number;
+  precioUnitario: number;
+  subtotal: number;
+}
+
 export default function ProfesionalesTab() {
   const [citas, setCitas] = useState<Cita[]>([]);
   const [profesionales, setProfesionales] = useState<Profesional[]>([]);
   const [serviciosProfesionales, setServiciosProfesionales] = useState<ServicioProfesional[]>([]);
   const [configuracion, setConfiguracion] = useState<Configuracion>({});
   const [loading, setLoading] = useState(false);
+
   const [fechaInicio, setFechaInicio] = useState<string>(() => {
     const now = new Date();
     const year = now.getFullYear();
@@ -83,17 +97,7 @@ export default function ProfesionalesTab() {
     const day = String(now.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   });
-
-  // ← AGREGAR ESTOS LOGS para monitorear cambios de fecha
-  useEffect(() => {
-    console.log('📅 [DEBUG] fechaInicio cambió:', fechaInicio);
-  }, [fechaInicio]);
-
-  useEffect(() => {
-    console.log('📅 [DEBUG] fechaFin cambió:', fechaFin);
-  }, [fechaFin]);
   
-  // ← Profesional seleccionado
   const [profesionalSeleccionado, setProfesionalSeleccionado] = useState<number | null>(0);
   
   // ← Modales
@@ -101,6 +105,12 @@ export default function ProfesionalesTab() {
   const [profesionalModalOpen, setProfesionalModalOpen] = useState(false);
   const [pagoModalOpen, setPagoModalOpen] = useState(false);
   const [detalleModalOpen, setDetalleModalOpen] = useState(false);
+  
+  // ← NUEVO: Modal de productos para citas
+  const [productoModalOpen, setProductoModalOpen] = useState(false);
+  const [citaParaProductos, setCitaParaProductos] = useState<Cita | null>(null);
+  const [loadingProductos, setLoadingProductos] = useState(false);
+  const [productosSeleccionados, setProductosSeleccionados] = useState<CitaProductoForm[]>([]);
   
   // ← Cita seleccionada para editar
   const [citaSeleccionada, setCitaSeleccionada] = useState<Cita | null>(null);
@@ -110,6 +120,7 @@ export default function ProfesionalesTab() {
   const [totalGenerado, setTotalGenerado] = useState<number>(0);
   const [totalGanado, setTotalGanado] = useState<number>(0);
   const [totalAbonos, setTotalAbonos] = useState<number>(0);
+  const [totalProductos, setTotalProductos] = useState<number>(0);  // ← NUEVO
   
   // ← Datos calculados
   const [datosCalculados, setDatosCalculados] = useState<{
@@ -117,187 +128,91 @@ export default function ProfesionalesTab() {
     generado: number;
     ganado: number;
     abonos: number;
+    productos: number;
   } | null>(null);
-  // ← NUEVO: Para cancelar fetches pendientes
-  const [abortController, setAbortController] = useState<AbortController | null>(null);
+  
   // ← Detalles para el modal
   const [detalleCitas, setDetalleCitas] = useState<DetalleCita[]>([]);
   const [tipoDetalle, setTipoDetalle] = useState<'generado' | 'ganado' | 'abonos'>('generado');
 
+  // ← API config
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+  const token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
+
   // ← Cargar citas y profesionales al montar o cambiar fechas
   useEffect(() => {
-     // ← AGREGAR ESTE LOG
-    console.log('\n=== ⚡ [DEBUG] useEffect cargarDatos disparado ===');
-    console.log('📅 fechaInicio:', fechaInicio);
-    console.log('📅 fechaFin:', fechaFin);
     cargarDatos();
   }, [fechaInicio, fechaFin]);
 
   // ← Recalcular totales cuando cambien los datos necesarios
   useEffect(() => {
-        // ← AGREGAR ESTE LOG
-    console.log('\n=== ⚡ [DEBUG] useEffect recalcular totales disparado ===');
-    console.log('📊 citas.length:', citas.length);
-    console.log('📊 serviciosProfesionales.length:', serviciosProfesionales.length);
-    console.log('📊 configuracion:', Object.keys(configuracion).length > 0 ? 'Cargado' : 'Vacío');
-    console.log('👨‍⚕️ profesionalSeleccionado:', profesionalSeleccionado);
     if (citas.length > 0 && serviciosProfesionales.length > 0 && Object.keys(configuracion).length > 0) {
-      console.log('🔄 [ProfesionalesTab] Recalculando totales...');
       calcularTotales(citas, serviciosProfesionales, configuracion);
     }
   }, [citas, serviciosProfesionales, configuracion, profesionalSeleccionado]);
 
-    const cargarDatos = async () => {
-    // ← NUEVO: Variable local para trackear cancelación
-    let isCancelled = false;
-    
-    // ← CANCELAR fetch anterior si existe
-    if (abortController) {
-      console.log('🔄 [DEBUG] Cancelando fetch anterior...');
-      abortController.abort();
-    }
-    
-    // ← CREAR nuevo AbortController
-    const controller = new AbortController();
-    setAbortController(controller);
-    
-    console.log('\n=== 🔄 [DEBUG] cargarDatos() INICIADO ===');
-    console.log('📅 Fecha Inicio:', fechaInicio);
-    console.log('📅 Fecha Fin:', fechaFin);
-    console.log('👨‍⚕️ Profesional Seleccionado:', profesionalSeleccionado);
-    
-    console.log('📅 [ProfesionalesTab] Cargando datos...');
+  const cargarDatos = async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
       
-      // Cargar citas
+      // Cargar citas con total_productos
       const citasUrl = `${apiUrl}/citas/?fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}&ordering=fecha,hora_inicio`;
       
-      console.log('📡 [DEBUG] URL de citas:', citasUrl);
-      console.log(`📡 [ProfesionalesTab] Fetching citas: ${citasUrl}`);
-      
       const citasRes = await fetch(citasUrl, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        signal: controller.signal
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
-      
-      // ← VERIFICAR si fue cancelado
-      if (controller.signal.aborted) {
-        console.log('⚠️ [DEBUG] Fetch de citas cancelado');
-        isCancelled = true;
-        return;
-      }
       
       let citasList: Cita[] = [];
       if (citasRes.ok) {
         const data = await citasRes.json();
         citasList = Array.isArray(data) ? data : (data.results || []);
-        
-        // ← VERIFICAR nuevamente después del parseo
-        if (controller.signal.aborted) {
-          console.log('⚠️ [DEBUG] Fetch de citas cancelado post-parse');
-          isCancelled = true;
-          return;
-        }
-        
-        console.log('✅ [DEBUG] Citas recibidas del backend:', citasList.length);
-        console.log('📋 [DEBUG] Primeras 3 citas:', citasList.slice(0, 3).map(c => ({
-          codigo: c.codigo_reserva,
-          fecha: c.fecha,
-          cliente: c.cliente_nombre,
-          profesional: c.profesional
-        })));
-        
-        console.log(`✅ [ProfesionalesTab] Citas cargadas: ${citasList.length}`);
       }
       
-      // ← Cargar profesionales
+      // Cargar profesionales
       const profsUrl = `${apiUrl}/profesionales/?activo=true&ordering=nombre`;
-      console.log(`📡 [ProfesionalesTab] Fetching profesionales: ${profsUrl}`);
-      
       const profsRes = await fetch(profsUrl, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        signal: controller.signal
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
-      
-      if (controller.signal.aborted) {
-        console.log('⚠️ [DEBUG] Fetch de profesionales cancelado');
-        isCancelled = true;
-        return;
-      }
       
       let profsList: Profesional[] = [];
       if (profsRes.ok) {
         const data = await profsRes.json();
         profsList = Array.isArray(data) ? data : (data.results || []);
-        console.log(`✅ [ProfesionalesTab] Profesionales cargados: ${profsList.length}`);
       }
       
-      // ← Cargar servicios-profesionales
+      // Cargar servicios-profesionales
       const spUrl = `${apiUrl}/servicios-profesionales/?activo=true`;
       const spRes = await fetch(spUrl, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        signal: controller.signal
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
-      
-      // ← CORREGIDO: Agregar llaves {}
-      if (controller.signal.aborted) {
-        isCancelled = true;
-        return;
-      }
       
       let spList: ServicioProfesional[] = [];
       if (spRes.ok) {
         const data = await spRes.json();
         spList = Array.isArray(data) ? data : (data.results || []);
-        console.log(`✅ [ProfesionalesTab] Servicios-Profesionales cargados: ${spList.length}`);
       }
       
-      // ← Cargar configuración
+      // Cargar configuración
       const configUrl = `${apiUrl}/configuracion/activa/`;
       const configRes = await fetch(configUrl, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        signal: controller.signal
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
-      
-      // ← CORREGIDO: Agregar llaves {}
-      if (controller.signal.aborted) {
-        isCancelled = true;
-        return;
-      }
       
       let configData: Configuracion = {};
       if (configRes.ok) {
         configData = await configRes.json();
-        console.log(`✅ [ProfesionalesTab] Configuración cargada:`, configData);
       }
       
-      // ← ACTUALIZAR ESTADOS (solo si no fue cancelado)
-      if (!isCancelled) {
-        setCitas(citasList);
-        setProfesionales(profsList);
-        setServiciosProfesionales(spList);
-        setConfiguracion(configData);
-      }
+      setCitas(citasList);
+      setProfesionales(profsList);
+      setServiciosProfesionales(spList);
+      setConfiguracion(configData);
       
-    } catch (err: any) {
-      // ← IGNORAR errores de cancelación
-      if (err.name === 'AbortError') {
-        console.log('✅ [DEBUG] Fetch cancelado intencionalmente');
-        isCancelled = true;  // ← AGREGAR: marcar como cancelado
-        return;
-      }
-      console.error('❌ [ProfesionalesTab] Error crítico:', err);
+    } catch (err) {
+      console.error('❌ Error cargando datos:', err);
     } finally {
-      // ← CORREGIDO: Usar variable local isCancelled
-      if (!isCancelled) {
-        console.log('✅ [DEBUG] Limpiando loading (no cancelado)');
-        setLoading(false);
-      } else {
-        console.log('⏸️ [DEBUG] NO limpiando loading (fue cancelado)');
-      }
+      setLoading(false);
     }
   };
 
@@ -317,17 +232,16 @@ export default function ProfesionalesTab() {
     }
   };
 
-  // ← Calcular detalles de ganancias para cada cita
+  // ← ← ← ACTUALIZADO: Calcular detalles de ganancias para cada cita ← ← ←
   const calcularDetallesCitas = (citasList: Cita[], spList: ServicioProfesional[], configData: Configuracion): DetalleCita[] => {
     const porcentajeBold = parseFloat(String(configData.porcentaje_bold || 3.5));
     
     return citasList.map(cita => {
       const precioTotal = parseFloat(cita.precio_total) || 0;
+      const totalProductos = cita.total_productos || 0;
       
-      // Calcular comisión Bold (solo si pagó con Bold)
-      const comisionBold = cita.metodo_pago === 'bold' && cita.pago_estado === 'pagado'
-        ? precioTotal * (porcentajeBold / 100)
-        : 0;
+      // ← ← ← IMPUESTO: Se cobra el % configurado a TODOS los métodos de pago ← ← ←
+      const comisionBold = precioTotal * (porcentajeBold / 100);
       
       // Calcular porcentaje del profesional
       let porcentajeProf = 0;
@@ -344,11 +258,12 @@ export default function ProfesionalesTab() {
         }
       }
       
-      // Ganancia del profesional
-      const gananciaProfesional = (precioTotal - comisionBold) * (porcentajeProf / 100);
+      // ← ← ← NUEVA FÓRMULA: (precio - impuesto - productos) × %profesional ← ← ←
+      const baseCalculable = precioTotal - comisionBold - totalProductos;
+      const gananciaProfesional = baseCalculable * (porcentajeProf / 100);
       
       // Saldo para el salón
-      const saldo = precioTotal - comisionBold - gananciaProfesional;
+      const saldo = precioTotal - comisionBold - gananciaProfesional - totalProductos;
       
       // Horas de la cita
       const horasCita = calcularHorasCita(cita.hora_inicio, cita.hora_fin);
@@ -360,27 +275,26 @@ export default function ProfesionalesTab() {
         porcentajeProfesional: porcentajeProf,
         gananciaProfesional,
         saldo,
-        horasCita
+        horasCita,
+        totalProductos  // ← NUEVO
       };
     });
   };
 
-  // ← Calcular totales según profesional seleccionado
+  // ← ← ← ACTUALIZADO: Calcular totales según profesional seleccionado ← ← ←
   const calcularTotales = (citasList: Cita[], spList: ServicioProfesional[], configData: Configuracion) => {
-     // ← AGREGAR ESTOS LOGS
-    console.log('\n=== 💰 [DEBUG] calcularTotales() ===');
-    console.log('📊 Citas a procesar:', citasList.length);
-    
     const citasFiltradas = getCitasFiltradas(citasList);
     const detalles = calcularDetallesCitas(citasFiltradas, spList, configData);
     
     let generado = 0;
     let ganado = 0;
     let abonos = 0;
+    let productos = 0;
     
     for (const detalle of detalles) {
       generado += detalle.precioTotal;
       ganado += detalle.gananciaProfesional;
+      productos += detalle.totalProductos;
       
       if (detalle.cita.pago_estado === 'pagado') {
         abonos += detalle.precioTotal;
@@ -390,18 +304,13 @@ export default function ProfesionalesTab() {
     setTotalGenerado(generado);
     setTotalGanado(ganado);
     setTotalAbonos(abonos);
+    setTotalProductos(productos);  // ← NUEVO
     setDetalleCitas(detalles);
-    setDatosCalculados({ detalles, generado, ganado, abonos });
-    
-    console.log(`💰 [ProfesionalesTab] Totales calculados: Generado=$${generado.toLocaleString()}, Ganado=$${ganado.toLocaleString()}, Abonos=$${abonos.toLocaleString()}`);
+    setDatosCalculados({ detalles, generado, ganado, abonos, productos });
   };
 
   // ← Obtener citas filtradas por profesional seleccionado
   const getCitasFiltradas = (citasList: Cita[]): Cita[] => {
-    // ← AGREGAR ESTOS LOGS
-    console.log('\n=== 🔍 [DEBUG] getCitasFiltradas() ===');
-    console.log('📊 Total citas recibidas:', citasList.length);
-    console.log('👨‍⚕️ profesionalSeleccionado:', profesionalSeleccionado);
     if (profesionalSeleccionado === 0) {
       return citasList;
     }
@@ -419,6 +328,96 @@ export default function ProfesionalesTab() {
     setDetalleModalOpen(true);
   };
 
+  // ← ← ← NUEVO: Abrir modal de productos para una cita ← ← ←
+const handleOpenProductosModal = async (cita: Cita) => {
+  setCitaParaProductos(cita);
+  setCitaEditandoId(cita.id);
+  setLoadingProductos(true);
+  
+  try {
+    // ← Cargar productos existentes de la cita
+    const res = await fetch(`${apiUrl}/cita-productos/?cita=${cita.id}`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    
+    if (res.ok) {
+      const data = await res.json();
+      const productosData = Array.isArray(data) ? data : (data.results || []);
+      
+      // Convertir a formato ProductoSeleccionado
+      const productosExistentes: ProductoSeleccionado[] = productosData.map((p: any) => ({
+        productoId: p.producto,
+        productoNombre: p.producto_nombre,
+        productoMarca: p.producto_marca,
+        cantidad: p.cantidad,
+        precioUnitario: parseFloat(p.precio_unitario),
+        precioBase: parseFloat(p.precio_unitario), // Se podría obtener del producto real
+        subtotal: parseFloat(p.subtotal),
+        stockDisponible: 999 // Valor temporal, se actualizará en el modal
+      }));
+      
+      setProductosSeleccionados(productosExistentes);
+    }
+  } catch (err) {
+    console.error('❌ Error cargando productos:', err);
+  } finally {
+    setLoadingProductos(false);
+    setProductoModalOpen(true);  // ← Abrir modal DESPUÉS de cargar
+  }
+};
+
+  // ← ← ← NUEVO: Manejar selección de productos ← ← ←
+  const handleProductosSeleccionados = async (productos: ProductoSeleccionado[]) => {
+    if (!citaParaProductos?.id) return;
+    
+    try {
+      // Eliminar productos existentes
+      const existentesRes = await fetch(`${apiUrl}/cita-productos/?cita=${citaParaProductos.id}`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      
+      if (existentesRes.ok) {
+        const existentes = await existentesRes.json();
+        const existentesList = Array.isArray(existentes) ? existentes : (existentes.results || []);
+        
+        for (const prod of existentesList) {
+          await fetch(`${apiUrl}/cita-productos/${prod.id}/`, {
+            method: 'DELETE',
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+          });
+        }
+      }
+
+      // Crear nuevos productos
+      for (const prod of productos) {
+        await fetch(`${apiUrl}/cita-productos/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            cita: citaParaProductos.id,
+            producto: prod.productoId,
+            cantidad: prod.cantidad,
+            precio_unitario: prod.precioUnitario,
+          }),
+        });
+      }
+
+      // Recargar datos
+      await cargarDatos();
+      alert('✅ Productos actualizados');
+      
+    } catch (err) {
+      console.error('❌ Error guardando productos:', err);
+      alert('Error al guardar los productos');
+    } finally {
+      setProductoModalOpen(false);
+      setCitaParaProductos(null);
+    }
+  };
+
   // ← Obtener totales del modal
   const obtenerTotalesModal = () => {
     const totalComisionBold = detalleCitas.reduce((sum, d) => sum + d.comisionBold, 0);
@@ -426,8 +425,9 @@ export default function ProfesionalesTab() {
     const totalSaldos = detalleCitas.reduce((sum, d) => sum + d.saldo, 0);
     const totalServicios = detalleCitas.reduce((sum, d) => sum + d.precioTotal, 0);
     const totalHoras = detalleCitas.reduce((sum, d) => sum + d.horasCita, 0);
+    const totalProductos = detalleCitas.reduce((sum, d) => sum + d.totalProductos, 0);
     
-    return { totalComisionBold, totalGananciaProfesionales, totalSaldos, totalServicios, totalHoras };
+    return { totalComisionBold, totalGananciaProfesionales, totalSaldos, totalServicios, totalHoras, totalProductos };
   };
 
   // ← Formatear fecha para display
@@ -444,7 +444,7 @@ export default function ProfesionalesTab() {
 
   // ← Formatear hora para display
   const formatHora = (horaStr: string): string => {
-    return horaStr; // Ya viene en formato HH:MM
+    return horaStr;
   };
 
   // ← Formatear horas
@@ -452,6 +452,15 @@ export default function ProfesionalesTab() {
     const h = Math.floor(horas);
     const m = Math.round((horas - h) * 60);
     return `${h}h ${m}m`;
+  };
+
+  // ← Formatear moneda
+  const formatMoney = (value: number): string => {
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      minimumFractionDigits: 0,
+    }).format(value);
   };
 
   // ← Obtener color según estado
@@ -467,7 +476,6 @@ export default function ProfesionalesTab() {
 
   // ← Abrir modal de edición
   const handleEditCita = (cita: Cita) => {
-    console.log('✏️ [ProfesionalesTab] Editar cita:', cita.codigo_reserva);
     setCitaSeleccionada(cita);
     setCitaEditandoId(cita.id);
     setEditModalOpen(true);
@@ -475,7 +483,6 @@ export default function ProfesionalesTab() {
 
   // ← Actualizar cita después de editar
   const handleCitaUpdated = (citaActualizada: Cita) => {
-    console.log('✅ [ProfesionalesTab] Cita actualizada:', citaActualizada.codigo_reserva);
     setCitas(prev => prev.map(c => c.id === citaActualizada.id ? citaActualizada : c));
     setEditModalOpen(false);
     setCitaSeleccionada(null);
@@ -484,7 +491,6 @@ export default function ProfesionalesTab() {
 
   // ← Abrir modal de profesional
   const handleSelectProfesional = (cita: Cita) => {
-    console.log('👨‍⚕️ [ProfesionalesTab] Seleccionar profesional para cita:', cita.codigo_reserva);
     setCitaSeleccionada(cita);
     setCitaEditandoId(cita.id);
     setProfesionalModalOpen(true);
@@ -496,7 +502,6 @@ export default function ProfesionalesTab() {
     
     try {
       const token = localStorage.getItem('admin_token');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
       
       const updateRes = await fetch(`${apiUrl}/citas/${citaEditandoId}/`, {
         method: 'PATCH',
@@ -511,7 +516,6 @@ export default function ProfesionalesTab() {
       
       if (updateRes.ok) {
         const citaActualizada = await updateRes.json();
-        console.log('✅ [ProfesionalesTab] Profesional actualizado en backend');
         
         setCitas(prev => prev.map(c => 
           c.id === citaEditandoId 
@@ -521,7 +525,7 @@ export default function ProfesionalesTab() {
       }
       
     } catch (err: any) {
-      console.error('❌ [ProfesionalesTab] ERROR:', err);
+      console.error('❌ ERROR:', err);
       alert('Error al asignar profesional: ' + err.message);
     } finally {
       setProfesionalModalOpen(false);
@@ -532,7 +536,6 @@ export default function ProfesionalesTab() {
 
   // ← Abrir modal de método de pago
   const handleSelectMetodoPago = (cita: Cita) => {
-    console.log('💳 [ProfesionalesTab] Seleccionar método de pago:', cita.codigo_reserva);
     setCitaSeleccionada(cita);
     setCitaEditandoId(cita.id);
     setPagoModalOpen(true);
@@ -544,7 +547,6 @@ export default function ProfesionalesTab() {
     
     try {
       const token = localStorage.getItem('admin_token');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
       
       const esMetodoBase = ['bold', 'efectivo', 'pendiente'].includes(metodo.banco.toLowerCase());
       const metodoPagoValue = esMetodoBase ? metodo.banco.toLowerCase() : 'efectivo';
@@ -569,8 +571,6 @@ export default function ProfesionalesTab() {
       });
       
       if (updateRes.ok) {
-        console.log('✅ [ProfesionalesTab] Pago registrado');
-        
         setCitas(prev => prev.map(c => 
           c.id === citaEditandoId 
             ? { ...c, metodo_pago: metodoPagoValue, estado: 'completada', pago_estado: 'pagado' }
@@ -581,7 +581,7 @@ export default function ProfesionalesTab() {
       }
       
     } catch (err: any) {
-      console.error('❌ [ProfesionalesTab] ERROR:', err);
+      console.error('❌ ERROR:', err);
       alert('Error al procesar pago: ' + err.message);
     } finally {
       setPagoModalOpen(false);
@@ -592,115 +592,98 @@ export default function ProfesionalesTab() {
 
   // ← Contar citas sin profesional
   const citasSinProfesional = citas.filter(c => c.profesional === null || c.profesional === 0);
-  // ← Limpiar AbortController al desmontar el componente
-  useEffect(() => {
-    return () => {
-      if (abortController) {
-        console.log('🧹 [DEBUG] Limpiando AbortController al desmontar');
-        abortController.abort();
-      }
-    };
-  }, [abortController]);
+
   return (
     <div className="space-y-6">
-      {/* ========== FILTROS DE FECHA Y TOTALES ========== */}
-      <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-          {/* Fecha Inicio */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              📅 Fecha Inicio
+            {/* ========== FILTROS DE FECHA Y TOTALES ========== */}
+      <div className="bg-gray-800 rounded-xl p-3 border border-gray-700">
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-2">
+          
+          {/* Fecha Inicio - Compacto */}
+          <div className="col-span-2 lg:col-span-1">
+            <label className="block text-xs font-semibold text-gray-300 mb-1">
+              📅 Inicio
             </label>
             <input
               type="date"
               value={fechaInicio}
               onChange={(e) => setFechaInicio(e.target.value)}
-              className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
+              className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
             />
           </div>
 
-          {/* Fecha Fin */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              📅 Fecha Fin
+          {/* Fecha Fin - Compacto */}
+          <div className="col-span-2 lg:col-span-1">
+            <label className="block text-xs font-semibold text-gray-300 mb-1">
+              📅 Fin
             </label>
             <input
               type="date"
               value={fechaFin}
               onChange={(e) => setFechaFin(e.target.value)}
-              className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
+              className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
             />
           </div>
 
-          {/* Total Generado - CLICKABLE */}
+          {/* ← 1. TOTAL GENERADO - Card Compacta */}
           <button
             onClick={() => abrirModalDetalle('generado')}
-            className="bg-gradient-to-br from-blue-900/50 to-indigo-900/50 rounded-xl p-3 border border-blue-700 flex flex-col justify-center hover:scale-105 transition-transform"
-            title="Click para ver detalle"
+            className="bg-gradient-to-br from-blue-900/50 to-indigo-900/50 rounded-lg p-2 border border-blue-700 flex flex-col justify-center hover:scale-105 transition-transform min-h-[70px]"
           >
-            <p className="text-blue-300 text-[10px] font-semibold mb-0.5">
-              💰 Total Generado
+            <p className="text-blue-300 text-[9px] font-semibold mb-0.5 leading-tight">
+              💰 Generado
             </p>
-            <p className="text-lg font-bold text-blue-400">
-              ${totalGenerado.toLocaleString('es-CO')}
+            <p className="text-base font-bold text-blue-400 leading-tight">
+              ${totalGenerado.toLocaleString('es-CO', { maximumFractionDigits: 0 })}
             </p>
-            <p className="text-blue-200/60 text-[8px] mt-1">Click para ver detalle</p>
           </button>
 
-          {/* Total Ganado - CLICKABLE */}
+          {/* ← 2. TOTAL IMPUESTOS - Card Compacta */}
           <button
-            onClick={() => abrirModalDetalle('ganado')}
-            className="bg-gradient-to-br from-purple-900/50 to-pink-900/50 rounded-xl p-3 border border-purple-700 flex flex-col justify-center hover:scale-105 transition-transform"
-            title="Click para ver detalle"
+            onClick={() => abrirModalDetalle('generado')}
+            className="bg-gradient-to-br from-orange-900/50 to-amber-900/50 rounded-lg p-2 border border-orange-700 flex flex-col justify-center hover:scale-105 transition-transform min-h-[70px]"
           >
-            <p className="text-purple-300 text-[10px] font-semibold mb-0.5">
-              💵 Total Ganado Profesionales
+            <p className="text-orange-300 text-[9px] font-semibold mb-0.5 leading-tight">
+              🧾 Impuestos
             </p>
-            <p className="text-lg font-bold text-purple-400">
-              ${totalGanado.toLocaleString('es-CO')}
+            <p className="text-base font-bold text-orange-400 leading-tight">
+              ${(datosCalculados?.detalles.reduce((sum, d) => sum + d.comisionBold, 0) || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}
             </p>
-            <p className="text-purple-200/60 text-[8px] mt-1">Click para ver detalle</p>
+            <p className="text-[8px] text-orange-300/70 leading-tight">
+              ({parseFloat(String(configuracion.porcentaje_bold || 3.5))}%)
+            </p>
           </button>
 
-          {/* Total Abonos - CLICKABLE */}
-          <button
-            onClick={() => abrirModalDetalle('abonos')}
-            className="bg-gradient-to-br from-green-900/50 to-emerald-900/50 rounded-xl p-3 border border-green-700 flex flex-col justify-center hover:scale-105 transition-transform"
-            title="Click para ver detalle"
-          >
-            <p className="text-green-300 text-[10px] font-semibold mb-0.5">
-              💳 Total Abonos
+          {/* ← 3. TOTAL PRODUCTOS - Card Compacta */}
+          <div className="bg-gradient-to-br from-purple-900/50 to-pink-900/50 rounded-lg p-2 border border-purple-700 flex flex-col justify-center min-h-[70px]">
+            <p className="text-purple-300 text-[9px] font-semibold mb-0.5 leading-tight">
+              📦 Productos
             </p>
-            <p className="text-lg font-bold text-green-400">
-              ${totalAbonos.toLocaleString('es-CO')}
-            </p>
-            <p className="text-green-200/60 text-[8px] mt-1">Click para ver detalle</p>
-          </button>
-
-          {/* Profesional Seleccionado */}
-          <div className="bg-gradient-to-br from-yellow-900/50 to-amber-900/50 rounded-xl p-3 border border-yellow-700 flex flex-col justify-center">
-            <p className="text-yellow-200 text-[10px] font-bold mb-0.5 uppercase tracking-wide">
-              👨‍⚕️ Profesional
-            </p>
-            <p className="text-sm font-bold text-white">
-              {profesionalSeleccionado === 0
-                ? 'Todas las Citas'
-                : profesionalSeleccionado === null 
-                  ? 'Sin Asignar'
-                  : profesionales.find(p => p.id === profesionalSeleccionado)?.nombre || 'Todos'
-              }
-            </p>
-            <p className="text-yellow-300/70 text-[10px] mt-0.5">
-              {getCitasFiltradas(citas).length} citas
+            <p className="text-base font-bold text-purple-400 leading-tight">
+              ${totalProductos.toLocaleString('es-CO', { maximumFractionDigits: 0 })}
             </p>
           </div>
+
+          {/* ← 4. TOTAL GANADO - Card Compacta (Última) */}
+          <button
+            onClick={() => abrirModalDetalle('ganado')}
+            className="bg-gradient-to-br from-green-900/50 to-emerald-900/50 rounded-lg p-2 border border-green-700 flex flex-col justify-center hover:scale-105 transition-transform min-h-[70px]"
+          >
+            <p className="text-green-300 text-[9px] font-semibold mb-0.5 leading-tight">
+              💵 Ganado Prof.
+            </p>
+            <p className="text-base font-bold text-green-400 leading-tight">
+              ${totalGanado.toLocaleString('es-CO', { maximumFractionDigits: 0 })}
+            </p>
+          </button>
+
         </div>
       </div>
 
       {/* ========== GRID DE DOS COLUMNAS ========== */}
       <div className="grid grid-cols-12 gap-6">
         
-        {/* ========== COLUMNA IZQUIERDA - PROFESIONALES (20%) ========== */}
+        {/* ========== COLUMNA IZQUIERDA - PROFESIONALES ========== */}
         <div className="col-span-12 lg:col-span-3 xl:col-span-2">
           <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 sticky top-4">
             <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
@@ -762,45 +745,101 @@ export default function ProfesionalesTab() {
               </button>
 
               {/* Cards de profesionales */}
-              {profesionales.map((profesional) => {
-                const citasDelProfesional = citas.filter(c => c.profesional === profesional.id);
-                const detallesDelProfesional = detalleCitas.filter(d => d.cita.profesional === profesional.id);
-                const totalGanadoProfesional = detallesDelProfesional.reduce((sum, d) => sum + d.gananciaProfesional, 0);
+      {profesionales.map((profesional) => {
+        const citasDelProfesional = citas.filter(c => c.profesional === profesional.id);
+        const detallesDelProfesional = detalleCitas.filter(d => d.cita.profesional === profesional.id);
+        
+        // ← ← ← CÁLCULOS PARA EL PROFESIONAL ← ← ←
+        const totalGanadoProfesional = detallesDelProfesional.reduce((sum, d) => sum + d.gananciaProfesional, 0);
+        const totalProductosProfesional = detallesDelProfesional.reduce((sum, d) => sum + d.totalProductos, 0);
+        const totalImpuestosProfesional = detallesDelProfesional.reduce((sum, d) => sum + d.comisionBold, 0);  // ← NUEVO
+        const totalServiciosProfesional = detallesDelProfesional.reduce((sum, d) => sum + d.precioTotal, 0);
+        
+        // ← Foto de fondo con fallback
+        const fotoUrl = profesional.foto_url || profesional.foto || null;
+        const backgroundStyle = fotoUrl 
+          ? { backgroundImage: `url(${fotoUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+          : { backgroundColor: '#374151' };  // Fallback gris oscuro
+
+        return (
+          <button
+            key={profesional.id}
+            onClick={() => setProfesionalSeleccionado(profesional.id)}
+            className={`w-full rounded-xl border-2 transition-all text-left overflow-hidden relative min-h-[140px] ${
+              profesionalSeleccionado === profesional.id
+                ? 'border-blue-400 ring-2 ring-blue-400/50'
+                : 'border-gray-600 hover:border-gray-500'
+            }`}
+            style={backgroundStyle}  // ← Aplicar foto como fondo
+          >
+            {/* ← Overlay oscuro para legibilidad del texto */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/60 to-black/30"></div>
+            
+            {/* ← Contenido sobre la imagen */}
+            <div className="relative z-10 p-4 h-full flex flex-col justify-between">
+              
+              {/* Header: Nombre y Especialidad */}
+              <div>
+                <p className="text-sm font-bold text-white truncate drop-shadow-lg">
+                  {profesional.titulo} {profesional.nombre}
+                </p>
+                <p className="text-xs text-gray-300 truncate drop-shadow">
+                  {profesional.especialidad}
+                </p>
+              </div>
+
+              {/* Stats en grid compacto */}
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                {/* Citas */}
+                <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2 text-center">
+                  <p className="text-[10px] text-gray-300">Citas</p>
+                  <p className="text-sm font-bold text-white">{citasDelProfesional.length}</p>
+                </div>
                 
-                return (
-                  <button
-                    key={profesional.id}
-                    onClick={() => setProfesionalSeleccionado(profesional.id)}
-                    className={`w-full p-3 rounded-xl border-2 transition-all text-left ${
-                      profesionalSeleccionado === profesional.id
-                        ? 'border-blue-500 bg-blue-900/30 ring-2 ring-blue-500/50'
-                        : 'border-gray-700 bg-gray-900 hover:border-gray-600'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
-                        {profesional.nombre.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-white truncate">
-                          {profesional.titulo} {profesional.nombre}
-                        </p>
-                        <p className="text-xs text-gray-400 truncate">
-                          {profesional.especialidad}
-                        </p>
-                        <p className="text-xs text-blue-400 mt-1">
-                          {citasDelProfesional.length} citas • Ganado: ${totalGanadoProfesional.toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
+                {/* Ganado */}
+                <div className="bg-green-500/20 backdrop-blur-sm rounded-lg p-2 text-center">
+                  <p className="text-[10px] text-green-300">Ganado</p>
+                  <p className="text-sm font-bold text-green-400">${totalGanadoProfesional.toLocaleString('es-CO', { notation: 'compact' })}</p>
+                </div>
+                
+                {/* ← NUEVO: Impuestos */}
+                <div className="bg-orange-500/20 backdrop-blur-sm rounded-lg p-2 text-center">
+                  <p className="text-[10px] text-orange-300">🧾 Impuestos</p>
+                  <p className="text-sm font-bold text-orange-400">${totalImpuestosProfesional.toLocaleString('es-CO', { notation: 'compact' })}</p>
+                </div>
+                
+                {/* Productos */}
+                <div className="bg-purple-500/20 backdrop-blur-sm rounded-lg p-2 text-center">
+                  <p className="text-[10px] text-purple-300">📦 Productos</p>
+                  <p className="text-sm font-bold text-purple-400">${totalProductosProfesional.toLocaleString('es-CO', { notation: 'compact' })}</p>
+                </div>
+              </div>
+
+        {/* Footer: Porcentaje del profesional */}
+        <div className="mt-2 flex items-center justify-between">
+          <span className="text-[10px] text-gray-400">
+            %{profesional.porcentaje_global || 50} para ti
+          </span>
+          {citasDelProfesional.length > 0 && (
+            <span className="text-[10px] text-blue-300 font-medium">
+              ${totalServiciosProfesional.toLocaleString('es-CO', { notation: 'compact' })} generados
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ← Indicador visual de selección */}
+      {profesionalSeleccionado === profesional.id && (
+        <div className="absolute top-2 right-2 w-3 h-3 bg-blue-400 rounded-full animate-pulse"></div>
+      )}
+    </button>
+  );
+})}
             </div>
           </div>
         </div>
 
-        {/* ========== COLUMNA DERECHA - CITAS (80%) ========== */}
+        {/* ========== COLUMNA DERECHA - CITAS ========== */}
         <div className="col-span-12 lg:col-span-9 xl:col-span-10">
           <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
             <div className="flex items-center justify-between mb-6">
@@ -877,9 +916,12 @@ export default function ProfesionalesTab() {
                             <p className="text-xs text-purple-400">
                               💵 Ganancia: ${detalle.gananciaProfesional.toLocaleString()} ({detalle.porcentajeProfesional}%)
                             </p>
-                            {cita.metodo_pago === 'bold' && cita.pago_estado === 'pagado' && (
+                            <p className="text-xs text-orange-400">
+                              🧾 Impuesto (${porcentajeBold}%): ${detalle.comisionBold.toLocaleString()}
+                            </p>
+                            {detalle.totalProductos > 0 && (
                               <p className="text-xs text-orange-400">
-                                💳 Bold: ${detalle.comisionBold.toLocaleString()} ({porcentajeBold}%)
+                                📦 Productos: ${detalle.totalProductos.toLocaleString()}
                               </p>
                             )}
                             <p className="text-xs text-green-400">
@@ -896,13 +938,17 @@ export default function ProfesionalesTab() {
                             e.stopPropagation();
                             handleSelectProfesional(cita);
                           }}
-                          className="w-full flex items-center justify-between px-2 py-1 bg-gray-900 hover:bg-gray-700 rounded text-xs transition-colors"
+                          className={`w-full flex items-center justify-between px-2 py-1 rounded text-xs transition-colors ${
+                            cita.profesional_nombre
+                              ? 'bg-blue-600/20 border border-blue-500/50 text-blue-300'
+                              : 'bg-gray-800 border border-gray-600 text-gray-400'
+                          }`}
                         >
-                          <span className="text-gray-400">👨‍⚕️</span>
-                          <span className="text-gray-300 truncate flex-1 mx-2">
-                            {cita.profesional_nombre || 'Sin asignar'}
+                          <span className={cita.profesional_nombre ? 'text-blue-400' : 'text-gray-500'}>👨‍⚕️</span>
+                          <span className="truncate flex-1 mx-2 font-semibold">
+                            {cita.profesional_nombre || 'Sin profesional'}
                           </span>
-                          <span className="text-blue-400">✏️</span>
+                          <span className={cita.profesional_nombre ? 'text-blue-300' : 'text-gray-500'}>✏️</span>
                         </button>
 
                         <button
@@ -910,13 +956,36 @@ export default function ProfesionalesTab() {
                             e.stopPropagation();
                             handleSelectMetodoPago(cita);
                           }}
-                          className="w-full flex items-center justify-between px-2 py-1 bg-gray-900 hover:bg-gray-700 rounded text-xs transition-colors"
+                          className={`w-full flex items-center justify-between px-2 py-1 rounded text-xs transition-colors ${
+                            cita.pago_estado === 'pagado'
+                              ? 'bg-green-600/20 border border-green-500/50 text-green-300'
+                              : 'bg-gray-800 border border-gray-600 text-gray-400'
+                          }`}
                         >
-                          <span className="text-gray-400">💳</span>
-                          <span className="text-gray-300 truncate flex-1 mx-2 capitalize">
-                            {cita.metodo_pago}
+                          <span className={cita.pago_estado === 'pagado' ? 'text-green-400' : 'text-gray-500'}>💳</span>
+                          <span className="truncate flex-1 mx-2 font-semibold capitalize">
+                            {cita.pago_estado === 'pagado' ? `Pago: ${cita.metodo_pago}` : 'Pendiente pago'}
                           </span>
-                          <span className="text-blue-400">✏️</span>
+                          <span className={cita.pago_estado === 'pagado' ? 'text-green-300' : 'text-gray-500'}>✏️</span>
+                        </button>
+
+                        {/* ← ← ← NUEVO: Botón Productos ← ← ← */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenProductosModal(cita);
+                          }}
+                          className={`w-full flex items-center justify-between px-2 py-1 rounded text-xs transition-colors ${
+                            cita.total_productos && cita.total_productos > 0
+                              ? 'bg-purple-600/20 border border-purple-500/50 text-purple-300'
+                              : 'bg-gray-800 border border-gray-600 text-gray-400'
+                          }`}
+                        >
+                          <span className={cita.total_productos && cita.total_productos > 0 ? 'text-purple-400' : 'text-gray-500'}>📦</span>
+                          <span className="truncate flex-1 mx-2 font-semibold">
+                            Productos {cita.total_productos && cita.total_productos > 0 && `(${formatMoney(cita.total_productos)})`}
+                          </span>
+                          <span className={cita.total_productos && cita.total_productos > 0 ? 'text-purple-300' : 'text-gray-500'}>✏️</span>
                         </button>
                       </div>
                     </div>
@@ -928,7 +997,7 @@ export default function ProfesionalesTab() {
         </div>
       </div>
 
-      {/* ← Modal de Detalle - TOTAL GENERADO */}
+      {/* ← ← ← Modal de Detalle - TOTAL GENERADO (ACTUALIZADO) ← ← ← */}
       {detalleModalOpen && tipoDetalle === 'generado' && (
         <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-7xl my-8">
@@ -967,10 +1036,8 @@ export default function ProfesionalesTab() {
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-300">Cliente</th>
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-300">Profesional</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-gray-300">Valor Servicio</th>
-                    <th className="px-3 py-3 text-right text-xs font-semibold text-cyan-300">Método Pago</th>
-                    <th className="px-3 py-3 text-right text-xs font-semibold text-orange-300">% Bold</th>
-                    <th className="px-3 py-3 text-right text-xs font-semibold text-orange-300">Valor Bold</th>
-                    <th className="px-3 py-3 text-right text-xs font-semibold text-purple-300">% Profesional</th>
+                    <th className="px-3 py-3 text-right text-xs font-semibold text-orange-300"> Productos</th>
+                    <th className="px-3 py-3 text-right text-xs font-semibold text-orange-300">🧾 Impuesto</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-purple-300">Ganancia Prof.</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-green-300">Saldo Salón</th>
                   </tr>
@@ -978,7 +1045,6 @@ export default function ProfesionalesTab() {
                 <tbody className="divide-y divide-gray-700">
                   {detalleCitas.map((detalle) => {
                     const porcentajeBold = parseFloat(String(configuracion.porcentaje_bold || 3.5));
-                    const aplicaBold = detalle.cita.metodo_pago === 'bold' && detalle.cita.pago_estado === 'pagado';
                     
                     return (
                       <tr key={detalle.cita.id} className="hover:bg-gray-700/50">
@@ -988,10 +1054,8 @@ export default function ProfesionalesTab() {
                         <td className="px-3 py-3 text-gray-300">{detalle.cita.cliente_nombre}</td>
                         <td className="px-3 py-3 text-gray-300">{detalle.cita.profesional_nombre || 'Sin asignar'}</td>
                         <td className="px-3 py-3 text-right text-green-400 font-semibold">${detalle.precioTotal.toLocaleString()}</td>
-                        <td className="px-3 py-3 text-right text-cyan-400 text-xs capitalize">{detalle.cita.metodo_pago}</td>
-                        <td className="px-3 py-3 text-right text-orange-400 text-xs">{aplicaBold ? `${porcentajeBold}%` : '-'}</td>
-                        <td className="px-3 py-3 text-right text-orange-400">${detalle.comisionBold.toLocaleString()}</td>
-                        <td className="px-3 py-3 text-right text-purple-400 text-xs">{detalle.porcentajeProfesional}%</td>
+                        <td className="px-3 py-3 text-right text-orange-400">${detalle.totalProductos.toLocaleString()}</td>
+                        <td className="px-3 py-3 text-right text-orange-400">${detalle.comisionBold.toLocaleString()} ({porcentajeBold}%)</td>
                         <td className="px-3 py-3 text-right text-purple-400 font-semibold">${detalle.gananciaProfesional.toLocaleString()}</td>
                         <td className="px-3 py-3 text-right text-green-400 font-semibold">${detalle.saldo.toLocaleString()}</td>
                       </tr>
@@ -1003,16 +1067,20 @@ export default function ProfesionalesTab() {
 
             {/* Totales */}
             {(() => {
-              const { totalComisionBold, totalGananciaProfesionales, totalSaldos, totalServicios } = obtenerTotalesModal();
+              const { totalComisionBold, totalGananciaProfesionales, totalSaldos, totalServicios, totalProductos } = obtenerTotalesModal();
               return (
                 <div className="sticky bottom-0 bg-gray-900 px-6 py-4 border-t border-gray-700 rounded-b-2xl">
-                  <div className="grid grid-cols-6 gap-3">
+                  <div className="grid grid-cols-5 gap-3">
                     <div className="bg-blue-900/30 border border-blue-700 rounded-lg p-3">
                       <p className="text-xs text-blue-300 mb-1">💰 Total Servicios</p>
                       <p className="text-lg font-bold text-blue-400">${totalServicios.toLocaleString('es-CO')}</p>
                     </div>
                     <div className="bg-orange-900/30 border border-orange-700 rounded-lg p-3">
-                      <p className="text-xs text-orange-300 mb-1">💳 Total Comisión Bold</p>
+                      <p className="text-xs text-orange-300 mb-1">📦 Total Productos</p>
+                      <p className="text-lg font-bold text-orange-400">${totalProductos.toLocaleString('es-CO')}</p>
+                    </div>
+                    <div className="bg-orange-900/30 border border-orange-700 rounded-lg p-3">
+                      <p className="text-xs text-orange-300 mb-1">🧾 Total Impuesto ({parseFloat(String(configuracion.porcentaje_bold || 3.5))}%)</p>
                       <p className="text-lg font-bold text-orange-400">${totalComisionBold.toLocaleString('es-CO')}</p>
                     </div>
                     <div className="bg-purple-900/30 border border-purple-700 rounded-lg p-3">
@@ -1023,10 +1091,6 @@ export default function ProfesionalesTab() {
                       <p className="text-xs text-green-300 mb-1">💰 Total Saldo Salón</p>
                       <p className="text-lg font-bold text-green-400">${totalSaldos.toLocaleString('es-CO')}</p>
                     </div>
-                    <div className="bg-cyan-900/30 border border-cyan-700 rounded-lg p-3">
-                      <p className="text-xs text-cyan-300 mb-1">📊 Total Citas</p>
-                      <p className="text-lg font-bold text-cyan-400">{detalleCitas.length}</p>
-                    </div>
                   </div>
                 </div>
               );
@@ -1035,7 +1099,7 @@ export default function ProfesionalesTab() {
         </div>
       )}
 
-      {/* ← Modal de Detalle - TOTAL GANADO PROFESIONALES */}
+      {/* ← ← ← Modal de Detalle - GANANCIA PROFESIONALES (ACTUALIZADO) ← ← ← */}
       {detalleModalOpen && tipoDetalle === 'ganado' && (
         <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-7xl my-8">
@@ -1071,33 +1135,26 @@ export default function ProfesionalesTab() {
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-300">Código</th>
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-300">Fecha</th>
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-300">Servicio</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-gray-300">Profesional</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-cyan-300">Hora Inicio</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-green-300">Valor Servicio</th>
-                    <th className="px-3 py-3 text-right text-xs font-semibold text-cyan-300">Método Pago</th>
-                    <th className="px-3 py-3 text-right text-xs font-semibold text-orange-300">% Bold</th>
-                    <th className="px-3 py-3 text-right text-xs font-semibold text-orange-300">Valor Bold</th>
-                    <th className="px-3 py-3 text-right text-xs font-semibold text-purple-300">% Profesional</th>
+                    <th className="px-3 py-3 text-right text-xs font-semibold text-orange-300">📦 Productos</th>
+                    <th className="px-3 py-3 text-right text-xs font-semibold text-orange-300">🧾 Impuesto</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-purple-300">Ganancia Profesional</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-700">
                   {detalleCitas.map((detalle) => {
                     const porcentajeBold = parseFloat(String(configuracion.porcentaje_bold || 3.5));
-                    const aplicaBold = detalle.cita.metodo_pago === 'bold' && detalle.cita.pago_estado === 'pagado';
                     
                     return (
                       <tr key={detalle.cita.id} className="hover:bg-gray-700/50">
                         <td className="px-3 py-3 text-xs font-mono text-blue-400">{detalle.cita.codigo_reserva}</td>
                         <td className="px-3 py-3 text-gray-300">{formatDate(detalle.cita.fecha)}</td>
                         <td className="px-3 py-3 text-gray-300">{detalle.cita.servicio_nombre}</td>
-                        <td className="px-3 py-3 text-gray-300">{detalle.cita.profesional_nombre || 'Sin asignar'}</td>
                         <td className="px-3 py-3 text-right text-cyan-400 text-xs">{formatHora(detalle.cita.hora_inicio)}</td>
                         <td className="px-3 py-3 text-right text-green-400 font-semibold">${detalle.precioTotal.toLocaleString()}</td>
-                        <td className="px-3 py-3 text-right text-cyan-400 text-xs capitalize">{detalle.cita.metodo_pago}</td>
-                        <td className="px-3 py-3 text-right text-orange-400 text-xs">{aplicaBold ? `${porcentajeBold}%` : '-'}</td>
-                        <td className="px-3 py-3 text-right text-orange-400">${detalle.comisionBold.toLocaleString()}</td>
-                        <td className="px-3 py-3 text-right text-purple-400 text-xs">{detalle.porcentajeProfesional}%</td>
+                        <td className="px-3 py-3 text-right text-orange-400">${detalle.totalProductos.toLocaleString()}</td>
+                        <td className="px-3 py-3 text-right text-orange-400">${detalle.comisionBold.toLocaleString()} ({porcentajeBold}%)</td>
                         <td className="px-3 py-3 text-right text-purple-400 font-semibold">${detalle.gananciaProfesional.toLocaleString()}</td>
                       </tr>
                     );
@@ -1108,25 +1165,25 @@ export default function ProfesionalesTab() {
 
             {/* Totales */}
             {(() => {
-              const { totalComisionBold, totalGananciaProfesionales, totalServicios } = obtenerTotalesModal();
+              const { totalComisionBold, totalGananciaProfesionales, totalServicios, totalProductos } = obtenerTotalesModal();
               return (
                 <div className="sticky bottom-0 bg-gray-900 px-6 py-4 border-t border-gray-700 rounded-b-2xl">
-                  <div className="grid grid-cols-5 gap-3">
+                  <div className="grid grid-cols-4 gap-3">
                     <div className="bg-green-900/30 border border-green-700 rounded-lg p-3">
                       <p className="text-xs text-green-300 mb-1">💰 Total Servicios</p>
                       <p className="text-lg font-bold text-green-400">${totalServicios.toLocaleString('es-CO')}</p>
                     </div>
                     <div className="bg-orange-900/30 border border-orange-700 rounded-lg p-3">
-                      <p className="text-xs text-orange-300 mb-1">💳 Total Comisión Bold</p>
+                      <p className="text-xs text-orange-300 mb-1">📦 Total Productos</p>
+                      <p className="text-lg font-bold text-orange-400">${totalProductos.toLocaleString('es-CO')}</p>
+                    </div>
+                    <div className="bg-orange-900/30 border border-orange-700 rounded-lg p-3">
+                      <p className="text-xs text-orange-300 mb-1">🧾 Total Impuesto ({parseFloat(String(configuracion.porcentaje_bold || 3.5))}%)</p>
                       <p className="text-lg font-bold text-orange-400">${totalComisionBold.toLocaleString('es-CO')}</p>
                     </div>
                     <div className="bg-purple-900/30 border border-purple-700 rounded-lg p-3">
                       <p className="text-xs text-purple-300 mb-1">💵 Total Ganancia Profesionales</p>
                       <p className="text-lg font-bold text-purple-400">${totalGananciaProfesionales.toLocaleString('es-CO')}</p>
-                    </div>
-                    <div className="bg-cyan-900/30 border border-cyan-700 rounded-lg p-3">
-                      <p className="text-xs text-cyan-300 mb-1">📊 Total Citas</p>
-                      <p className="text-lg font-bold text-cyan-400">{detalleCitas.length}</p>
                     </div>
                   </div>
                 </div>
@@ -1173,7 +1230,6 @@ export default function ProfesionalesTab() {
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Fecha</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Servicio</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Cliente</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-cyan-300">Método Pago</th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-gray-300">Valor</th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-gray-300">Estado Pago</th>
                   </tr>
@@ -1185,7 +1241,6 @@ export default function ProfesionalesTab() {
                       <td className="px-4 py-3 text-gray-300">{formatDate(detalle.cita.fecha)}</td>
                       <td className="px-4 py-3 text-gray-300">{detalle.cita.servicio_nombre}</td>
                       <td className="px-4 py-3 text-gray-300">{detalle.cita.cliente_nombre}</td>
-                      <td className="px-4 py-3 text-right text-cyan-400 text-xs capitalize">{detalle.cita.metodo_pago}</td>
                       <td className="px-4 py-3 text-right text-green-400 font-semibold">${detalle.precioTotal.toLocaleString()}</td>
                       <td className="px-4 py-3 text-right"><span className="px-2 py-1 bg-green-900/50 text-green-400 rounded text-xs">Pagado</span></td>
                     </tr>
@@ -1212,6 +1267,32 @@ export default function ProfesionalesTab() {
             })()}
           </div>
         </div>
+      )}
+
+      {/* ← ← ← NUEVO: ProductoModal para Citas ← ← ← */}
+      {productoModalOpen && citaParaProductos && (
+        <ProductoModal
+          isOpen={productoModalOpen}
+          onClose={() => {
+            setProductoModalOpen(false);
+            setCitaParaProductos(null);
+            setCitaEditandoId(null);
+            setProductosSeleccionados([]);  // ← Limpiar al cerrar
+          }}
+          onSelect={handleProductosSeleccionados}
+          apiUrl={apiUrl}
+          token={token || undefined}
+          productosExistentes={productosSeleccionados.map(p => ({
+            productoId: p.productoId,
+            productoNombre: p.productoNombre,
+            productoMarca: p.productoMarca,
+            cantidad: p.cantidad,
+            precioUnitario: p.precioUnitario,
+            precioBase: p.precioUnitario,  // ← AGREGAR: precioBase (requerido por ProductoSeleccionado)
+            subtotal: p.subtotal,
+            stockDisponible: 999  // ← AGREGAR: stockDisponible (requerido por ProductoSeleccionado)
+          }))}
+        />
       )}
 
       {/* ← Modales existentes */}

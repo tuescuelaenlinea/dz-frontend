@@ -19,15 +19,15 @@ interface Servicio {
   id: number;
   nombre: string;
   slug: string;
-  descripcion: string;
-  descripcion_corta: string;
+  descripcion?: string;
+  descripcion_corta?: string;
   precio_min: string;
   precio_max: string | null;
-  tipo_precio: string;
+  tipo_precio?: string;
   duracion: string;
   categoria: number;
   categoria_nombre: string;
-  destacado: boolean;
+  destacado?: boolean;
   imagen: string | null;
   imagen_url: string | null;
 }
@@ -35,7 +35,7 @@ interface Servicio {
 interface Configuracion {
   id: number;
   nombre_salon: string;
-  descripcion: string;
+  descripcion?: string;
   slogan: string;
   logo: string | null;
   logo_url: string | null;

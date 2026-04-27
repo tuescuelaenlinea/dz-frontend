@@ -112,13 +112,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             onClick={() => setSidebarOpen(false)}
           >
             🛠️ Servicios
-          </Link>
+          </Link>          
           <Link
-            href="/admin/pagos"
+            href="/admin/productos"
             className="block px-4 py-3 text-gray-300 hover:bg-gray-800 rounded-lg transition-colors"
             onClick={() => setSidebarOpen(false)}
           >
-            💰 Pagos
+            📦 Productos
           </Link>
           <Link
             href="/admin/horarios"

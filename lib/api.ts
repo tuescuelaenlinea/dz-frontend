@@ -20,7 +20,19 @@ export interface Servicio {
   disponible_domicilio: boolean;
   adicional_domicilio?: string;
   disponible?: boolean;
+  descripcion?: string;
+  descripcion_corta?: string;
+  tipo_precio?: 'fijo' | 'rango' | 'desde';
+  sesiones_incluidas?: number;
+  es_medico?: boolean;
+  requiere_valoracion?: boolean;
+  destacado?: boolean;
+  profesionales_count?: number;
+  creado?: string;
+  actualizado?: string;
 }
+
+
 
 export const api = {
   // ==========================================

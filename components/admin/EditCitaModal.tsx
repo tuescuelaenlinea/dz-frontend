@@ -1,7 +1,18 @@
 // components/admin/EditCitaModal.tsx
-
 'use client';
+
 import { useState, useEffect } from 'react';
+import ProductoModal, { ProductoSeleccionado } from './ProductoModal';  // ← AGREGAR IMPORT
+
+// ← ← ← NUEVAS INTERFACES ← ← ←
+interface CitaProductoForm {
+  productoId: number;
+  productoNombre: string;
+  productoMarca: string;
+  cantidad: number;
+  precioUnitario: number;
+  subtotal: number;
+}
 
 interface Cita {
   id: number;
@@ -36,6 +47,7 @@ export default function EditCitaModal({
   cita,
   onCitaUpdated
 }: EditCitaModalProps) {
+  // ← Estados existentes
   const [precio, setPrecio] = useState<number>(0);
   const [clienteNombre, setClienteNombre] = useState('');
   const [clienteTelefono, setClienteTelefono] = useState('');
@@ -47,6 +59,16 @@ export default function EditCitaModal({
   const [clientes, setClientes] = useState<any[]>([]);
   const [clienteSearchTerm, setClienteSearchTerm] = useState('');
   const [loadingClientes, setLoadingClientes] = useState(false);
+  
+  // ← ← ← NUEVO: Estados para productos ← ← ←
+  const [productoModalOpen, setProductoModalOpen] = useState(false);
+  const [productosSeleccionados, setProductosSeleccionados] = useState<CitaProductoForm[]>([]);
+  const [totalProductos, setTotalProductos] = useState<number>(0);
+  const [loadingProductos, setLoadingProductos] = useState(false);
+  
+  // ← API config
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+  const token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
   
   // ← Guardar valores originales para comparar cambios
   const [valoresOriginales, setValoresOriginales] = useState({
@@ -72,6 +94,11 @@ export default function EditCitaModal({
         telefono: cita.cliente_telefono || '',
         email: cita.cliente_email || ''
       });
+      
+      // ← Cargar productos si es edición
+      if (cita.id) {
+        cargarProductosDeCita(cita.id);
+      }
     }
   }, [cita]);
 
@@ -82,13 +109,75 @@ export default function EditCitaModal({
     }
   }, [showClientSearch]);
 
+  // ← ← ← NUEVO: Cargar productos de una cita existente ← ← ←
+ const cargarProductosDeCita = async (citaId: number) => {
+  setLoadingProductos(true);
+  try {
+    const res = await fetch(`${apiUrl}/cita-productos/?cita=${citaId}`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    
+    if (res.ok) {
+      const data = await res.json();
+      
+      // ← ← ← CORRECCIÓN: Manejar respuesta paginada o array directo ← ← ←
+      const productosData = Array.isArray(data) ? data : (data.results || []);
+      
+      const productos: CitaProductoForm[] = productosData.map((p: any) => ({
+        productoId: p.producto,
+        productoNombre: p.producto_nombre,
+        productoMarca: p.producto_marca,
+        cantidad: p.cantidad,
+        precioUnitario: parseFloat(p.precio_unitario),
+        subtotal: parseFloat(p.subtotal)
+      }));
+      
+      setProductosSeleccionados(productos);
+      calcularTotalProductos(productos);
+    }
+  } catch (err) {
+    console.error('❌ Error cargando productos de cita:', err);
+  } finally {
+    setLoadingProductos(false);
+  }
+};
+
+  // ← ← ← NUEVO: Calcular total de productos ← ← ←
+  const calcularTotalProductos = (productos: CitaProductoForm[]) => {
+    const total = productos.reduce((sum, p) => sum + p.subtotal, 0);
+    setTotalProductos(total);
+  };
+
+  // ← ← ← NUEVO: Manejar selección desde ProductoModal ← ← ←
+  const handleProductosSeleccionados = (productos: ProductoSeleccionado[]) => {
+    // Convertir formato de ProductoModal a CitaProductoForm
+    const nuevosProductos: CitaProductoForm[] = productos.map(p => ({
+      productoId: p.productoId,
+      productoNombre: p.productoNombre,
+      productoMarca: p.productoMarca,
+      cantidad: p.cantidad,
+      precioUnitario: p.precioUnitario,
+      subtotal: p.subtotal
+    }));
+    
+    setProductosSeleccionados(nuevosProductos);
+    calcularTotalProductos(nuevosProductos);
+  };
+
+  // ← ← ← NUEVO: Remover producto de la selección ← ← ←
+  const removerProducto = (productoId: number) => {
+    const actualizados = productosSeleccionados.filter(p => p.productoId !== productoId);
+    setProductosSeleccionados(actualizados);
+    calcularTotalProductos(actualizados);
+  };
+
   // ← NUEVO: Cargar clientes para búsqueda
   const loadClientes = async () => {
     console.log('🔍 [EditCitaModal] Cargando clientes...');
     setLoadingClientes(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127..0.1:8080/api';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
       
       // 1. Cargar usuarios registrados
       const usuariosRes = await fetch(`${apiUrl}/usuarios/`, {
@@ -187,6 +276,7 @@ export default function EditCitaModal({
     setPrecio(precioNum);
   };
 
+  // ← ← ← ACTUALIZADO: Guardar cita con productos ← ← ←
   const handleSave = async () => {
     console.log('💾 [EditCitaModal] Guardando cambios...');
     setLoading(true);
@@ -226,14 +316,15 @@ export default function EditCitaModal({
         return true;
       });
       
-      if (!hayCambiosReales) {
+      if (!hayCambiosReales && productosSeleccionados.length === 0) {
         alert('ℹ️ No has realizado ningún cambio');
         setLoading(false);
         return;
       }
       
-      console.log('📦 [EditCitaModal] Payload:', citaData);
+      console.log('📦 [EditCitaModal] Payload cita:', citaData);
       
+      // ← 1. Guardar la cita
       const res = await fetch(`${apiUrl}/citas/${cita.id}/`, {
         method: 'PATCH',
         headers: {
@@ -243,23 +334,109 @@ export default function EditCitaModal({
         body: JSON.stringify(citaData)
       });
       
-      if (res.ok) {
-        const citaActualizada = await res.json();
-        console.log('✅ [EditCitaModal] Cita actualizada:', citaActualizada);
-        onCitaUpdated(citaActualizada);
-      } else {
+      if (!res.ok) {
         const errorText = await res.text();
         console.error('❌ [EditCitaModal] Error:', errorText);
         
         if (errorText.includes('precio_total') && cita.estado === 'completada') {
-          alert('⚠️ No se puede modificar el precio de una cita completada.\n\nSolo puedes cambiar:\n• Nombre del cliente\n• Teléfono\n• Email');
+          alert('⚠️ No se puede modificar el precio de una cita completada.');
         } else {
           alert('Error al actualizar la cita: ' + errorText);
         }
+        setLoading(false);
+        return;
       }
-    } catch (err) {
+      
+      const citaActualizada = await res.json();
+      const citaId = citaActualizada.id;
+      
+      // ← 2. Guardar productos asignados (si hay)
+      if (productosSeleccionados.length > 0) {
+        console.log('📦 Guardando', productosSeleccionados.length, 'productos...');
+   
+      // Primero, eliminar productos existentes que ya no están seleccionados
+      try {
+        const productosExistentesRes = await fetch(`${apiUrl}/cita-productos/?cita=${citaId}`, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+        
+        if (productosExistentesRes.ok) {
+          const productosExistentesData = await productosExistentesRes.json();
+          
+          // ← ← ← CORRECCIÓN: Manejar respuesta paginada o array directo ← ← ←
+          const existentes = Array.isArray(productosExistentesData) 
+            ? productosExistentesData 
+            : (productosExistentesData.results || []);
+          
+          const idsAMantener = productosSeleccionados.map(p => p.productoId);
+          
+          // Eliminar los que no están en la nueva selección
+          for (const prod of existentes) {
+            if (!idsAMantener.includes(prod.producto)) {
+              await fetch(`${apiUrl}/cita-productos/${prod.id}/`, {
+                method: 'DELETE',
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+              });
+              console.log('🗑️ Producto eliminado:', prod.producto_nombre);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('⚠️ Error limpiando productos existentes:', err);
+      }
+
+        // Crear/actualizar productos seleccionados
+        for (const prod of productosSeleccionados) {
+          try {
+            await fetch(`${apiUrl}/cita-productos/`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+              },
+              body: JSON.stringify({
+                cita: citaId,
+                producto: prod.productoId,
+                cantidad: prod.cantidad,
+                precio_unitario: prod.precioUnitario,
+              }),
+            });
+            console.log('✅ Producto guardado:', prod.productoNombre);
+          } catch (err) {
+            console.error('❌ Error guardando producto:', prod.productoNombre, err);
+          }
+        }
+      } else if (cita?.id) {
+        // Si no hay productos seleccionados y es edición, eliminar todos los existentes
+        try {
+          const productosExistentes = await fetch(`${apiUrl}/cita-productos/?cita=${citaId}`, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+          });
+          
+          if (productosExistentes.ok) {
+            const existentes = await productosExistentes.json();
+            for (const prod of existentes) {
+              await fetch(`${apiUrl}/cita-productos/${prod.id}/`, {
+                method: 'DELETE',
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+              });
+            }
+            console.log('🗑️ Todos los productos eliminados de la cita');
+          }
+        } catch (err) {
+          console.error('⚠️ Error eliminando productos:', err);
+        }
+      }
+
+      // ← 3. Notificar éxito y recargar
+      console.log('✅ [EditCitaModal] Cita y productos guardados');
+      alert(`✅ Cita ${cita?.id ? 'actualizada' : 'creada'} exitosamente`);
+      onCitaUpdated(citaActualizada);
+      onClose();
+      
+    } catch (err: any) {
       console.error('❌ [EditCitaModal] Error crítico:', err);
-      alert('Error al actualizar la cita');
+      alert(`❌ Error: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -268,18 +445,18 @@ export default function EditCitaModal({
   if (!isOpen) return null;
 
   return (
-    <> {/* ← Fragment de apertura */}
+    <>
       {/* Modal Principal de Edición */}
       <div 
         className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
         onClick={onClose}
       >
         <div 
-          className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border-2 border-gray-700"
+          className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border-2 border-gray-700 max-h-[90vh] flex flex-col"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-gray-700">
+          <div className="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
             <div>
               <h3 className="text-lg font-bold text-white">
                 ✏️ Editar Cita {cita.codigo_reserva}
@@ -298,8 +475,8 @@ export default function EditCitaModal({
             </button>
           </div>
 
-          {/* Formulario */}
-          <div className="p-6 space-y-4">
+          {/* Formulario con scroll */}
+          <div className="p-6 space-y-4 overflow-y-auto flex-1">
             {/* Precio */}
             <div>
               <label className="block text-sm font-semibold text-gray-300 mb-2">
@@ -323,7 +500,6 @@ export default function EditCitaModal({
             <div>
               <label className="block text-sm font-semibold text-gray-300 mb-2 flex items-center justify-between">
                 <span>👤 Nombre del Cliente</span>
-                {/* ← NUEVO: Botón de búsqueda de cliente */}
                 <button
                   type="button"
                   onClick={() => {
@@ -347,7 +523,6 @@ export default function EditCitaModal({
                   className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none pr-10"
                   placeholder="Nombre completo"
                 />
-                {/* ← Indicador visual si hay cliente seleccionado */}
                 {clienteNombre && (
                   <button
                     type="button"
@@ -394,10 +569,70 @@ export default function EditCitaModal({
                 placeholder="cliente@email.com"
               />
             </div>
+
+            {/* ← ← ← SECCIÓN DE PRODUCTOS ← ← ← */}
+            <div className="bg-purple-900/30 rounded-xl p-4 border border-purple-700">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-purple-300 flex items-center gap-2">
+                  <span>📦</span> Productos de la Cita
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setProductoModalOpen(true)}
+                  className="text-sm text-purple-400 hover:text-purple-300 font-medium flex items-center gap-1 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Agregar productos
+                </button>
+              </div>
+
+              {loadingProductos ? (
+                <div className="text-center py-4 text-sm text-purple-400">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-400 mx-auto"></div>
+                  Cargando productos...
+                </div>
+              ) : productosSeleccionados.length === 0 ? (
+                <p className="text-sm text-purple-400/70 text-center py-4">
+                  No hay productos asignados. Click en "Agregar productos" para añadir.
+                </p>
+              ) : (
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {productosSeleccionados.map((prod) => (
+                    <div key={prod.productoId} className="flex items-center justify-between bg-gray-900/50 rounded-lg p-2 border border-purple-700/50">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-200 truncate">{prod.productoNombre}</p>
+                        <p className="text-xs text-gray-400">{prod.productoMarca} • {prod.cantidad} un × ${prod.precioUnitario.toLocaleString('es-CO')}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-semibold text-purple-400">${prod.subtotal.toLocaleString('es-CO')}</span>
+                        <button
+                          type="button"
+                          onClick={() => removerProducto(prod.productoId)}
+                          className="text-red-400 hover:text-red-300 p-1 transition-colors"
+                          title="Remover producto"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* Total de productos */}
+                  <div className="border-t border-purple-700/50 pt-3 mt-3 flex items-center justify-between">
+                    <span className="text-sm font-medium text-purple-300">Total Productos:</span>
+                    <span className="text-lg font-bold text-purple-400">${totalProductos.toLocaleString('es-CO')}</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Footer */}
-          <div className="p-4 border-t border-gray-700 flex gap-3">
+          <div className="p-4 border-t border-gray-700 flex gap-3 flex-shrink-0 bg-gray-800">
             <button
               onClick={onClose}
               className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-semibold transition-colors"
@@ -506,7 +741,27 @@ export default function EditCitaModal({
           </div>
         </div>
       )}
-    
-     </>  
-  ); 
-}  
+
+      {/* ← ← ← ProductoModal ← ← ← */}
+      {productoModalOpen && (
+        <ProductoModal
+          isOpen={productoModalOpen}
+          onClose={() => setProductoModalOpen(false)}
+          onSelect={handleProductosSeleccionados}
+          apiUrl={apiUrl}
+          token={token}
+          productosExistentes={productosSeleccionados.map(p => ({
+            productoId: p.productoId,
+            productoNombre: p.productoNombre,
+            productoMarca: p.productoMarca,
+            cantidad: p.cantidad,
+            precioUnitario: p.precioUnitario,
+            precioBase: p.precioUnitario,
+            subtotal: p.subtotal,
+            stockDisponible: 999
+          }))}
+        />
+      )}
+    </>
+  );
+}

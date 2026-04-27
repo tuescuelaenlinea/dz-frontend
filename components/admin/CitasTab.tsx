@@ -1,9 +1,21 @@
 // components/admin/CitasTab.tsx
 'use client';
+
 import { useState, useEffect } from 'react';
 import EditCitaModal from './EditCitaModal';
 import ProfessionalModal from '../booking/ProfessionalModal';
 import PaymentMethodModal from '../booking/PaymentMethodModal';
+import ProductoModal, { ProductoSeleccionado } from './ProductoModal';  // ← AGREGAR IMPORT
+
+// ← ← ← NUEVAS INTERFACES ← ← ←
+interface CitaProductoForm {
+  productoId: number;
+  productoNombre: string;
+  productoMarca: string;
+  cantidad: number;
+  precioUnitario: number;
+  subtotal: number;
+}
 
 interface Cita {
   id: number;
@@ -23,6 +35,7 @@ interface Cita {
   metodo_pago: string;
   estado: string;
   pago_estado: string;
+  total_productos?: number;
 }
 
 interface Profesional {
@@ -62,6 +75,11 @@ export default function CitasTab() {
   const [profesionalModalOpen, setProfesionalModalOpen] = useState(false);
   const [pagoModalOpen, setPagoModalOpen] = useState(false);
   
+  // ← ← ← NUEVO: Modal de productos para citas ← ← ←
+  const [productoModalOpen, setProductoModalOpen] = useState(false);
+  const [productosDeCita, setProductosDeCita] = useState<CitaProductoForm[]>([]);
+  const [loadingProductos, setLoadingProductos] = useState(false);
+  
   // ← Cita seleccionada para editar
   const [citaSeleccionada, setCitaSeleccionada] = useState<Cita | null>(null);
   const [citaEditandoId, setCitaEditandoId] = useState<number | null>(null);
@@ -74,11 +92,118 @@ export default function CitasTab() {
   // ← NUEVO: Estado para filtro de citas por estado
   const [filtroEstado, setFiltroEstado] = useState<'todas' | 'confirmada_pendiente' | 'completada_pagada'>('todas');
 
+  // ← API config
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+  const token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
+
   // ← Cargar citas al montar o cambiar fechas
   useEffect(() => {
     loadCitas();
   }, [fechaInicio, fechaFin]);
 
+  // ← ← ← NUEVO: Cargar productos de una cita ← ← ←
+  const cargarProductosDeCita = async (citaId: number) => {
+    setLoadingProductos(true);
+    try {
+      const res = await fetch(`${apiUrl}/cita-productos/?cita=${citaId}`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        // ← Manejar respuesta paginada o array directo
+        const productosData = Array.isArray(data) ? data : (data.results || []);
+        
+        const productos: CitaProductoForm[] = productosData.map((p: any) => ({
+          productoId: p.producto,
+          productoNombre: p.producto_nombre,
+          productoMarca: p.producto_marca,
+          cantidad: p.cantidad,
+          precioUnitario: parseFloat(p.precio_unitario),
+          subtotal: parseFloat(p.subtotal)
+        }));
+        
+        setProductosDeCita(productos);
+      }
+    } catch (err) {
+      console.error('❌ Error cargando productos de cita:', err);
+    } finally {
+      setLoadingProductos(false);
+    }
+  };
+
+  // ← ← ← NUEVO: Calcular total de productos ← ← ←
+/*  const totalProductosCita = productosDeCita.reduce(
+    (sum, p) => sum + p.subtotal, 
+    0
+  );
+*/
+  // ← ← ← NUEVO: Manejar selección desde ProductoModal ← ← ←
+  const handleProductosSeleccionados = async (productos: ProductoSeleccionado[]) => {
+    if (!citaEditandoId) return;
+    
+    try {
+      // ← 1. Eliminar productos existentes que no están en la nueva selección
+      const productosExistentesRes = await fetch(`${apiUrl}/cita-productos/?cita=${citaEditandoId}`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      
+      if (productosExistentesRes.ok) {
+        const productosExistentesData = await productosExistentesRes.json();
+        const existentes = Array.isArray(productosExistentesData) 
+          ? productosExistentesData 
+          : (productosExistentesData.results || []);
+        
+        const idsAMantener = productos.map(p => p.productoId);
+        
+        // Eliminar los que no están en la nueva selección
+        for (const prod of existentes) {
+          if (!idsAMantener.includes(prod.producto)) {
+            await fetch(`${apiUrl}/cita-productos/${prod.id}/`, {
+              method: 'DELETE',
+              headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
+          }
+        }
+      }
+
+      // ← 2. Crear/actualizar productos seleccionados
+      for (const prod of productos) {
+        await fetch(`${apiUrl}/cita-productos/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            cita: citaEditandoId,
+            producto: prod.productoId,
+            cantidad: prod.cantidad,
+            precio_unitario: prod.precioUnitario,
+          }),
+        });
+      }
+
+      // ← 3. Actualizar UI local
+      const nuevosProductos: CitaProductoForm[] = productos.map(p => ({
+        productoId: p.productoId,
+        productoNombre: p.productoNombre,
+        productoMarca: p.productoMarca,
+        cantidad: p.cantidad,
+        precioUnitario: p.precioUnitario,
+        subtotal: p.subtotal
+      }));
+      
+      setProductosDeCita(nuevosProductos);
+      
+      // ← 4. Recargar citas para actualizar totales en otros tabs
+      await loadCitas();
+      
+    } catch (err) {
+      console.error('❌ Error guardando productos:', err);
+      alert('Error al guardar los productos');
+    }
+  };
 
   const loadCitas = async () => {
     console.log('📅 [CitasTab] Cargando citas...');
@@ -100,27 +225,23 @@ export default function CitasTab() {
         setCitas(citasList);
         
       // ← CALCULAR los 3 totales
-      let confirmadoPendientePago = 0;  // Citas confirmadas pero sin pagar
-      let completadoConPago = 0;         // Citas completadas y pagadas
+      let confirmadoPendientePago = 0;
+      let completadoConPago = 0;
       let general = 0;
 
       for (const cita of citasList) {
         const precio = parseFloat(cita.precio_total) || 0;
-        general += precio;  // ← Siempre suma al total general
+        general += precio;
         
-        // ← Clasificar correctamente según estado y pago_estado
         if (cita.estado === 'confirmada' && cita.pago_estado !== 'pagado') {
-          // Citas confirmadas pero que aún no han sido pagadas
           confirmadoPendientePago += precio;
         } else if (cita.estado === 'completada' && cita.pago_estado === 'pagado') {
-          // Citas completadas y ya pagadas
           completadoConPago += precio;
         }
-        // Las citas en estado 'pendiente' o 'cancelada' no se suman a ningún total específico
       }
 
-      setTotalConfirmado(confirmadoPendientePago);  // Total azul: Confirmadas sin pago
-      setTotalPendiente(completadoConPago);         // Total verde: Completadas con pago
+      setTotalConfirmado(confirmadoPendientePago);
+      setTotalPendiente(completadoConPago);
       setTotalGeneral(general);
 
       console.log(`✅ [CitasTab] Totales: Confirmadas sin pago=$${confirmadoPendientePago.toLocaleString()}, Completadas con pago=$${completadoConPago.toLocaleString()}, General=$${general.toLocaleString()}`);
@@ -172,8 +293,6 @@ export default function CitasTab() {
       const token = localStorage.getItem('admin_token');
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
       
-      // ← HACER PETICIÓN AL BACKEND para actualizar la cita
-      console.log('🔄 [CitasTab] Actualizando cita en backend...');
       const updateRes = await fetch(`${apiUrl}/citas/${citaEditandoId}/`, {
         method: 'PATCH',
         headers: {
@@ -195,7 +314,6 @@ export default function CitasTab() {
       const citaActualizada = await updateRes.json();
       console.log('✅ [CitasTab] Profesional asignado en backend:', citaActualizada);
       
-      // ← Actualizar estado local con la respuesta del backend
       setCitas(prev => prev.map(c => 
         c.id === citaEditandoId 
           ? { 
@@ -212,7 +330,6 @@ export default function CitasTab() {
       console.error('❌ [CitasTab] ERROR crítico asignando profesional:', err);
       alert('Error al asignar el profesional: ' + err.message);
     } finally {
-      // Cerrar modal y limpiar selección
       setProfesionalModalOpen(false);
       setCitaSeleccionada(null);
       setCitaEditandoId(null);
@@ -228,72 +345,121 @@ export default function CitasTab() {
   };
 
   // ← Actualizar método de pago + estados + crear registro de pago
-  const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
-    if (!citaEditandoId || !citaSeleccionada) {
-      console.error('❌ [CitasTab] No hay cita seleccionada');
+ // ← Actualizar método de pago + estados + actualizar/crear pago
+const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
+  if (!citaEditandoId || !citaSeleccionada) {
+    console.error('❌ [EditCitaModal] No hay cita seleccionada');
+    return;
+  }
+  
+  console.log('💳 [EditCitaModal] Procesando método:', metodo);
+  
+  try {
+    const token = localStorage.getItem('admin_token');
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+    
+    const esMetodoBase = ['bold', 'efectivo', 'pendiente'].includes(metodo.banco.toLowerCase());
+    
+    let metodoPagoValue: string;
+    let cuentaBancariaId: number | null = null;
+    
+    if (esMetodoBase) {
+      metodoPagoValue = metodo.banco.toLowerCase();
+      console.log(`✅ [EditCitaModal] Método base: ${metodoPagoValue}`);
+    } else {
+      metodoPagoValue = 'efectivo';
+      cuentaBancariaId = typeof metodo.id === 'number' ? metodo.id : null;
+      console.log(`✅ [EditCitaModal] Cuenta bancaria: ${metodo.banco} → mapeado a 'efectivo', cuenta_id: ${cuentaBancariaId}`);
+    }
+    
+    // ← Payload para actualizar cita
+    const payload: any = {
+      metodo_pago: metodoPagoValue,
+      estado: 'completada',
+      pago_estado: 'pagado',
+    };
+    
+    if (cuentaBancariaId) {
+      payload.cuenta_bancaria_usada = cuentaBancariaId;
+    }
+    
+    console.log('🔄 [EditCitaModal] Actualizando cita:', payload);
+    
+    // ← PASO 1: Actualizar cita
+    const updateCitaRes = await fetch(`${apiUrl}/citas/${citaEditandoId}/`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+    
+    if (!updateCitaRes.ok) {
+      const errorText = await updateCitaRes.text();
+      console.error('❌ [EditCitaModal] Error actualizando cita:', errorText);
+      alert('Error al actualizar la cita: ' + errorText);
       return;
     }
     
-    console.log('💳 [CitasTab] Procesando método:', metodo);
+    const citaActualizada = await updateCitaRes.json();
+    console.log('✅ [EditCitaModal] Cita actualizada:', citaActualizada);
     
-    try {
-      const token = localStorage.getItem('admin_token');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
-      
-      // ← Determinar tipo de método
-      const esMetodoBase = ['bold', 'efectivo', 'pendiente'].includes(metodo.banco.toLowerCase());
-      
-      let metodoPagoValue: string;
-      let cuentaBancariaId: number | null = null;
-      
-      if (esMetodoBase) {
-        // ← Métodos base: bold, efectivo, pendiente
-        metodoPagoValue = metodo.banco.toLowerCase();
-        console.log(`✅ [CitasTab] Método base: ${metodoPagoValue}`);
-      } else {
-        // ← Cuentas bancarias: usar 'efectivo' (que incluye transferencias)
-        // y guardar el ID de la cuenta bancaria
-        metodoPagoValue = 'efectivo';
-        cuentaBancariaId = typeof metodo.id === 'number' ? metodo.id : null;
-        console.log(`✅ [CitasTab] Cuenta bancaria: ${metodo.banco} → mapeado a 'efectivo', cuenta_id: ${cuentaBancariaId}`);
+    // ← ← ← PASO 2: VERIFICAR SI YA EXISTE PAGO PARA ESTA CITA ← ← ←
+    console.log('💾 [EditCitaModal] Buscando pago existente para cita...');
+    
+    const pagosExistentesRes = await fetch(
+      `${apiUrl}/pagos/?origen_tipo=cita&origen_id=${citaEditandoId}`,
+      {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       }
+    );
+    
+    let pagoExistente = null;
+    if (pagosExistentesRes.ok) {
+      const pagosData = await pagosExistentesRes.json();
+      const pagosList = Array.isArray(pagosData) ? pagosData : (pagosData.results || []);
       
-      // ← Payload para actualizar cita
-      const payload: any = {
-        metodo_pago: metodoPagoValue,
-        estado: 'completada',  // ← CAMBIO: Al pagar, pasa a completada
-        pago_estado: 'pagado',
-      };
+      // Buscar el primer pago exitoso o pendiente
+      pagoExistente = pagosList.find((p: any) => 
+        p.estado === 'exitoso' || p.estado === 'pendiente'
+      );
       
-      // ← Agregar cuenta bancaria si aplica
-      if (cuentaBancariaId) {
-        payload.cuenta_bancaria_usada = cuentaBancariaId;
+      console.log('🔍 [EditCitaModal] Pagos encontrados:', pagosList.length);
+      if (pagoExistente) {
+        console.log('✅ [EditCitaModal] Pago existente encontrado:', pagoExistente.id);
       }
+    }
+    
+    // ← PASO 3: ACTUALIZAR O CREAR PAGO SEGÚN CORRESPONDA
+    if (pagoExistente) {
+      // ← ACTUALIZAR pago existente (PATCH)
+      console.log('🔄 [EditCitaModal] Actualizando pago existente ID:', pagoExistente.id);
       
-      console.log('🔄 [CitasTab] Actualizando cita:', payload);
-      
-      // ← PASO 1: Actualizar cita
-      const updateCitaRes = await fetch(`${apiUrl}/citas/${citaEditandoId}/`, {
+      const updatePagoRes = await fetch(`${apiUrl}/pagos/${pagoExistente.id}/`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          monto: parseFloat(citaSeleccionada.precio_total) || 0,
+          metodo_pago: metodoPagoValue,
+          estado: 'exitoso',
+          referencia_externa: `RESERVA-${citaSeleccionada.codigo_reserva}`,
+        }),
       });
       
-      if (!updateCitaRes.ok) {
-        const errorText = await updateCitaRes.text();
-        console.error('❌ [CitasTab] Error actualizando cita:', errorText);
-        alert('Error al actualizar la cita: ' + errorText);
-        return;
+      if (updatePagoRes.ok) {
+        const pagoActualizado = await updatePagoRes.json();
+        console.log('✅ [EditCitaModal] Pago actualizado:', pagoActualizado);
+      } else {
+        console.warn('⚠️ [EditCitaModal] Error actualizando pago:', await updatePagoRes.text());
       }
+    } else {
+      // ← CREAR nuevo pago (POST)
+      console.log('💾 [EditCitaModal] Creando nuevo pago...');
       
-      const citaActualizada = await updateCitaRes.json();
-      console.log('✅ [CitasTab] Cita actualizada:', citaActualizada);
-      
-      // ← PASO 2: Crear registro de pago
-      console.log('💾 [CitasTab] Creando registro de pago...');
       const pagoRes = await fetch(`${apiUrl}/pagos/`, {
         method: 'POST',
         headers: {
@@ -312,43 +478,41 @@ export default function CitasTab() {
       
       if (pagoRes.ok) {
         const pagoData = await pagoRes.json();
-        console.log('✅ [CitasTab] Pago creado:', pagoData);
+        console.log('✅ [EditCitaModal] Pago creado:', pagoData);
       } else {
-        console.warn('⚠️ [CitasTab] Error creando pago:', await pagoRes.text());
+        console.warn('⚠️ [EditCitaModal] Error creando pago:', await pagoRes.text());
       }
-      
-      // ← PASO 3: Actualizar UI
-      setCitas(prev => prev.map(c => 
-        c.id === citaEditandoId 
-          ? { 
-              ...c, 
-              metodo_pago: metodoPagoValue,
-              estado: 'completada',
-              pago_estado: 'pagado'
-            }
-          : c
-      ));
-      
-      await loadCitas();
-      
-      console.log('✅ [CitasTab] Pago registrado exitosamente');
-      alert(`✅ Pago registrado: ${metodo.banco}\nCita completada`);
-      
-    } catch (err: any) {
-      console.error('❌ [CitasTab] ERROR:', err);
-      alert('Error al procesar el pago: ' + err.message);
-    } finally {
-      setPagoModalOpen(false);
-      setCitaSeleccionada(null);
-      setCitaEditandoId(null);
     }
-  };
+    
+    // ← PASO 4: Actualizar UI
+    setCitas(prev => prev.map(c => 
+      c.id === citaEditandoId 
+        ? { 
+            ...c, 
+            metodo_pago: metodoPagoValue,
+            estado: 'completada',
+            pago_estado: 'pagado'
+          }
+        : c
+    ));
+    
+    console.log('✅ [EditCitaModal] Pago registrado exitosamente');
+    alert(`✅ Pago registrado: ${metodo.banco}\nCita completada`);
+    
+  } catch (err: any) {
+    console.error('❌ [EditCitaModal] ERROR:', err);
+    alert('Error al procesar el pago: ' + err.message);
+  } finally {
+    setPagoModalOpen(false);
+    setCitaSeleccionada(null);
+    setCitaEditandoId(null);
+  }
+};
 
-    // ← Formatear fecha para display (CORREGIDO: evitar zona horaria)
+    // ← Formatear fecha para display
   const formatDate = (fechaStr: string): string => {
-    // ← CAMBIO: Crear fecha con hora explícita para evitar UTC
     const [year, month, day] = fechaStr.split('-').map(Number);
-    const date = new Date(year, month - 1, day);  // Mes es 0-indexed en JS
+    const date = new Date(year, month - 1, day);
     
     return date.toLocaleDateString('es-CO', { 
       weekday: 'short', 
@@ -376,25 +540,13 @@ export default function CitasTab() {
 
   // ← NUEVO: Filtrar citas según el filtro seleccionado
    const getCitasFiltradas = (): Cita[] => {
-    console.log('🔍 [CitasTab] Debug filtro:', {
-      filtroEstado,
-      totalCitas: citas.length,
-      confirmadas: citas.filter(c => c.estado === 'confirmada').length,
-      completadas_pagadas: citas.filter(c => c.estado === 'completada' && c.pago_estado === 'pagado').length
-    });
-    
-    if (filtroEstado === 'todas') {
-      return citas;
-    }
-    
+    if (filtroEstado === 'todas') return citas;
     if (filtroEstado === 'confirmada_pendiente') {
       return citas.filter(c => c.estado === 'confirmada');
     }
-    
     if (filtroEstado === 'completada_pagada') {
       return citas.filter(c => c.estado === 'completada' && c.pago_estado === 'pagado');
     }
-    
     return citas;
   };
 
@@ -405,6 +557,23 @@ export default function CitasTab() {
       case 'completada_pagada': return 'Completadas (Pagadas)';
       default: return 'Todas las citas';
     }
+  };
+
+  // ← ← ← NUEVO: Abrir modal de productos para una cita ← ← ←
+  const handleOpenProductosModal = async (cita: Cita) => {
+    setCitaSeleccionada(cita);
+    setCitaEditandoId(cita.id);
+    await cargarProductosDeCita(cita.id);
+    setProductoModalOpen(true);
+  };
+
+  // ← ← ← NUEVO: Formatear moneda ← ← ←
+  const formatMoney = (value: number): string => {
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      minimumFractionDigits: 0,
+    }).format(value);
   };
 
   return (
@@ -482,8 +651,6 @@ export default function CitasTab() {
             )}
           </button>
 
-          
-
           {/* Total General - Todas las citas */}
           <button
             type="button"
@@ -512,6 +679,7 @@ export default function CitasTab() {
           </button>
         </div>
       </div>  
+      
       {/* ========== GRID DE CITAS ========== */}
       <div>
         <div className="flex items-center justify-between mb-4">
@@ -519,7 +687,6 @@ export default function CitasTab() {
             Citas ({getCitasFiltradas().length})
           </h2>
           <div className="flex items-center gap-2">
-            {/* ← Indicador de filtro activo */}
             {filtroEstado !== 'todas' && (
               <button
                 onClick={() => setFiltroEstado('todas')}
@@ -540,7 +707,6 @@ export default function CitasTab() {
           </div>
         </div>
 
-        {/* ← Mensaje de filtro aplicado */}
         {filtroEstado !== 'todas' && (
           <div className="mb-4 p-3 bg-blue-900/30 border border-blue-700 rounded-lg flex items-center justify-between">
             <p className="text-blue-300 text-sm">
@@ -611,36 +777,66 @@ export default function CitasTab() {
                   </p>
                 </div>
 
-                {/* Footer con profesional y método de pago */}
+                {/* Footer con profesional, método de pago y PRODUCTOS */}
                 <div className="bg-gray-900 p-3 border-t border-gray-700 space-y-2">
-                  {/* Profesional */}
+                  
+                  {/* ← Profesional: Azul si tiene, Gris si no tiene */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       handleSelectProfesional(cita);
                     }}
-                    className="w-full flex items-center justify-between px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-xs transition-colors"
+                    className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs transition-all font-medium ${
+                      cita.profesional_nombre
+                        ? 'bg-blue-600/20 border border-blue-500/50 text-blue-300 hover:bg-blue-600/30'
+                        : 'bg-gray-800 border border-gray-600 text-gray-400 hover:bg-gray-700 hover:border-gray-500'
+                    }`}
                   >
-                    <span className="text-gray-400">👨‍⚕️</span>
-                    <span className="text-gray-300 truncate flex-1 mx-2">
-                      {cita.profesional_nombre || 'Profesional'}
+                    <span className={cita.profesional_nombre ? 'text-blue-400' : 'text-gray-500'}>👨‍⚕️</span>
+                    <span className="truncate flex-1 mx-2 font-semibold">
+                      {cita.profesional_nombre || 'Sin profesional'}
                     </span>
-                    <span className="text-blue-400">✏️</span>
+                    <span className={cita.profesional_nombre ? 'text-blue-300' : 'text-gray-500'}>✏️</span>
                   </button>
 
-                  {/* Método de Pago */}
+                  {/* ← Método de Pago: Verde si está pagado, Gris si está pendiente */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectMetodoPago(cita);
+                      }}
+                      className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs transition-all font-medium ${
+                        cita.pago_estado === 'pagado' && cita.metodo_pago
+                          ? 'bg-green-600/20 border border-green-500/50 text-green-300 hover:bg-green-600/30'
+                          : 'bg-gray-800 border border-gray-600 text-gray-400 hover:bg-gray-700 hover:border-gray-500'
+                      }`}
+                    >
+                      <span className={cita.pago_estado === 'pagado' ? 'text-green-400' : 'text-gray-500'}>💳</span>
+                      <span className="truncate flex-1 mx-2 font-semibold capitalize">
+                        {cita.pago_estado === 'pagado' && cita.metodo_pago 
+                          ? `Pago: ${cita.metodo_pago}` 
+                          : 'Pendiente pago'}
+                      </span>
+                      <span className={cita.pago_estado === 'pagado' ? 'text-green-300' : 'text-gray-500'}>✏️</span>
+                    </button>
+
+                  {/* ← Productos: Púrpura si tiene, Gris si no tiene */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleSelectMetodoPago(cita);
+                      handleOpenProductosModal(cita);
                     }}
-                    className="w-full flex items-center justify-between px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-xs transition-colors"
+                    className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs transition-all font-medium ${
+                      cita.total_productos && cita.total_productos > 0
+                        ? 'bg-purple-600/20 border border-purple-500/50 text-purple-300 hover:bg-purple-600/30'
+                        : 'bg-gray-800 border border-gray-600 text-gray-400 hover:bg-gray-700 hover:border-gray-500'
+                    }`}
                   >
-                    <span className="text-gray-400">💳</span>
-                    <span className="text-gray-300 truncate flex-1 mx-2 capitalize">
-                     Pago  {cita.metodo_pago}
+                    <span className={cita.total_productos && cita.total_productos > 0 ? 'text-purple-400' : 'text-gray-500'}>📦</span>
+                    <span className="truncate flex-1 mx-2 font-semibold">
+                      Productos {cita.total_productos && cita.total_productos > 0 && `(${formatMoney(cita.total_productos)})`}
                     </span>
-                    <span className="text-blue-400">✏️</span>
+                    <span className={cita.total_productos && cita.total_productos > 0 ? 'text-purple-300' : 'text-gray-500'}>✏️</span>
                   </button>
                 </div>
               </div>
@@ -689,6 +885,32 @@ export default function CitasTab() {
           }}
           onSelect={handleMetodoPagoSelected}
           metodoSeleccionadoId={null}
+        />
+      )}
+
+      {/* ← ← ← NUEVO: Modal de Productos para Citas ← ← ← */}
+      {productoModalOpen && citaSeleccionada && (
+        <ProductoModal
+          isOpen={productoModalOpen}
+          onClose={() => {
+            setProductoModalOpen(false);
+            setCitaSeleccionada(null);
+            setCitaEditandoId(null);
+            setProductosDeCita([]);
+          }}
+          onSelect={handleProductosSeleccionados}
+          apiUrl={apiUrl}
+          token={token || undefined}
+          productosExistentes={productosDeCita.map(p => ({
+            productoId: p.productoId,
+            productoNombre: p.productoNombre,
+            productoMarca: p.productoMarca,
+            cantidad: p.cantidad,
+            precioUnitario: p.precioUnitario,
+            precioBase: p.precioUnitario,
+            subtotal: p.subtotal,
+            stockDisponible: 999
+          }))}
         />
       )}
     </div>
