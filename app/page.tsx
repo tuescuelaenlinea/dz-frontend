@@ -189,6 +189,13 @@ const heroMobileImage = getImageUrl(
     );
   }
 
+  // ← ← ← FUNCIÓN HELPER PARA FORMATEAR PRECIOS ← ← ←
+const formatPrice = (value: string | number | null | undefined): string => {
+  if (value === null || value === undefined) return '0';
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  return num.toLocaleString('es-CO', { maximumFractionDigits: 0 });
+};
+
   return (
     <div className="min-h-screen bg-white">
       {/* Hero Section */}
@@ -427,7 +434,7 @@ const heroMobileImage = getImageUrl(
                 <div className="relative h-48 overflow-hidden">
                   {servicio.imagen_url || servicio.imagen ? (
                     <img
-                      src={getImageUrl(servicio.imagen, servicio.imagen_url) || ''}
+                      src={getImageUrl(servicio.imagen ?? null, servicio.imagen_url ?? null) || ''}
                       alt={servicio.nombre}
                       className="w-full h-full object-cover hover:scale-110 transition-transform duration-300"
                       loading="lazy"
@@ -462,8 +469,8 @@ const heroMobileImage = getImageUrl(
                     <div className="flex justify-between items-center">
                       <span className="text-green-600 font-bold text-lg">
                         {servicio.precio_max && servicio.precio_max !== servicio.precio_min
-                          ? `$${parseInt(servicio.precio_min).toLocaleString()} - $${parseInt(servicio.precio_max).toLocaleString()}`
-                          : `$${parseInt(servicio.precio_min).toLocaleString()}`
+                          ? `$${formatPrice(servicio.precio_min)} - $${formatPrice(servicio.precio_max)}`
+                          : `$${formatPrice(servicio.precio_min)}`
                         }
                       </span>
                       {servicio.duracion && (
