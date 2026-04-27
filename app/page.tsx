@@ -15,29 +15,31 @@ interface Categoria {
   activo: boolean;
 }
 
+// app/page.tsx - interfaz Servicio
+
 interface Servicio {
   id: number;
   nombre: string;
   slug: string;
-  descripcion?: string;              // ← TODOS con '?'
-  descripcion_corta?: string;
+  descripcion?: string;
+  descripcion_corta?: string;  
   tipo_precio?: string;
-  precio_min?: number;
-  precio_max?: number;
+  precio_min: string | number;        
+  precio_max?: string | number;        
+  adicional_domicilio?: string | number;   
   duracion?: string;
-  sesiones_incluidas?: number;
+  sesiones_incluidas?: string | number; 
   es_medico?: boolean;
   requiere_valoracion?: boolean;
   disponible_salon?: boolean;
   disponible_domicilio?: boolean;
-  adicional_domicilio?: number;
-  destacado?: boolean;               // ← Este era el que faltaba
+  destacado?: boolean;
   disponible?: boolean;
   imagen?: string | null;
   imagen_url?: string | null;
-  categoria?: number | null;
+  categoria?: string | number | null;
   categoria_nombre?: string | null;
-  profesionales_count?: number;
+  profesionales_count?: string | number;
 }
 
 interface Configuracion {
