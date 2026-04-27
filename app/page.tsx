@@ -24,11 +24,11 @@ interface Servicio {
   descripcion?: string;
   descripcion_corta?: string;  
   tipo_precio?: string;
-  precio_min: string | number;        
-  precio_max?: string | number;        
-  adicional_domicilio?: string | number;   
+  precio_min: string | number | null;        // ← AGREGAR | null
+  precio_max?: string | number | null;        // ← AGREGAR | null
+  adicional_domicilio?: string | number | null; // ← AGREGAR | null si existe  
   duracion?: string;
-  sesiones_incluidas?: string | number; 
+  sesiones_incluidas?: string | number | null;
   es_medico?: boolean;
   requiere_valoracion?: boolean;
   disponible_salon?: boolean;
@@ -39,7 +39,7 @@ interface Servicio {
   imagen_url?: string | null;
   categoria?: string | number | null;
   categoria_nombre?: string | null;
-  profesionales_count?: string | number;
+  profesionales_count?: string | number | null;
 }
 
 interface Configuracion {
