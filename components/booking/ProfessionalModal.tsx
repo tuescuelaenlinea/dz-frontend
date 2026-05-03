@@ -58,6 +58,18 @@ export default function ProfessionalModal({
     return `${API_DOMAIN}${imagePath}`;
   };
 
+// Al inicio del componente, después de los props:
+useEffect(() => {
+  if (isOpen) {
+    console.log('🎯 [ProfessionalModal] Props recibidos:', {
+      isOpen,
+      servicioId,
+      profesionalSeleccionadoId,
+      apiUrl: API_URL
+    });
+  }
+}, [isOpen, servicioId, profesionalSeleccionadoId]);
+  
   // ← Cargar profesionales cuando se abre el modal
     // ← Cargar profesionales cuando se abre el modal
   useEffect(() => {

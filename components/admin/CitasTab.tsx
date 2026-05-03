@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import EditCitaModal from './EditCitaModal';
 import ProfessionalModal from '../booking/ProfessionalModal';
 import PaymentMethodModal from '../booking/PaymentMethodModal';
-import ProductoModal, { ProductoSeleccionado } from './ProductoModal';  // ← AGREGAR IMPORT
+import ProductoModal, { ProductoSeleccionado } from './ProductoModal';
 
 // ← ← ← NUEVAS INTERFACES ← ← ←
 interface CitaProductoForm {
@@ -89,8 +89,11 @@ export default function CitasTab() {
   const [totalPendiente, setTotalPendiente] = useState<number>(0);
   const [totalGeneral, setTotalGeneral] = useState<number>(0);
   
-  // ← NUEVO: Estado para filtro de citas por estado
-  const [filtroEstado, setFiltroEstado] = useState<'todas' | 'confirmada_pendiente' | 'completada_pagada'>('todas');
+  // ← ← ← NUEVO: Total de citas en estado "pendiente" ← ← ←
+  const [totalCitasPendientes, setTotalCitasPendientes] = useState<number>(0);
+  
+  // ← NUEVO: Estado para filtro de citas por estado (AGREGADO 'pendiente')
+  const [filtroEstado, setFiltroEstado] = useState<'todas' | 'pendiente' | 'confirmada_pendiente' | 'completada_pagada'>('todas');
 
   // ← API config
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
@@ -212,7 +215,8 @@ export default function CitasTab() {
       const token = localStorage.getItem('admin_token');
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
       
-      const url = `${apiUrl}/citas/?fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}&ordering=fecha,hora_inicio`;
+      // ← ← ← CAMBIO: ordering=-id para orden de creación decreciente (más recientes primero)
+      const url = `${apiUrl}/citas/?fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}&ordering=-id`;
       console.log(`📡 [CitasTab] Fetching: ${url}`);
       
       const res = await fetch(url, {
@@ -224,27 +228,36 @@ export default function CitasTab() {
         const citasList = Array.isArray(data) ? data : (data.results || []);
         setCitas(citasList);
         
-      // ← CALCULAR los 3 totales
-      let confirmadoPendientePago = 0;
-      let completadoConPago = 0;
-      let general = 0;
+        // ← CALCULAR los 4 totales (AGREGADO: citasPendientes)
+        let confirmadoPendientePago = 0;
+        let completadoConPago = 0;
+        let citasPendientes = 0;  // ← ← ← NUEVO: Contador de citas pendientes
+        let general = 0;
 
-      for (const cita of citasList) {
-        const precio = parseFloat(cita.precio_total) || 0;
-        general += precio;
-        
-        if (cita.estado === 'confirmada' && cita.pago_estado !== 'pagado') {
-          confirmadoPendientePago += precio;
-        } else if (cita.estado === 'completada' && cita.pago_estado === 'pagado') {
-          completadoConPago += precio;
+        for (const cita of citasList) {
+          const precio = parseFloat(cita.precio_total) || 0;
+          general += precio;
+          
+          if (cita.estado === 'confirmada' && cita.pago_estado !== 'pagado') {
+            confirmadoPendientePago += precio;
+          } else if (cita.estado === 'completada' && cita.pago_estado === 'pagado') {
+            completadoConPago += precio;
+          } else if (cita.estado === 'pendiente') {  // ← ← ← NUEVO: Contar pendientes
+            citasPendientes += 1;  // Contar cantidad de citas, no el monto
+          }
         }
-      }
 
-      setTotalConfirmado(confirmadoPendientePago);
-      setTotalPendiente(completadoConPago);
-      setTotalGeneral(general);
+        setTotalConfirmado(confirmadoPendientePago);
+        setTotalPendiente(completadoConPago);
+        setTotalGeneral(general);
+        setTotalCitasPendientes(citasPendientes);  // ← ← ← NUEVO: Actualizar estado
 
-      console.log(`✅ [CitasTab] Totales: Confirmadas sin pago=$${confirmadoPendientePago.toLocaleString()}, Completadas con pago=$${completadoConPago.toLocaleString()}, General=$${general.toLocaleString()}`);
+        console.log(`✅ [CitasTab] Totales: 
+          Pendientes: ${citasPendientes} citas, 
+          Confirmadas sin pago=$${confirmadoPendientePago.toLocaleString()}, 
+          Completadas con pago=$${completadoConPago.toLocaleString()}, 
+          General=$${general.toLocaleString()}`
+        );
       } else {
         console.error('❌ [CitasTab] Error cargando citas:', await res.text());
       }
@@ -344,8 +357,7 @@ export default function CitasTab() {
     setPagoModalOpen(true);
   };
 
-  // ← Actualizar método de pago + estados + crear registro de pago
- // ← Actualizar método de pago + estados + actualizar/crear pago
+  // ← Actualizar método de pago + estados + actualizar/crear pago
 const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
   if (!citaEditandoId || !citaSeleccionada) {
     console.error('❌ [EditCitaModal] No hay cita seleccionada');
@@ -532,15 +544,18 @@ const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
     return colors[estado] || 'bg-gray-600';
   };
 
-  // ← NUEVO: Manejar clic en card de total para filtrar citas
-  const handleFiltroClick = (tipo: 'todas' | 'confirmada_pendiente' | 'completada_pagada') => {
+  // ← NUEVO: Manejar clic en card de total para filtrar citas (AGREGADO 'pendiente')
+  const handleFiltroClick = (tipo: 'todas' | 'pendiente' | 'confirmada_pendiente' | 'completada_pagada') => {
     console.log(`🔍 [CitasTab] Filtro aplicado: ${tipo}`);
     setFiltroEstado(tipo);
   };
 
-  // ← NUEVO: Filtrar citas según el filtro seleccionado
+  // ← NUEVO: Filtrar citas según el filtro seleccionado (AGREGADO caso 'pendiente')
    const getCitasFiltradas = (): Cita[] => {
     if (filtroEstado === 'todas') return citas;
+    if (filtroEstado === 'pendiente') {  // ← ← ← NUEVO: Filtrar por pendiente
+      return citas.filter(c => c.estado === 'pendiente');
+    }
     if (filtroEstado === 'confirmada_pendiente') {
       return citas.filter(c => c.estado === 'confirmada');
     }
@@ -550,9 +565,10 @@ const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
     return citas;
   };
 
-  // ← NUEVO: Obtener texto del filtro activo para mostrar
+  // ← NUEVO: Obtener texto del filtro activo para mostrar (AGREGADO caso 'pendiente')
   const getFiltroLabel = (): string => {
     switch (filtroEstado) {
+      case 'pendiente': return 'Citas Pendientes';  // ← ← ← NUEVO
       case 'confirmada_pendiente': return 'Confirmadas (Pendiente Pago)';
       case 'completada_pagada': return 'Completadas (Pagadas)';
       default: return 'Todas las citas';
@@ -580,7 +596,7 @@ const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
     <div className="space-y-6">
       {/* ========== FILTROS DE FECHA Y TOTALES ========== */}
       <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {/* Fecha Inicio */}
           <div>
             <label className="block text-sm font-semibold text-gray-300 mb-2">
@@ -606,6 +622,31 @@ const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
               className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
             />
           </div>
+          
+          {/* ← ← ← NUEVA CARD: Citas Pendientes (PRIMERA CARD DE TOTALES) ← ← ← */}
+          <button
+            type="button"
+            onClick={() => handleFiltroClick('pendiente')}
+            className={`bg-gradient-to-br from-yellow-600/70 to-orange-600/70 rounded-xl p-3 border-2 flex flex-col justify-center transition-all hover:scale-105 ${
+              filtroEstado === 'pendiente' 
+                ? 'border-yellow-300 ring-4 ring-yellow-500/50 shadow-lg shadow-yellow-500/30' 
+                : 'border-yellow-500 hover:border-yellow-300'
+            }`}
+            title="Click para filtrar: Citas pendientes de confirmación"
+          >
+            <p className="text-yellow-200 text-[10px] font-semibold mb-0.5">
+              ⏳ Citas Pendientes
+            </p>
+            <p className="text-2xl font-bold text-white">
+              {totalCitasPendientes}
+            </p>
+            <p className="text-yellow-300/70 text-[9px] mt-0.5">
+              Por confirmar
+            </p>
+            {filtroEstado === 'pendiente' && (
+              <span className="text-[9px] text-yellow-200 mt-1">✓ Filtrando</span>
+            )}
+          </button>
           
           {/* Total Pendiente - Confirmada con pago pendiente */}
           <button
@@ -655,25 +696,25 @@ const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
           <button
             type="button"
             onClick={() => handleFiltroClick('todas')}
-            className={`bg-gradient-to-br from-yellow-900/50 to-amber-900/50 rounded-xl p-3 border flex flex-col justify-center transition-all hover:scale-105 ${
+            className={`bg-gradient-to-br from-yellow-900/50 to-amber-900/50 rounded-lg p-2 border flex flex-col justify-center transition-all hover:scale-105 ${
               filtroEstado === 'todas' 
-                ? 'border-yellow-300 ring-4 ring-yellow-500/50 shadow-lg shadow-yellow-500/30' 
+                ? 'border-yellow-300 ring-2 ring-yellow-500/50 shadow-md shadow-yellow-500/30' 
                 : 'border-yellow-700 hover:border-yellow-300'
             }`}
             title="Click para mostrar todas las citas"
           >
-            <p className="text-yellow-200 text-[10px] font-bold mb-0.5 uppercase tracking-wide">
-              💰 TOTAL GENERAL
+            <p className="text-yellow-200 text-[8px] font-bold mb-0.5 uppercase tracking-wide leading-tight">
+              💰 Total
             </p>
-            <p className="text-2xl font-extrabold text-white drop-shadow">
+            <p className="text-lg font-extrabold text-white drop-shadow">
               ${totalGeneral.toLocaleString('es-CO')}
             </p>
-            <p className="text-yellow-300/70 text-[10px] mt-0.5">
+            <p className="text-yellow-300/70 text-[7px] mt-0.5 leading-none">
               {citas.length} cita{citas.length !== 1 ? 's' : ''}
             </p>
             {filtroEstado !== 'todas' && (
-              <span className="text-[9px] text-yellow-200 mt-1 cursor-pointer hover:underline">
-                Mostrar todas
+              <span className="text-[7px] text-yellow-200 mt-0.5 cursor-pointer hover:underline">
+                Ver todas
               </span>
             )}
           </button>
@@ -683,9 +724,17 @@ const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
       {/* ========== GRID DE CITAS ========== */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-white">
-            Citas ({getCitasFiltradas().length})
-          </h2>
+         
+          {/* Después del título "Citas (X)" */}
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-white">
+              Citas ({getCitasFiltradas().length})
+            </h2>
+            {/* ← ← ← NUEVO: Badge de orden ← ← ← */}
+            <span className="text-xs text-gray-400 bg-gray-800 px-2 py-1 rounded">
+              ↓ Más recientes primero
+            </span>
+          </div>
           <div className="flex items-center gap-2">
             {filtroEstado !== 'todas' && (
               <button
@@ -801,10 +850,10 @@ const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
 
                   {/* ← Método de Pago: Verde si está pagado, Gris si está pendiente */}
                     <button
-                      onClick={(e) => {
+                     /* onClick={(e) => {
                         e.stopPropagation();
                         handleSelectMetodoPago(cita);
-                      }}
+                      }}*/
                       className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs transition-all font-medium ${
                         cita.pago_estado === 'pagado' && cita.metodo_pago
                           ? 'bg-green-600/20 border border-green-500/50 text-green-300 hover:bg-green-600/30'
