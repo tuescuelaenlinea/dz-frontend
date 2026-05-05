@@ -73,32 +73,28 @@ export default function CategoriasPage() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // ← ← ← FUNCIÓN: Verificar galería y servicios por categoría ← ← ←
-  const verificarCategoria = async (categoriaId: number) => {
-    try {
-      // Verificar galería activa
-      const galeriaRes = await fetch(`${API_URL}/galeria/?categoria=${categoriaId}&activo=true`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('admin_token')}` }
-      });
-      const galeriaData = await galeriaRes.json();
-      const galeriaList = Array.isArray(galeriaData) ? galeriaData : (galeriaData.results || []);
-      
-      // Verificar servicios disponibles
-      const serviciosRes = await fetch(`${API_URL}/categorias/${categoriaId}/servicios/`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('admin_token')}` }
-      });
-      const serviciosData = await serviciosRes.json();
-      
-      return {
-        galeria_count: galeriaList.length,
-        tiene_galeria: galeriaList.length > 0,
-        tiene_servicios: serviciosData.servicios_count > 0
-      };
-    } catch (err) {
-      console.error(`Error verificando categoría ${categoriaId}:`, err);
-      return { galeria_count: 0, tiene_galeria: false, tiene_servicios: false };
-    }
-  };
+  // ← ← ← FUNCIÓN: Verificar galería y servicios por categoría (SIN AUTH) ← ← ←
+    const verificarCategoria = async (categoriaId: number) => {
+      try {
+        // ← ← ← PETICIÓN PÚBLICA: SIN HEADERS DE AUTH ← ← ←
+        const galeriaRes = await fetch(`${API_URL}/galeria/?categoria=${categoriaId}&activo=true`);
+        const galeriaData = await galeriaRes.json();
+        const galeriaList = Array.isArray(galeriaData) ? galeriaData : (galeriaData.results || []);
+        
+        // ← ← ← PETICIÓN PÚBLICA: SIN HEADERS DE AUTH ← ← ←
+        const serviciosRes = await fetch(`${API_URL}/categorias/${categoriaId}/servicios/`);
+        const serviciosData = await serviciosRes.json();
+        
+        return {
+          galeria_count: galeriaList.length,
+          tiene_galeria: galeriaList.length > 0,
+          tiene_servicios: serviciosData.servicios_count > 0
+        };
+      } catch (err) {
+        console.error(`Error verificando categoría ${categoriaId}:`, err);
+        return { galeria_count: 0, tiene_galeria: false, tiene_servicios: false };
+      }
+    };
 
   useEffect(() => {
     async function loadData() {
