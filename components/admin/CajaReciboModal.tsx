@@ -4,6 +4,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import ProfessionalModal from '@/components/booking/ProfessionalModal';
 import CitasPendientesModal from '@/components/admin/CitasPendientesModal';
+import CalcularComisionesModal from '@/components/admin/CalcularComisionesModal'; // ← AGREGAR
 
 // ← ← ← INTERFACES ← ← ←
 interface Servicio {
@@ -60,6 +61,9 @@ interface CajaReciboModalProps {
   token?: string | null;
   onReciboCreado?: (recibo: any) => void;
   onReciboActualizado?: (recibo: any) => void;
+  onComisionesPagadas?: () => void;
+  modalComisionesOpen?: boolean;
+  onModalComisionesClose?: () => void;
 }
 
 export default function CajaReciboModal({
@@ -70,7 +74,10 @@ export default function CajaReciboModal({
   apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api',
   token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null,
   onReciboCreado,
-  onReciboActualizado
+  onReciboActualizado,
+  onComisionesPagadas,
+  modalComisionesOpen = false,
+  onModalComisionesClose,
 }: CajaReciboModalProps) {
   
   // ← Estados principales
@@ -112,6 +119,9 @@ export default function CajaReciboModal({
     porcentaje: number
   }>>([]);
   const [propinaEditable, setPropinaEditable] = useState<string>('');
+
+  // ← ← ← NUEVO: Estado para modal de comisiones ← ← ←
+  const [showComisionesModal, setShowComisionesModal] = useState(false);
   
   // ← Estados de carga y guardado
   const [loading, setLoading] = useState(false);
@@ -147,6 +157,15 @@ export default function CajaReciboModal({
       cargarReciboParaEditar();
     }
   }, [isOpen, reciboParaEditarId]);
+
+  // ← ← ← NUEVO: Abrir modal de comisiones al seleccionar "Salida" ← ← ←
+useEffect(() => {
+  if (tipoRecibo === 'salida') {
+    setShowComisionesModal(true);
+  } else {
+    setShowComisionesModal(false);
+  }
+}, [tipoRecibo]);
 
   // ← ← ← FUNCIÓN: Cargar códigos de reserva para múltiples citas ← ← ←
   const cargarCodigosReservaParaCitas = async (citaIds: number[]): Promise<Record<number, string>> => {
@@ -1559,7 +1578,7 @@ const quitarItemDelRecibo = (itemId: string) => {
                   <h3 className="font-semibold text-white">
                     📦 Items del Recibo ({items.length})
                   </h3>
-                  {/* ← ← ← PROPINA: UNIFICADA Y CLICKEABLE ← ← ← 
+                   ← ← ← PROPINA: UNIFICADA Y CLICKEABLE ← ← ← 
                   {tipoRecibo === 'venta' && items.length > 0 && (
                     <button
                       onClick={() => {
@@ -1571,7 +1590,7 @@ const quitarItemDelRecibo = (itemId: string) => {
                     >
                       💎 Propina: {propinaMetodo} - {formatMoney(propinaTotal)}
                     </button>
-                  )}*/}
+                  )}
                 </div>
 
                 <div className="p-4 max-h-80 overflow-y-auto">
@@ -1926,7 +1945,40 @@ const quitarItemDelRecibo = (itemId: string) => {
           token={token}
         />
       )}
-
+     
+      {/* ← ← ← MODAL: Calcular y Pagar Comisiones ← ← ← */}
+      {modalComisionesOpen && (  // ← ← ← USAR LA PROP, NO UNA VARIABLE LOCAL
+        <CalcularComisionesModal
+          isOpen={true}  // ← ← ← Siempre true porque el padre controla la visibilidad
+          onClose={() => {
+            // Llamar callback del padre si existe
+            if (onModalComisionesClose) {
+              onModalComisionesClose();
+            }
+            
+          }}
+          onPagoExitoso={(reciboCodigo: string) => {  // ← ← ← parámetro correcto
+            console.log('✅ Comisiones pagadas:', reciboCodigo);
+            
+            // Recargar datos de caja
+            if (typeof onComisionesPagadas === 'function') {
+              onComisionesPagadas();
+            }
+            
+            // Mostrar confirmación
+            alert(`✅ Pago procesado. Recibo: ${reciboCodigo}`);
+            
+            // Cerrar modal de comisiones
+            if (onModalComisionesClose) {
+              onModalComisionesClose();
+            }
+            
+          }}
+          apiUrl={apiUrl}
+          token={token}
+        />
+      )}
+      
       {/* ← ← ← MODAL DE PROFESIONAL ← ← ← NUEVO ← ← ← */}
       {showProfessionalModal && itemParaProfesional && (
         <ProfessionalModal

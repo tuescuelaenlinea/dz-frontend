@@ -140,42 +140,54 @@ export default function ServiciosPage() {
     : (headerDesktopImage || 'https://pagosapp.website/header_servicios3.jpg?auto=format&fit=crop&w=1920&q=80');
 
   // Filtrar y ordenar servicios (SIN CAMBIOS)
-  const filteredServices = servicios
-    .filter((s) => {
-      if (searchTerm && !s.nombre.toLowerCase().includes(searchTerm.toLowerCase())) {
+ // Filtrar y ordenar servicios (CORREGIDO)
+const filteredServices = servicios
+  .filter((s) => {
+    // Filtro por búsqueda
+    if (searchTerm && !s.nombre.toLowerCase().includes(searchTerm.toLowerCase())) {
+      return false;
+    }
+    
+    // ← ← ← CORREGIDO: Filtro por categoría (maneja null) ← ← ←
+    if (filters.categoria) {
+      const servicioCategoria = s.categoria?.toString() ?? '';
+      if (servicioCategoria !== filters.categoria) {
         return false;
       }
-      if (filters.categoria && s.categoria.toString() !== filters.categoria) {
+    }
+    
+    // Filtro por precio máximo
+    const precioMin = parseInt(s.precio_min) || 0;
+    if (precioMin > filters.precioMax) {
+      return false;
+    }
+    
+    // Filtro por disponibilidad
+    if (filters.disponibleSalon || filters.disponibleDomicilio) {
+      if (!s.disponible_salon && !s.disponible_domicilio) {
         return false;
       }
-      if (parseInt(s.precio_min) > filters.precioMax) {
+      if (filters.disponibleSalon && !filters.disponibleDomicilio && !s.disponible_salon) {
         return false;
       }
-      if (filters.disponibleSalon || filters.disponibleDomicilio) {
-        if (!s.disponible_salon && !s.disponible_domicilio) {
-          return false;
-        }
-        if (filters.disponibleSalon && !filters.disponibleDomicilio && !s.disponible_salon) {
-          return false;
-        }
-        if (!filters.disponibleSalon && filters.disponibleDomicilio && !s.disponible_domicilio) {
-          return false;
-        }
+      if (!filters.disponibleSalon && filters.disponibleDomicilio && !s.disponible_domicilio) {
+        return false;
       }
-      return true;
-    })
-    .sort((a, b) => {
-      switch (filters.orden) {
-        case 'precio_asc':
-          return parseInt(a.precio_min) - parseInt(b.precio_min);
-        case 'precio_desc':
-          return parseInt(b.precio_min) - parseInt(a.precio_min);
-        case 'destacado':
-          return (b.destacado ? 1 : 0) - (a.destacado ? 1 : 0);
-        default:
-          return a.nombre.localeCompare(b.nombre);
-      }
-    });
+    }
+    return true;
+  })
+  .sort((a, b) => {
+    switch (filters.orden) {
+      case 'precio_asc':
+        return (parseInt(a.precio_min) || 0) - (parseInt(b.precio_min) || 0);
+      case 'precio_desc':
+        return (parseInt(b.precio_min) || 0) - (parseInt(a.precio_min) || 0);
+      case 'destacado':
+        return (b.destacado ? 1 : 0) - (a.destacado ? 1 : 0);
+      default:
+        return a.nombre.localeCompare(b.nombre);
+    }
+  });
 
   if (loading) {
     return (

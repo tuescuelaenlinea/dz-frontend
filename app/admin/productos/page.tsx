@@ -11,8 +11,8 @@ interface Producto {
   nombre: string;
   marca: string;
   descripcion: string;
-  categoria: number | null;
-  categoria_nombre: string | null;
+  linea: number | null;
+  linea_nombre: string | null;
   codigo_barras: string;
   costo: string;
   precio_venta: string;
@@ -26,17 +26,18 @@ interface Producto {
   actualizado: string;
 }
 
-interface Categoria {
+interface Linea {
   id: number;
   nombre: string;
-  slug: string;
+  descripcion: string;
+  activo: boolean;
 }
 
 interface FormData {
   nombre: string;
   marca: string;
   descripcion: string;
-  categoria: string;
+  linea: string;
   codigo_barras: string;
   costo: string;
   precio_venta: string;
@@ -46,6 +47,12 @@ interface FormData {
   imagen: File | null;
 }
 
+interface LineaFormData {
+  nombre: string;
+  descripcion: string;
+  activo: boolean;
+}
+
 // ← ← ← COMPONENTE PRINCIPAL ← ← ←
 
 export default function AdminProductosPage() {
@@ -53,20 +60,20 @@ export default function AdminProductosPage() {
   
   // ← Estados
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [lineas, setLineas] = useState<Linea[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [categoriaFilter, setCategoriaFilter] = useState<string>('');
+  const [lineaFilter, setLineaFilter] = useState<string>('');
   const [soloBajoStock, setSoloBajoStock] = useState(false);
   
-  // ← Modal states
-  const [modalAbierto, setModalAbierto] = useState(false);
+  // ← Modal states - Producto
+  const [modalProductoAbierto, setModalProductoAbierto] = useState(false);
   const [editandoId, setEditandoId] = useState<number | null>(null);
   const [formData, setFormData] = useState<FormData>({
     nombre: '',
     marca: '',
     descripcion: '',
-    categoria: '',
+    linea: '',
     codigo_barras: '',
     costo: '',
     precio_venta: '',
@@ -79,6 +86,15 @@ export default function AdminProductosPage() {
   const [guardando, setGuardando] = useState(false);
   const [eliminandoId, setEliminandoId] = useState<number | null>(null);
 
+  // ← Modal states - Línea
+  const [modalLineaAbierto, setModalLineaAbierto] = useState(false);
+  const [lineaFormData, setLineaFormData] = useState<LineaFormData>({
+    nombre: '',
+    descripcion: '',
+    activo: true,
+  });
+  const [guardandoLinea, setGuardandoLinea] = useState(false);
+
   // ← API config
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
   const token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
@@ -86,7 +102,7 @@ export default function AdminProductosPage() {
   // ← Cargar datos al montar
   useEffect(() => {
     cargarProductos();
-    cargarCategorias();
+    cargarLineas();
   }, []);
 
   // ← Cargar productos
@@ -113,20 +129,68 @@ export default function AdminProductosPage() {
     }
   };
 
-  // ← Cargar categorías
-  const cargarCategorias = async () => {
+  // ← Cargar líneas
+  const cargarLineas = async () => {
     try {
-      const res = await fetch(`${apiUrl}/categorias/?activo=true&ordering=nombre`, {
+      const res = await fetch(`${apiUrl}/lineas/?activo=true&ordering=nombre`, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
       
       if (res.ok) {
         const data = await res.json();
-        setCategorias(Array.isArray(data) ? data : (data.results || []));
+        setLineas(Array.isArray(data) ? data : (data.results || []));
       }
     } catch (err) {
-      console.error('❌ Error cargando categorías:', err);
+      console.error('❌ Error cargando líneas:', err);
     }
+  };
+
+  // ← Crear nueva línea
+  const crearLinea = async () => {
+    if (!lineaFormData.nombre.trim()) {
+      alert('❌ El nombre de la línea es obligatorio');
+      return;
+    }
+
+    setGuardandoLinea(true);
+    
+    try {
+      const res = await fetch(`${apiUrl}/lineas/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(lineaFormData),
+      });
+
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.detail || error.error || 'Error al crear línea');
+      }
+
+      const nuevaLinea = await res.json();
+      setLineas([...lineas, nuevaLinea]);
+      
+      // Seleccionar automáticamente la nueva línea en el formulario de producto
+      setFormData(prev => ({ ...prev, linea: nuevaLinea.id.toString() }));
+      
+      alert('✅ Línea creada exitosamente');
+      setModalLineaAbierto(false);
+      setLineaFormData({ nombre: '', descripcion: '', activo: true });
+      
+    } catch (err: any) {
+      console.error('❌ Error creando línea:', err);
+      alert(`❌ Error: ${err.message}`);
+    } finally {
+      setGuardandoLinea(false);
+    }
+  };
+
+  // ← Abrir modal para crear línea
+  const abrirModalLinea = () => {
+    setLineaFormData({ nombre: '', descripcion: '', activo: true });
+    setModalLineaAbierto(true);
   };
 
   // ← Filtrar productos
@@ -137,24 +201,24 @@ export default function AdminProductosPage() {
         p.marca.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.codigo_barras.toLowerCase().includes(searchTerm.toLowerCase());
       
-      const matchCategoria = categoriaFilter === '' || 
-        String(p.categoria) === categoriaFilter;
+      const matchLinea = lineaFilter === '' || 
+        String(p.linea) === lineaFilter;
       
       const matchStock = !soloBajoStock || 
         p.stock_actual <= p.stock_minimo;
       
-      return matchSearch && matchCategoria && matchStock;
+      return matchSearch && matchLinea && matchStock;
     });
-  }, [productos, searchTerm, categoriaFilter, soloBajoStock]);
+  }, [productos, searchTerm, lineaFilter, soloBajoStock]);
 
-  // ← Abrir modal para crear
+  // ← Abrir modal para crear producto
   const abrirModalCrear = () => {
     setEditandoId(null);
     setFormData({
       nombre: '',
       marca: '',
       descripcion: '',
-      categoria: '',
+      linea: '',
       codigo_barras: '',
       costo: '',
       precio_venta: '',
@@ -164,17 +228,17 @@ export default function AdminProductosPage() {
       imagen: null,
     });
     setImagenPreview(null);
-    setModalAbierto(true);
+    setModalProductoAbierto(true);
   };
 
-  // ← Abrir modal para editar
+  // ← Abrir modal para editar producto
   const abrirModalEditar = (producto: Producto) => {
     setEditandoId(producto.id);
     setFormData({
       nombre: producto.nombre,
       marca: producto.marca,
       descripcion: producto.descripcion,
-      categoria: producto.categoria?.toString() || '',
+      linea: producto.linea?.toString() || '',
       codigo_barras: producto.codigo_barras,
       costo: producto.costo,
       precio_venta: producto.precio_venta,
@@ -184,7 +248,7 @@ export default function AdminProductosPage() {
       imagen: null,
     });
     setImagenPreview(producto.imagen_url);
-    setModalAbierto(true);
+    setModalProductoAbierto(true);
   };
 
   // ← Manejar cambio de imagen
@@ -265,7 +329,7 @@ export default function AdminProductosPage() {
       }
 
       alert(`✅ Producto ${editandoId ? 'actualizado' : 'creado'} exitosamente`);
-      setModalAbierto(false);
+      setModalProductoAbierto(false);
       cargarProductos();
       
     } catch (err: any) {
@@ -335,11 +399,17 @@ export default function AdminProductosPage() {
     }).format(num);
   };
 
-  // ← Cerrar modal
-  const cerrarModal = () => {
-    setModalAbierto(false);
+  // ← Cerrar modal producto
+  const cerrarModalProducto = () => {
+    setModalProductoAbierto(false);
     setEditandoId(null);
     setImagenPreview(null);
+  };
+
+  // ← Cerrar modal línea
+  const cerrarModalLinea = () => {
+    setModalLineaAbierto(false);
+    setLineaFormData({ nombre: '', descripcion: '', activo: true });
   };
 
   // ← ← ← RENDER ← ← ←
@@ -394,17 +464,17 @@ export default function AdminProductosPage() {
             />
           </div>
 
-          {/* Filtro por categoría */}
+          {/* Filtro por línea */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">📂 Categoría</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">📂 Línea</label>
             <select
-              value={categoriaFilter}
-              onChange={(e) => setCategoriaFilter(e.target.value)}
+              value={lineaFilter}
+              onChange={(e) => setLineaFilter(e.target.value)}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
             >
               <option value="">Todas</option>
-              {categorias.map(cat => (
-                <option key={cat.id} value={cat.id}>{cat.nombre}</option>
+              {lineas.map(linea => (
+                <option key={linea.id} value={linea.id}>{linea.nombre}</option>
               ))}
             </select>
           </div>
@@ -450,7 +520,7 @@ export default function AdminProductosPage() {
         </div>
       </div>
 
-            {/* ← Tabla de Productos */}
+      {/* ← Tabla de Productos */}
       <div className="bg-white rounded-xl shadow-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -458,7 +528,7 @@ export default function AdminProductosPage() {
               <tr>
                 <th className="px-4 py-3 text-left font-semibold text-gray-700">Producto</th>
                 <th className="px-4 py-3 text-left font-semibold text-gray-700 hidden md:table-cell">Marca</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-700 hidden lg:table-cell">Categoría</th>
+                <th className="px-4 py-3 text-left font-semibold text-gray-700 hidden lg:table-cell">Línea</th>
                 <th className="px-4 py-3 text-right font-semibold text-gray-700">Precio</th>
                 <th className="px-4 py-3 text-right font-semibold text-gray-700">Stock</th>
                 <th className="px-4 py-3 text-center font-semibold text-gray-700">Estado</th>
@@ -469,7 +539,7 @@ export default function AdminProductosPage() {
               {productosFiltrados.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
-                    {searchTerm || categoriaFilter || soloBajoStock 
+                    {searchTerm || lineaFilter || soloBajoStock 
                       ? 'No se encontraron productos con los filtros aplicados'
                       : 'No hay productos registrados'}
                   </td>
@@ -483,7 +553,7 @@ export default function AdminProductosPage() {
                     <tr 
                       key={producto.id} 
                       className="hover:bg-gray-50 cursor-pointer transition-colors"
-                      onClick={() => abrirModalEditar(producto)}  // ← Click en toda la fila
+                      onClick={() => abrirModalEditar(producto)}
                     >
                       {/* Producto */}
                       <td className="px-4 py-3">
@@ -511,9 +581,9 @@ export default function AdminProductosPage() {
                       {/* Marca */}
                       <td className="px-4 py-3 text-gray-600 hidden md:table-cell">{producto.marca}</td>
 
-                      {/* Categoría */}
+                      {/* Línea */}
                       <td className="px-4 py-3 text-gray-600 hidden lg:table-cell">
-                        {producto.categoria_nombre || 'Sin categoría'}
+                        {producto.linea_nombre || 'Sin línea'}
                       </td>
 
                       {/* Precio */}
@@ -544,7 +614,7 @@ export default function AdminProductosPage() {
                       <td className="px-4 py-3 text-center">
                         <button
                           onClick={(e) => {
-                            e.stopPropagation();  // ← Evitar que se abra el modal
+                            e.stopPropagation();
                             toggleActivo(producto);
                           }}
                           className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
@@ -557,12 +627,12 @@ export default function AdminProductosPage() {
                         </button>
                       </td>
 
-                      {/* Acciones - Solo Eliminar */}
+                      {/* Acciones */}
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={(e) => {
-                              e.stopPropagation();  // ← Evitar que se abra el modal
+                              e.stopPropagation();
                               eliminarProducto(producto);
                             }}
                             disabled={eliminandoId === producto.id}
@@ -588,12 +658,12 @@ export default function AdminProductosPage() {
         </div>
       </div>
 
-            {/* ← Modal Crear/Editar Producto - Layout Compacto */}
-      {modalAbierto && (
+      {/* ← Modal Crear/Editar Producto */}
+      {modalProductoAbierto && (
         <div className="fixed inset-0 z-[80] bg-black/70 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl my-4">
             
-            {/* Header Compacto */}
+            {/* Header */}
             <div className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-3 rounded-t-xl flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold">
@@ -601,7 +671,7 @@ export default function AdminProductosPage() {
                 </h2>
               </div>
               <button
-                onClick={cerrarModal}
+                onClick={cerrarModalProducto}
                 disabled={guardando}
                 className="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors disabled:opacity-50"
               >
@@ -611,11 +681,11 @@ export default function AdminProductosPage() {
               </button>
             </div>
 
-            {/* Contenido Compacto - Grid 2 Columnas */}
+            {/* Contenido */}
             <div className="p-4">
               <div className="grid grid-cols-12 gap-4">
                 
-                {/* ← COLUMNA IZQUIERDA: Imagen (4 columnas de 12) */}
+                {/* COLUMNA IZQUIERDA: Imagen */}
                 <div className="col-span-12 md:col-span-4 space-y-3">
                   
                   {/* Preview de Imagen */}
@@ -662,7 +732,7 @@ export default function AdminProductosPage() {
                   </div>
                 </div>
 
-                {/* ← COLUMNA DERECHA: Formulario (8 columnas de 12) */}
+                {/* COLUMNA DERECHA: Formulario */}
                 <div className="col-span-12 md:col-span-8 space-y-3">
                   
                   {/* Fila 1: Nombre y Marca */}
@@ -691,21 +761,34 @@ export default function AdminProductosPage() {
                     </div>
                   </div>
 
-                  {/* Fila 2: Categoría y Código */}
+                  {/* Fila 2: Línea y Código */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Categoría</label>
-                      <select
-                        value={formData.categoria}
-                        onChange={(e) => setFormData(prev => ({ ...prev, categoria: e.target.value }))}
-                        disabled={guardando}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 disabled:bg-gray-50 text-sm"
-                      >
-                        <option value="">Sin categoría</option>
-                        {categorias.map(cat => (
-                          <option key={cat.id} value={cat.id}>{cat.nombre}</option>
-                        ))}
-                      </select>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Línea</label>
+                      <div className="flex gap-2">
+                        <select
+                          value={formData.linea}
+                          onChange={(e) => setFormData(prev => ({ ...prev, linea: e.target.value }))}
+                          disabled={guardando}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 disabled:bg-gray-50 text-sm"
+                        >
+                          <option value="">Sin línea</option>
+                          {lineas.map(linea => (
+                            <option key={linea.id} value={linea.id}>{linea.nombre}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={abrirModalLinea}
+                          disabled={guardando}
+                          className="px-3 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-colors disabled:opacity-50"
+                          title="Agregar nueva línea"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-700 mb-1">Código Barras</label>
@@ -802,10 +885,10 @@ export default function AdminProductosPage() {
               </div>
             </div>
 
-            {/* Footer Compacto */}
+            {/* Footer */}
             <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 rounded-b-xl flex gap-2">
               <button
-                onClick={cerrarModal}
+                onClick={cerrarModalProducto}
                 disabled={guardando}
                 className="flex-1 px-4 py-2.5 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors disabled:opacity-50 text-sm"
               >
@@ -827,6 +910,99 @@ export default function AdminProductosPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                     <span>{editandoId ? 'Actualizar' : 'Crear'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ← Modal Crear Línea */}
+      {modalLineaAbierto && (
+        <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            
+            {/* Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-cyan-600 text-white px-4 py-3 rounded-t-xl flex items-center justify-between">
+              <h2 className="text-lg font-bold">➕ Nueva Línea de Producto</h2>
+              <button
+                onClick={cerrarModalLinea}
+                disabled={guardandoLinea}
+                className="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors disabled:opacity-50"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Contenido */}
+            <div className="p-4 space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
+                <input
+                  type="text"
+                  value={lineaFormData.nombre}
+                  onChange={(e) => setLineaFormData(prev => ({ ...prev, nombre: e.target.value }))}
+                  disabled={guardandoLinea}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50"
+                  placeholder="Ej: Cuidado del Cabello"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Descripción</label>
+                <textarea
+                  value={lineaFormData.descripcion}
+                  onChange={(e) => setLineaFormData(prev => ({ ...prev, descripcion: e.target.value }))}
+                  disabled={guardandoLinea}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 resize-none"
+                  placeholder="Describe la línea de productos..."
+                />
+              </div>
+
+              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={lineaFormData.activo}
+                    onChange={(e) => setLineaFormData(prev => ({ ...prev, activo: e.target.checked }))}
+                    disabled={guardandoLinea}
+                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-sm font-medium text-blue-700">Línea activa</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 rounded-b-xl flex gap-2">
+              <button
+                onClick={cerrarModalLinea}
+                disabled={guardandoLinea}
+                className="flex-1 px-4 py-2.5 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={crearLinea}
+                disabled={guardandoLinea}
+                className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {guardandoLinea ? (
+                  <>
+                    <div className="w-4 h-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                    <span>Guardando...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Crear Línea</span>
                   </>
                 )}
               </button>

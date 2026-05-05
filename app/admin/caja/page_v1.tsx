@@ -4,7 +4,6 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import CajaReciboModal from '@/components/admin/CajaReciboModal';
-import CalcularComisionesModal from '@/components/admin/CalcularComisionesModal';
 
 // ← ← ← INTERFACES ← ← ←
 
@@ -60,9 +59,6 @@ interface ValeEmpleado {
   fecha: string;
   estado: 'registrado' | 'pagado' | 'cancelado';
   notificacion_whatsapp_enviada: boolean;
-  // ← ← ← NUEVOS CAMPOS PARA MÉTODO DE PAGO ← ← ←
-  metodo_pago?: string;
-  metodo_pago_display?: string;
 }
 
 interface CajaCategoria {
@@ -70,14 +66,6 @@ interface CajaCategoria {
   nombre: string;
   tipo: 'entrada' | 'salida' | 'ambos';
   color: string;
-}
-
-// ← ← ← NUEVA INTERFAZ PARA PROFESIONALES (para select de vales) ← ← ←
-interface Profesional {
-  id: number;
-  nombre: string;
-  telefono_whatsapp?: string;
-  activo: boolean;
 }
 
 // ← ← ← COMPONENTE PRINCIPAL ← ← ←
@@ -100,26 +88,11 @@ export default function CajaPage() {
   const [modalEditarReciboOpen, setModalEditarReciboOpen] = useState(false);
   const [reciboEditarId, setReciboEditarId] = useState<number | null>(null);
 
-  // ← ← ← NUEVO: Estado para modal de comisiones ← ← ←
-  const [modalComisionesOpen, setModalComisionesOpen] = useState(false);
-  const [profesionalSeleccionado, setProfesionalSeleccionado] = useState<number | null>(null);
-
   // ← ← ← NUEVOS ESTADOS PARA ACORDEÓN DE DETALLE ← ← ←
   const [reciboExpandido, setReciboExpandido] = useState<number | null>(null);
   const [detalleRecibo, setDetalleRecibo] = useState<ReciboCaja | null>(null);
   const [loadingDetalle, setLoadingDetalle] = useState(false);
   
-  // ← ← ← CONSTANTE: Opciones de método de pago para vales ← ← ←
-  const METODOS_PAGO_VALE = [
-    { value: 'efectivo', label: '💵 Efectivo' },
-    { value: 'transferencia', label: '🏦 Transferencia' },
-    { value: 'nequi', label: '📱 Nequi' },
-    { value: 'daviplata', label: '📱 Daviplata' },
-    { value: 'bold', label: '💳 Bold' },
-    { value: 'tarjeta', label: '💳 Tarjeta en sitio' },
-    { value: 'caja_menor', label: '📦 Caja menor' },
-  ] as const;
-
   // ← Formulario abrir caja
   const [formDataAbrir, setFormDataAbrir] = useState({
     fecha: new Date().toISOString().split('T')[0],
@@ -133,24 +106,6 @@ export default function CajaPage() {
     saldo_final: '',
     observaciones_cierre: ''
   });
-  
-  // ← ← ← NUEVOS ESTADOS PARA MÓDULO DE VALES ← ← ←
-  const [profesionales, setProfesionales] = useState<Profesional[]>([]);
-  const [nuevoVale, setNuevoVale] = useState({
-    profesional: '',
-    monto: '',
-    session_caja: '',
-    metodo_pago: 'efectivo',  // ← ← ← NUEVO: default efectivo
-    notas: '',
-    notificar_whatsapp: false
-  });
- // ← ← ← ESTADO PARA VALIDACIÓN DE SALDO ← ← ←
-const [validacionSaldo, setValidacionSaldo] = useState<{
-  disponible: number | null;
-  limite: number | null;
-  excedido: boolean;  // ← ← ← ASEGURAR QUE ESTÉ DEFINIDO
-} | null>(null);
-  const [loadingVale, setLoadingVale] = useState(false);
   
   // ← ← ← AGREGAR ESTA FUNCIÓN EN CajaPage ← ← ←
   const handleEditarRecibo = (recibo: any) => {
@@ -393,43 +348,12 @@ const getTipoItemBadge = (tipo: string, profesional?: string | null) => {
         cargarSessionActiva(),
         cargarRecibosRecientes(),
         cargarValesPendientes(),
-        cargarCategorias(),
-        cargarProfesionalesParaVales()  // ← ← ← NUEVO: Cargar profesionales para vales
+        cargarCategorias()
       ]);
     } catch (err) {
       console.error('❌ Error cargando datos de caja:', err);
     } finally {
       setLoading(false);
-    }
-  };
-
-  // ← ← ← ESCUCHAR EVENTO DE COMISIONES PAGADAS (RESPALDO) ← ← ←
-useEffect(() => {
-const handleReciboComisionesPagado = (event: CustomEvent) => {
-console.log('🔄 [CajaPage] Evento recibido:', event.detail);
-cargarDatosCaja(); // Recargar toda la información
-};
-
-window.addEventListener('reciboComisionesPagado', handleReciboComisionesPagado as EventListener);
-
-return () => {
-window.removeEventListener('reciboComisionesPagado', handleReciboComisionesPagado as EventListener);
-};
-}, []);
-
-  // ← ← ← NUEVA FUNCIÓN: Cargar profesionales para el select de vales ← ← ←
-  const cargarProfesionalesParaVales = async () => {
-    try {
-      const res = await fetch(`${apiUrl}/profesionales/?activo=true&ordering=nombre`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        setProfesionales(Array.isArray(data) ? data : (data.results || []));
-      }
-    } catch (err) {
-      console.error('❌ Error cargando profesionales para vales:', err);
     }
   };
 
@@ -443,10 +367,6 @@ window.removeEventListener('reciboComisionesPagado', handleReciboComisionesPagad
       if (res.ok) {
         const data = await res.json();
         setSessionActiva(data);
-        // ← ← ← ACTUALIZAR session_caja en nuevoVale cuando hay sesión activa
-        if (data?.id) {
-          setNuevoVale(prev => ({ ...prev, session_caja: data.id.toString() }));
-        }
       }
     } catch (err) {
       console.error('❌ Error cargando sesión activa:', err);
@@ -507,225 +427,6 @@ window.removeEventListener('reciboComisionesPagado', handleReciboComisionesPagad
       }
     } catch (err) {
       console.error('❌ Error cargando categorías:', err);
-    }
-  };
-
-  // ← ← ← NUEVA FUNCIÓN: Validar saldo disponible del profesional ← ← ← 
-  const validarSaldoProfesional = async (profesionalId: string, montoIntento: number) => {
-    if (!profesionalId || !montoIntento) {
-      setValidacionSaldo(null);
-      return { valido: true, disponible: null, limite: null, excedido: false };  // ← ← ← CONSISTENTE
-    }
-    
-    try {
-      const res = await fetch(`${apiUrl}/caja/vales/?profesional=${profesionalId}&limit=1`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        const primerVale = Array.isArray(data) ? data[0] : (data.results?.[0]);
-        
-        if (primerVale?.saldo_disponible_vales !== undefined) {
-          const disponible = primerVale.saldo_disponible_vales;
-          const limite = primerVale.saldo_ganado_mes * 0.50;
-          const excedido = disponible !== null && montoIntento > disponible;
-          
-          // ← ← ← ACTUALIZAR STATE CON OBJETO COMPLETO ← ← ←
-          setValidacionSaldo({
-            disponible,
-            limite,
-            excedido  // ← ← ← Siempre incluir excedido
-          });
-          
-          // ← ← ← RETORNAR SIEMPRE EL MISMO TIPO ← ← ←
-          return { valido: !excedido, disponible, limite, excedido };
-        }
-      }
-      // ← ← ← RETORNO POR DEFECTO CONSISTENTE ← ← ←
-      return { valido: true, disponible: null, limite: null, excedido: false };
-    } catch (err) {
-      console.warn('⚠️ No se pudo validar saldo:', err);
-      return { valido: true, disponible: null, limite: null, excedido: false };  // ← ← ← CONSISTENTE
-    }
-  };
-
-  // ← ← ← NUEVA FUNCIÓN: Crear nuevo vale ← ← ←
-  const handleCrearVale = async () => {
-    // Validaciones básicas
-    if (!nuevoVale.profesional || !nuevoVale.monto || !nuevoVale.session_caja) {
-      alert('⚠️ Completa todos los campos obligatorios');
-      return;
-    }
-    
-    const montoNum = parseFloat(nuevoVale.monto);
-    if (isNaN(montoNum) || montoNum <= 0) {
-      alert('⚠️ Ingresa un monto válido mayor a 0');
-      return;
-    }
-    
-    // Validar saldo disponible
-    const validacion = await validarSaldoProfesional(nuevoVale.profesional, montoNum);
-    
-
-      // ← ← ← AGREGAR: Validar que la respuesta exista ← ← ←
-      if (!validacion) {
-        console.error('❌ Error validando saldo del profesional');
-        alert('⚠️ No se pudo validar el saldo. Intenta nuevamente.');
-        return;
-      }
-
-      if (validacion.excedido) {
-        alert(`⚠️ El monto excede el saldo disponible ($${validacion.disponible?.toLocaleString('es-CO') || 'N/A'})`);
-        return;
-      }
-    
-    setLoadingVale(true);
-    
-    try {
-      const payload = {
-        profesional: parseInt(nuevoVale.profesional),
-        monto: montoNum,
-        session_caja: parseInt(nuevoVale.session_caja),
-        // ← ← ← NUEVO: incluir método de pago ← ← ←
-        metodo_pago: nuevoVale.metodo_pago,
-        notas: nuevoVale.notas || '',
-        notificacion_whatsapp_enviada: nuevoVale.notificar_whatsapp
-      };
-      
-      const res = await fetch(`${apiUrl}/caja/vales/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify(payload)
-      });
-      
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.monto?.[0] || error.detail || 'Error creando vale');
-      }
-      
-      const valeCreado = await res.json();
-      
-      // ← ← ← ENVIAR NOTIFICACIÓN WHATSAPP SI SE SOLICITÓ ← ← ←
-      if (nuevoVale.notificar_whatsapp) {
-        try {
-          await fetch(`${apiUrl}/caja/vales/${valeCreado.id}/notificar/`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-            }
-          });
-        } catch (err) {
-          console.warn('⚠️ No se pudo enviar notificación WhatsApp');
-        }
-      }
-      
-      alert(`✅ Vale ${valeCreado.codigo_vale} creado exitosamente`);
-      setModalNuevoValeOpen(false);
-      setNuevoVale({ 
-        profesional: '', 
-        monto: '', 
-        session_caja: sessionActiva?.id?.toString() || '', 
-        metodo_pago: 'efectivo',  // ← ← ← NUEVO: reset a default
-        notas: '', 
-        notificar_whatsapp: false 
-      });
-      setValidacionSaldo(null);
-      cargarValesPendientes(); // Recargar lista
-      
-    } catch (err: any) {
-      console.error('❌ Error creando vale:', err);
-      alert(`❌ Error: ${err.message}`);
-    } finally {
-      setLoadingVale(false);
-    }
-  };
-
-  // ← ← ← NUEVA FUNCIÓN: Cancelar vale ← ← ←
-  const handleCancelarVale = async (vale: ValeEmpleado) => {
-    if (!confirm(`¿Estás seguro de cancelar el vale ${vale.codigo_vale}?\n\nEsta acción no se puede deshacer.`)) return;
-    
-    const motivo = prompt('Motivo de cancelación (opcional):') || '';
-    
-    try {
-      const res = await fetch(`${apiUrl}/caja/vales/${vale.id}/cancelar/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({ motivo })
-      });
-      
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || error.detail || 'Error cancelando vale');
-      }
-      
-      alert(`✅ Vale ${vale.codigo_vale} cancelado`);
-      cargarValesPendientes();
-      
-    } catch (err: any) {
-      console.error('❌ Error cancelando vale:', err);
-      alert(`❌ Error: ${err.message}`);
-    }
-  };
-
-  // ← ← ← NUEVA FUNCIÓN: Marcar vale como pagado ← ← ←
-  const handlePagarVale = async (vale: ValeEmpleado) => {
-    if (!confirm(`¿Marcar vale ${vale.codigo_vale} como pagado?\n\nEsto registrará el descuento en nómina.`)) return;
-    
-    const metodoPago = prompt('Método de pago (nomina/efectivo/transferencia):', 'nomina') || 'nomina';
-    
-    try {
-      const res = await fetch(`${apiUrl}/caja/vales/${vale.id}/pagar/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({ metodo_pago: metodoPago })
-      });
-      
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || error.detail || 'Error pagando vale');
-      }
-      
-      alert(`✅ Vale ${vale.codigo_vale} marcado como pagado`);
-      cargarValesPendientes();
-      
-    } catch (err: any) {
-      console.error('❌ Error pagando vale:', err);
-      alert(`❌ Error: ${err.message}`);
-    }
-  };
-
-  // ← ← ← NUEVA FUNCIÓN: Enviar notificación WhatsApp ← ← ←
-  const handleNotificarVale = async (vale: ValeEmpleado) => {
-    try {
-      const res = await fetch(`${apiUrl}/caja/vales/${vale.id}/notificar/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        }
-      });
-      
-      if (res.ok) {
-        alert('📱 Notificación WhatsApp enviada');
-        cargarValesPendientes();
-      } else {
-        const error = await res.json();
-        throw new Error(error.error || 'Error enviando notificación');
-      }
-    } catch (err: any) {
-      console.error('❌ Error notificando:', err);
-      alert(`❌ Error: ${err.message}`);
     }
   };
 
@@ -833,24 +534,6 @@ window.removeEventListener('reciboComisionesPagado', handleReciboComisionesPagad
       default: return 'bg-gray-500/20 text-gray-400 border-gray-500/50';
     }
   };
-
-  // ← ← ← VALIDAR SALDO AL CAMBIAR PROFESIONAL O MONTO ← ← ←
-  useEffect(() => {
-    if (!nuevoVale.profesional || !nuevoVale.monto) {
-      setValidacionSaldo(null);
-      return;
-    }
-    
-    const montoNum = parseFloat(nuevoVale.monto);
-    if (isNaN(montoNum) || montoNum <= 0) return;
-    
-    // Debounce para no hacer llamadas en cada tecla
-    const timer = setTimeout(() => {
-      validarSaldoProfesional(nuevoVale.profesional, montoNum);
-    }, 500);
-    
-    return () => clearTimeout(timer);
-  }, [nuevoVale.profesional, nuevoVale.monto]);
 
   // ← Loading state
   if (loading) {
@@ -968,40 +651,35 @@ window.removeEventListener('reciboComisionesPagado', handleReciboComisionesPagad
           </button>
 
           <button
-            onClick={() => router.push('/admin/caja/vales')}
-            className="p-4 bg-gray-900 hover:bg-gray-700 rounded-lg border border-gray-600 text-left transition-colors"
+            onClick={() => setModalNuevoValeOpen(true)}
+            disabled={!sessionActiva}
+            className="p-4 bg-gray-900 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg border border-gray-600 text-left transition-colors"
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-orange-600/20 rounded-lg flex items-center justify-center">
                 <span className="text-orange-400 text-xl">🎫</span>
               </div>
               <div>
-                <p className="font-medium text-white">Gestión de Vales</p>
-                <p className="text-xs text-gray-400">Ver todos los vales</p>
+                <p className="font-medium text-white">Nuevo Vale</p>
+                <p className="text-xs text-gray-400">Anticipo a empleado</p>
               </div>
             </div>
           </button>
 
-          {/* ← ← ← NUEVO: Botón Pagar Comisiones ← ← ← */}
           <button
-            onClick={() => {
-              setProfesionalSeleccionado(null); // Resetear selección
-              setModalComisionesOpen(true);
-            }}
-            disabled={!sessionActiva}
-            className="p-4 bg-gray-900 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg border border-gray-600 text-left transition-colors"
+            onClick={() => router.push('/admin/caja/recibos')}
+            className="p-4 bg-gray-900 hover:bg-gray-700 rounded-lg border border-gray-600 text-left transition-colors"
           >
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-emerald-600/20 rounded-lg flex items-center justify-center">
-                <span className="text-emerald-400 text-xl">💰</span>
+              <div className="w-10 h-10 bg-green-600/20 rounded-lg flex items-center justify-center">
+                <span className="text-green-400 text-xl">📋</span>
               </div>
               <div>
-                <p className="font-medium text-white">Pagar Comisiones</p>
-                <p className="text-xs text-gray-400">A empleados</p>
+                <p className="font-medium text-white">Ver Recibos</p>
+                <p className="text-xs text-gray-400">Listado completo</p>
               </div>
             </div>
           </button>
-
 
           <button
             onClick={() => router.push('/admin/caja/reportes')}
@@ -1029,7 +707,7 @@ window.removeEventListener('reciboComisionesPagado', handleReciboComisionesPagad
             <div className="p-4 border-b border-gray-700 flex items-center justify-between">
               <h3 className="font-semibold text-white">📋 Recibos Recientes</h3>
               <button
-                onClick={() => router.push('/admin/caja/vales')}
+                onClick={() => router.push('/admin/caja/recibos')}
                 className="text-sm text-blue-400 hover:text-blue-300"
               >
                 Ver todos →
@@ -1290,22 +968,11 @@ window.removeEventListener('reciboComisionesPagado', handleReciboComisionesPagad
             </div>
           )}
 
-          {/* Vales Pendientes - VERSIÓN MEJORADA CON ACCIONES */}
+          {/* Vales Pendientes */}
           <div className="bg-gray-800 rounded-xl border border-gray-700">
-            <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+            <div className="p-4 border-b border-gray-700">
               <h3 className="font-semibold text-white">🎫 Vales Pendientes</h3>
-              <button
-                onClick={() => {
-                  setNuevoVale(prev => ({ ...prev, session_caja: sessionActiva?.id?.toString() || '' }));
-                  setModalNuevoValeOpen(true);
-                }}
-                disabled={!sessionActiva}
-                className="text-xs text-orange-400 hover:text-orange-300 disabled:opacity-50"
-              >
-                + Nuevo
-              </button>
             </div>
-            
             <div className="p-4">
               {valesPendientes.length === 0 ? (
                 <p className="text-center text-gray-400 py-6 text-sm">
@@ -1315,69 +982,31 @@ window.removeEventListener('reciboComisionesPagado', handleReciboComisionesPagad
                 <div className="space-y-3">
                   {valesPendientes.map((vale) => (
                     <div key={vale.id} className="p-3 bg-gray-900 rounded-lg border border-orange-500/30">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <span className="font-mono text-xs text-orange-400">
-                            {vale.codigo_vale}
-                          </span>
-                          <p className="text-xs text-gray-400 mt-0.5">
-                            {new Date(vale.fecha).toLocaleDateString('es-CO', {
-                              day: '2-digit',
-                              month: 'short',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </p>
-                        </div>
-                        <span className="px-2 py-0.5 bg-yellow-900/30 text-yellow-400 text-xs rounded border border-yellow-700">
-                          Registrado
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-mono text-xs text-orange-400">
+                          {vale.codigo_vale}
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {new Date(vale.fecha).toLocaleDateString('es-CO')}
                         </span>
                       </div>
-                      
-                      <p className="font-medium text-white text-sm mb-1">
+                      <p className="font-medium text-white text-sm">
                         {vale.profesional_nombre}
                       </p>
-                      <p className="text-lg font-bold text-orange-400 mb-1">
+                      <p className="text-lg font-bold text-orange-400">
                         {formatMoney(vale.monto)}
                       </p>
-                      {/* ← ← ← NUEVO: Mostrar método de pago ← ← ← */}
-                      {vale.metodo_pago && (
-                        <p className="text-xs text-gray-400 mb-2">
-                          💳 {vale.metodo_pago_display || METODOS_PAGO_VALE.find(m => m.value === vale.metodo_pago)?.label || vale.metodo_pago}
-                        </p>
+                      {!vale.notificacion_whatsapp_enviada && (
+                        <button
+                          onClick={() => {
+                            // Aquí iría la lógica para enviar WhatsApp
+                            alert('📱 Notificación WhatsApp enviada');
+                          }}
+                          className="mt-2 text-xs text-blue-400 hover:text-blue-300"
+                        >
+                          📱 Enviar recordatorio
+                        </button>
                       )}
-
-                      {/* Acciones */}
-                      <div className="flex items-center gap-2">
-                        {/* Notificar WhatsApp */}
-                        {!vale.notificacion_whatsapp_enviada && (
-                          <button
-                            onClick={() => handleNotificarVale(vale)}
-                            className="flex-1 px-2 py-1.5 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-700 rounded text-xs text-blue-300 transition-colors flex items-center justify-center gap-1"
-                            title="Enviar notificación WhatsApp"
-                          >
-                            📱
-                          </button>
-                        )}
-                        
-                        {/* Pagar */}
-                        <button
-                          onClick={() => handlePagarVale(vale)}
-                          className="flex-1 px-2 py-1.5 bg-green-900/30 hover:bg-green-900/50 border border-green-700 rounded text-xs text-green-300 transition-colors flex items-center justify-center gap-1"
-                          title="Marcar como pagado"
-                        >
-                          💰
-                        </button>
-                        
-                        {/* Cancelar */}
-                        <button
-                          onClick={() => handleCancelarVale(vale)}
-                          className="flex-1 px-2 py-1.5 bg-red-900/30 hover:bg-red-900/50 border border-red-700 rounded text-xs text-red-300 transition-colors flex items-center justify-center gap-1"
-                          title="Cancelar vale"
-                        >
-                          🚫
-                        </button>
-                      </div>
                     </div>
                   ))}
                 </div>
@@ -1593,255 +1222,47 @@ window.removeEventListener('reciboComisionesPagado', handleReciboComisionesPagad
         />
       )}
 
-      {/* ← ← ← MODAL: CREAR/EDITAR VALE - FUNCIONAL ← ← ← */}
       {modalNuevoValeOpen && (
         <div className="fixed inset-0 z-[80] bg-black/70 flex items-center justify-center p-4">
           <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-gray-700">
             <div className="p-6 border-b border-gray-700">
               <h3 className="text-lg font-bold text-white">🎫 Nuevo Vale</h3>
-              <p className="text-sm text-gray-400 mt-1">
-                Anticipo a empleado
-              </p>
             </div>
-            
-            <div className="p-6 space-y-4">
-              {/* Profesional */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-300 mb-1">
-                  👤 Profesional *
-                </label>
-                <select
-                  value={nuevoVale.profesional}
-                  onChange={(e) => setNuevoVale(prev => ({ ...prev, profesional: e.target.value }))}
-                  className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-orange-500 focus:outline-none"
-                >
-                  <option value="">Seleccionar profesional...</option>
-                  {profesionales
-                    .filter(p => p.activo)
-                    .map(prof => (
-                      <option key={prof.id} value={prof.id}>
-                        {prof.nombre}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              {/* Monto */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-300 mb-1">
-                  💰 Monto *
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                  <input
-                    type="number"
-                    min="1000"
-                    step="1000"
-                    value={nuevoVale.monto}
-                    onChange={(e) => setNuevoVale(prev => ({ ...prev, monto: e.target.value }))}
-                    className="w-full px-4 py-3 pl-8 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-orange-500 focus:outline-none"
-                    placeholder="0"
-                  />
-                </div>
-                
-                {/* ← ← ← VALIDACIÓN DE SALDO ← ← ← */}
-               {validacionSaldo && (
-                <div className={`mt-2 text-xs p-2 rounded ${
-                  validacionSaldo.excedido 
-                    ? 'bg-red-900/30 text-red-400 border border-red-700' 
-                    : 'bg-green-900/30 text-green-400 border border-green-700'
-                }`}>
-                  <p>💡 Límite: 50% del saldo ganado del mes</p>
-                  
-                  {/* ← ← ← CORREGIDO: Verificar null antes de formatMoney ← ← ← */}
-                  <p>
-                    Disponible: {
-                      validacionSaldo.disponible !== null 
-                        ? formatMoney(validacionSaldo.disponible) 
-                        : 'Calculando...'
-                    }
-                  </p>
-                  
-                  {validacionSaldo.excedido && (
-                    <p className="font-semibold mt-1">⚠️ Monto excede el límite</p>
-                  )}
-                </div>
-              )}
-              </div>
-             
-              {/* Sesión de Caja */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-300 mb-1">
-                  🏦 Sesión de Caja *
-                </label>
-                <select
-                  value={nuevoVale.session_caja}
-                  onChange={(e) => setNuevoVale(prev => ({ ...prev, session_caja: e.target.value }))}
-                  className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-orange-500 focus:outline-none"
-                  disabled={!sessionActiva}
-                >
-                  <option value="">Seleccionar sesión...</option>
-                  {sessionActiva && (
-                    <option value={sessionActiva.id}>
-                      {sessionActiva.turno} - {new Date(sessionActiva.fecha).toLocaleDateString('es-CO')}
-                    </option>
-                  )}
-                </select>
-                {!sessionActiva && (
-                  <p className="text-xs text-orange-400 mt-1">
-                    ⚠️ No hay sesión de caja activa. Abre una sesión primero.
-                  </p>
-                )}
-              </div>
-
-              {/* ← ← ← NUEVO: Selector de Método de Pago ← ← ← */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-300 mb-1">
-                  💳 Método de Pago *
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { value: 'efectivo', label: '💵 Efectivo' },
-                    { value: 'transferencia', label: '🏦 Transferencia' },
-                    { value: 'nequi', label: '📱 Nequi' },
-                    { value: 'daviplata', label: '📱 Daviplata' },
-                    { value: 'bold', label: '💳 Bold' },
-                    { value: 'tarjeta', label: '💳 Tarjeta en sitio' },
-                    { value: 'caja_menor', label: '📦 Caja menor' },
-                  ].map((metodo) => (
-                    <button
-                      key={metodo.value}
-                      type="button"
-                      onClick={() => setNuevoVale(prev => ({ ...prev, metodo_pago: metodo.value }))}
-                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 border-2 ${
-                        nuevoVale.metodo_pago === metodo.value
-                          ? 'bg-orange-600 border-white text-white shadow-lg scale-[1.02]'
-                          : 'bg-gray-900 border-gray-600 text-gray-300 hover:border-gray-500 hover:bg-gray-800'
-                      }`}
-                    >
-                      {metodo.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Método usado para entregar el anticipo
-                </p>
-              </div>
-
-              {/* Notas */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-300 mb-1">
-                  📝 Notas (opcional)
-                </label>
-                <textarea
-                  value={nuevoVale.notas}
-                  onChange={(e) => setNuevoVale(prev => ({ ...prev, notas: e.target.value }))}
-                  rows={2}
-                  className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-orange-500 focus:outline-none resize-none"
-                  placeholder="Motivo del anticipo..."
-                />
-              </div>
-
-              {/* Notificación WhatsApp */}
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={nuevoVale.notificar_whatsapp}
-                  onChange={(e) => setNuevoVale(prev => ({ ...prev, notificar_whatsapp: e.target.checked }))}
-                  className="w-4 h-4 text-orange-600 rounded focus:ring-orange-500"
-                />
-                <span className="text-sm text-gray-300">
-                  📱 Enviar notificación WhatsApp al profesional
-                </span>
-              </label>
+            <div className="p-6 text-center text-gray-400">
+              <p>🚧 En desarrollo: Modal de vale a empleado</p>
+              <p className="text-sm mt-2">Próximamente: Seleccionar profesional y monto</p>
             </div>
-            
-            <div className="p-6 border-t border-gray-700 flex gap-3">
+            <div className="p-6 border-t border-gray-700 text-right">
               <button
-                onClick={() => {
-                  setModalNuevoValeOpen(false);
-                  setNuevoVale({ 
-                    profesional: '', 
-                    monto: '', 
-                    session_caja: sessionActiva?.id?.toString() || '', 
-                    metodo_pago: 'efectivo',  // ← ← ← NUEVO: reset a default
-                    notas: '', 
-                    notificar_whatsapp: false 
-                  });
-                  setValidacionSaldo(null);
-                }}
-                disabled={loadingVale}
-                className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+                onClick={() => setModalNuevoValeOpen(false)}
+                className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
               >
-                Cancelar
-              </button>
-              <button
-                onClick={handleCrearVale}
-                disabled={loadingVale || !nuevoVale.profesional || !nuevoVale.monto || !nuevoVale.session_caja || validacionSaldo?.excedido}
-                className="flex-1 py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {loadingVale ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Creando...
-                  </>
-                ) : (
-                  '✅ Crear Vale'
-                )}
+                Cerrar
               </button>
             </div>
           </div>
         </div>
       )}
-  
-      {/* ← ← ← MODAL: PAGAR COMISIONES A EMPLEADOS ← ← ← */}
-      {modalComisionesOpen && (
-        <CalcularComisionesModal
-          isOpen={modalComisionesOpen}
-          onClose={() => {
-            setModalComisionesOpen(false);
-            setProfesionalSeleccionado(null);
-          }}
-          sessionCajaId={sessionActiva?.id}
-          profesionalId={profesionalSeleccionado || undefined}
-          apiUrl={apiUrl}
-          token={token}
-          // ✅ Prop recomendada: onPagoExitoso con parámetro resultado
-         onPagoExitoso={(reciboCodigo) => {
-          console.log('✅ Pago de comisiones exitoso:', reciboCodigo);  // ← ← ← CORREGIDO: usar el parámetro
-          // Recargar datos relevantes
-          cargarDatosCaja();
-          // Mostrar confirmación con datos del recibo
-          alert(`✅ Pago procesado. Recibo: ${reciboCodigo || 'N/A'}`);  // ← ← ← CORREGIDO: reciboCodigo es string
-          setModalComisionesOpen(false);
-          setProfesionalSeleccionado(null);
-        }}
-        />
-      )}
 
       {/* ← ← ← MODAL: Nuevo Recibo Compuesto ← ← ← CORREGIDO ← ← ← */}
       {modalNuevoReciboOpen && sessionActiva && (
         <CajaReciboModal
-        isOpen={modalNuevoReciboOpen}
-        onClose={() => {
-        setModalNuevoReciboOpen(false);
-        }}
-        sessionCajaId={sessionActiva?.id}
-        reciboParaEditarId={null}
-        apiUrl={apiUrl}
-        token={token}
-        onReciboCreado={(recibo) => {
-        cargarDatosCaja();
-        setModalNuevoReciboOpen(false);
-        }}
-        // ← ← ← AGREGAR ESTE CALLBACK:
-        onComisionesPagadas={() => {
-        console.log('💰 Comisiones pagadas, actualizando caja...');
-        cargarDatosCaja(); // Recargar sesión, recibos, vales
-        setModalNuevoReciboOpen(false); // Cerrar modal de recibo también
-        }}
+          isOpen={modalNuevoReciboOpen}  // ← ← ← CORREGIDO: Usar modalNuevoReciboOpen
+          onClose={() => {
+            setModalNuevoReciboOpen(false);  // ← ← ← CORREGIDO: Cerrar modalNuevoReciboOpen
+            // NO tocar reciboEditarId aquí
+          }}
+          sessionCajaId={sessionActiva?.id}
+          reciboParaEditarId={null}  // ← ← ← CORREGIDO: null para recibo NUEVO
+          apiUrl={apiUrl}
+          token={token}
+          onReciboCreado={(recibo) => {  // ← ← ← CORREGIDO: Usar onReciboCreado
+            // Recargar datos después de crear
+            cargarDatosCaja();
+            setModalNuevoReciboOpen(false);  // ← ← ← CORREGIDO: Cerrar modalNuevoReciboOpen
+          }}
         />
-        )}
+      )}
     </div>
   );
 }

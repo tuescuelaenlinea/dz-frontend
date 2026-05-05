@@ -64,3 +64,51 @@ html {
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE/Edge */
 }
+
+/* Ocultar scrollbar pero mantener funcionalidad */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Cursor para drag */
+.cursor-grab { cursor: grab; }
+.cursor-grab:active { cursor: grabbing; }
+
+/* Prevenir selección de texto durante drag */
+.select-none {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* Animación de card hover */
+@keyframes cardHover {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+
+.group:hover {
+  animation: cardHover 0.3s ease-in-out;
+}
+
+/* Focus visible para navegación con teclado */
+[role="link"]:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Cursor para elementos no interactivos */
+.cursor-not-allowed {
+  cursor: not-allowed;
+}
+
+/* Prevenir selección en cards deshabilitadas */
+[tabindex="-1"] {
+  user-select: none;
+}

@@ -1,7 +1,6 @@
-// app/categorias/[slug]/page.tsx
 'use client';
-import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useEffect, useState, useRef } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import ServiceCard from '@/components/services/ServiceCard';
 
@@ -33,61 +32,153 @@ interface Servicio {
 
 export default function CategoriaDetallePage() {
   const params = useParams();
+  const router = useRouter();
   const slug = params.slug as string;
 
   const [categoria, setCategoria] = useState<Categoria | null>(null);
   const [servicios, setServicios] = useState<Servicio[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // ← ← ← REFERENCIA PARA SCROLL DE SERVICIOS ← ← ←
+  const serviciosScrollRef = useRef<HTMLDivElement>(null);
+  
+  // ← ← ← ESTADO PARA INDICADORES DE SCROLL ← ← ←
+  const [serviciosScrollPosition, setServiciosScrollPosition] = useState({
+    start: 1,
+    end: 1,
+    total: 0
+  });
 
-useEffect(() => {
-  async function loadData() {
-    try {
-      console.log('🔍 Buscando categoría con slug:', slug);
-      
-      // 1. Cargar TODAS las categorías
-      const catData = await api.getCategorias();
-      const categorias = catData.results || catData;
-      
-      console.log('📂 Categorías cargadas:', categorias.length);
-      
-      // 2. Buscar la categoría por slug
-      const categoriaEncontrada = categorias.find(
-        (c: Categoria) => c.slug.toLowerCase() === slug.toLowerCase() && c.activo !== false
-      );
-      
-      if (!categoriaEncontrada) {
-        setError(`Categoría "${slug}" no encontrada`);
+  useEffect(() => {
+    async function loadData() {
+      try {
+        console.log('🔍 Buscando categoría con slug:', slug);
+        
+        const catData = await api.getCategorias();
+        const categorias = catData.results || catData;
+        
+        console.log('📂 Categorías cargadas:', categorias.length);
+        
+        const categoriaEncontrada = categorias.find(
+          (c: Categoria) => c.slug.toLowerCase() === slug.toLowerCase() && c.activo !== false
+        );
+        
+        if (!categoriaEncontrada) {
+          setError(`Categoría "${slug}" no encontrada`);
+          setLoading(false);
+          return;
+        }
+        
+        console.log('✅ Categoría encontrada:', categoriaEncontrada.nombre);
+        setCategoria(categoriaEncontrada);
+        
+        const allServicios = await api.getAllServicios();
+        console.log('🛍️ Total de servicios cargados:', allServicios.length);
+        
+        const serviciosFiltrados = allServicios.filter(
+          (s: Servicio) => s.categoria === categoriaEncontrada.id && s.disponible !== false
+        );
+        
+        console.log(`✅ Servicios de "${categoriaEncontrada.nombre}":`, serviciosFiltrados.length);
+        
+        setServicios(serviciosFiltrados);
+        
+        // ← ← ← INICIALIZAR POSICIÓN DE SCROLL ← ← ←
+        setServiciosScrollPosition({
+          start: 1,
+          end: Math.min(3, serviciosFiltrados.length),
+          total: serviciosFiltrados.length
+        });
+        
         setLoading(false);
-        return;
+      } catch (err) {
+        console.error('❌ Error:', err);
+        setError('Error al cargar la categoría');
+        setLoading(false);
       }
-      
-      console.log('✅ Categoría encontrada:', categoriaEncontrada.nombre);
-      setCategoria(categoriaEncontrada);
-      
-      // 3. Cargar TODOS los servicios (sin paginación)
-      const allServicios = await api.getAllServicios();
-      
-      console.log('🛍️ Total de servicios cargados:', allServicios.length);
-      
-      // 4. Filtrar servicios por categoría
-      const serviciosFiltrados = allServicios.filter(
-        (s: Servicio) => s.categoria === categoriaEncontrada.id && s.disponible !== false
-      );
-      
-      console.log(`✅ Servicios de "${categoriaEncontrada.nombre}":`, serviciosFiltrados.length);
-      console.log('Servicios:', serviciosFiltrados.map(s => s.nombre));
-      
-      setServicios(serviciosFiltrados);
-      setLoading(false);
-    } catch (err) {
-      console.error('❌ Error:', err);
-      setError('Error al cargar la categoría');
-      setLoading(false);
     }
-  }
-  loadData();
-}, [slug]);
+    loadData();
+  }, [slug]);
+
+  // ← ← ← ACTUALIZAR INDICADORES DE SCROLL ← ← ←
+  const updateServiciosScrollIndicators = () => {
+    const container = serviciosScrollRef.current;
+    if (!container || servicios.length === 0) return;
+    
+    const cardWidth = 256; // w-64 = 256px en móvil
+    const gap = 24; // gap-6 = 24px
+    const totalWidth = container.scrollWidth;
+    const visibleWidth = container.clientWidth;
+    const scrollLeft = container.scrollLeft;
+    
+    const start = Math.floor(scrollLeft / (cardWidth + gap)) + 1;
+    const visibleCards = Math.floor(visibleWidth / (cardWidth + gap));
+    const end = Math.min(start + visibleCards - 1, servicios.length);
+    
+    setServiciosScrollPosition({ start, end, total: servicios.length });
+  };
+
+  useEffect(() => {
+    const container = serviciosScrollRef.current;
+    if (!container) return;
+    
+    updateServiciosScrollIndicators();
+    container.addEventListener('scroll', updateServiciosScrollIndicators);
+    window.addEventListener('resize', updateServiciosScrollIndicators);
+    return () => {
+      container.removeEventListener('scroll', updateServiciosScrollIndicators);
+      window.removeEventListener('resize', updateServiciosScrollIndicators);
+    };
+  }, [servicios]);
+
+  // ← ← ← FUNCIONES PARA SCROLL CON BOTONES ← ← ←
+  const scrollServiciosLeft = () => {
+    if (serviciosScrollRef.current) {
+      serviciosScrollRef.current.scrollBy({ left: -280, behavior: 'smooth' });
+    }
+  };
+  
+  const scrollServiciosRight = () => {
+    if (serviciosScrollRef.current) {
+      serviciosScrollRef.current.scrollBy({ left: 280, behavior: 'smooth' });
+    }
+  };
+
+  // ← ← ← DRAG SCROLL PARA DESKTOP ← ← ←
+  const [isDragging, setIsDragging] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [scrollLeftStart, setScrollLeftStart] = useState(0);
+
+  const handleServiciosMouseDown = (e: React.MouseEvent) => {
+    if (!serviciosScrollRef.current) return;
+    setIsDragging(true);
+    setStartX(e.pageX - serviciosScrollRef.current.offsetLeft);
+    setScrollLeftStart(serviciosScrollRef.current.scrollLeft);
+    serviciosScrollRef.current.style.cursor = 'grabbing';
+    e.preventDefault();
+  };
+
+  const handleServiciosMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !serviciosScrollRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - serviciosScrollRef.current.offsetLeft;
+    const walk = (x - startX) * 2;
+    serviciosScrollRef.current.scrollLeft = scrollLeftStart - walk;
+  };
+
+  const handleServiciosMouseUp = () => {
+    if (!serviciosScrollRef.current) return;
+    setIsDragging(false);
+    serviciosScrollRef.current.style.cursor = 'grab';
+  };
+
+  const handleServiciosMouseLeave = () => {
+    setIsDragging(false);
+    if (serviciosScrollRef.current) {
+      serviciosScrollRef.current.style.cursor = 'grab';
+    }
+  };
 
   if (loading) {
     return (
@@ -102,9 +193,15 @@ useEffect(() => {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <p className="text-red-600 text-lg mb-4">{error || 'Categoría no encontrada'}</p>
-          <a href="/categorias" className="text-blue-600 hover:underline">
-            ← Volver a categorías
-          </a>
+          <button
+            onClick={() => router.push('/categorias')}
+            className="text-blue-600 hover:underline flex items-center gap-1 mx-auto"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Volver a categorías
+          </button>
         </div>
       </div>
     );
@@ -114,7 +211,8 @@ useEffect(() => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header con imagen de categoría */}
+      
+      {/* ← ← ← HEADER CON IMAGEN Y LINK DE REGRESO ← ← ← */}
       <section className="relative h-64 overflow-hidden">
         {imageUrl ? (
           <img
@@ -126,6 +224,8 @@ useEffect(() => {
           <div className="w-full h-full bg-gradient-to-br from-blue-600 to-purple-700" />
         )}
         <div className="absolute inset-0 bg-black opacity-50" />
+        
+        
         
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center text-white">
@@ -141,31 +241,204 @@ useEffect(() => {
         </div>
       </section>
 
-      {/* Servicios de la categoría */}
-      <section className="py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-8">
-            Servicios ({servicios.length})
-          </h2>
+      {/* ← ← ← SERVICIOS CON SCROLL HORIZONTAL ← ← ← */}
+      <section className="py-12 relative">
+        <div className="max-w-7xl mx-auto px-4 relative">
+
           
-          {servicios.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {servicios.map((servicio) => (
-                <ServiceCard key={servicio.id} {...servicio} />
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-16 bg-white rounded-xl">
-              <p className="text-gray-600 text-lg mb-4">
-                No hay servicios disponibles en esta categoría
-              </p>
-              <a href="/servicios" className="text-blue-600 hover:underline">
-                Ver todos los servicios →
-              </a>
+          {/* ← ← ← INDICADOR DE SCROLL PARA MÓVIL ← ← ← */}
+          {servicios.length > 1 && (
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <span className="text-sm text-gray-600 font-medium">
+                {serviciosScrollPosition.start} - {serviciosScrollPosition.end} de {serviciosScrollPosition.total}
+              </span>
+              <div className="flex gap-1">
+                {servicios.map((_, index) => (
+                  <div
+                    key={index}
+                    className={`w-2 h-2 rounded-full transition-all ${
+                      index + 1 >= serviciosScrollPosition.start && index + 1 <= serviciosScrollPosition.end
+                        ? 'bg-blue-600 w-4'
+                        : 'bg-gray-300'
+                    }`}
+                  />
+                ))}
+              </div>
+              <span className="text-xs text-gray-500 ml-2">← Desliza →</span>
             </div>
           )}
+          
+          {/* ← ← ← BOTONES DE NAVEGACIÓN (SOLO DESKTOP) ← ← ← */}
+          <button
+            onClick={scrollServiciosLeft}
+            disabled={serviciosScrollPosition.start <= 1}
+            className={`hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 z-30 w-14 h-14 lg:w-16 lg:h-16 
+              ${serviciosScrollPosition.start > 1
+                ? 'bg-white/95 hover:bg-white cursor-pointer shadow-xl' 
+                : 'bg-gray-100 cursor-not-allowed opacity-50 shadow-md'} 
+              rounded-full items-center justify-center text-gray-700 hover:text-blue-600 transition-all group border border-gray-200 hover:scale-110 hover:shadow-2xl hover:border-blue-300 active:scale-95`}
+            aria-label="Servicios anteriores"
+            title={serviciosScrollPosition.start > 1 ? 'Servicios anteriores' : 'Primer servicio'}
+            style={{ marginLeft: '-28px' }}
+          >
+            <svg className="w-7 h-7 lg:w-8 lg:h-8 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          
+          <button
+            onClick={scrollServiciosRight}
+            disabled={serviciosScrollPosition.end >= serviciosScrollPosition.total}
+            className={`hidden md:flex absolute right-0 top-1/2 -translate-y-1/2 z-30 w-14 h-14 lg:w-16 lg:h-16 
+              ${serviciosScrollPosition.end < serviciosScrollPosition.total
+                ? 'bg-white/95 hover:bg-white cursor-pointer shadow-xl' 
+                : 'bg-gray-100 cursor-not-allowed opacity-50 shadow-md'} 
+              rounded-full items-center justify-center text-gray-700 hover:text-blue-600 transition-all group border border-gray-200 hover:scale-110 hover:shadow-2xl hover:border-blue-300 active:scale-95`}
+            aria-label="Siguientes servicios"
+            title={serviciosScrollPosition.end < serviciosScrollPosition.total ? 'Siguientes servicios' : 'Último servicio'}
+            style={{ marginRight: '-28px' }}
+          >
+            <svg className="w-7 h-7 lg:w-8 lg:h-8 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+
+          {/* ← ← ← GRADIENTES LATERALES PARA INDICAR SCROLL ← ← ← */}
+          {serviciosScrollPosition.start > 1 && (
+            <div className="absolute left-0 top-0 bottom-0 w-20 bg-gradient-to-r from-gray-50 to-transparent z-20 pointer-events-none hidden md:block" />
+          )}
+          {serviciosScrollPosition.end < serviciosScrollPosition.total && (
+            <div className="absolute right-0 top-0 bottom-0 w-20 bg-gradient-to-l from-gray-50 to-transparent z-20 pointer-events-none hidden md:block" />
+          )}
+
+          {/* ← ← ← CONTAINER CON SCROLL HORIZONTAL + DRAG ← ← ← */}
+          <div 
+            ref={serviciosScrollRef}
+            className="flex overflow-x-auto gap-6 pb-8 pt-4 snap-x snap-mandatory scrollbar-hide cursor-grab active:cursor-grabbing select-none pl-2 pr-2"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            onMouseDown={handleServiciosMouseDown}
+            onMouseMove={handleServiciosMouseMove}
+            onMouseUp={handleServiciosMouseUp}
+            onMouseLeave={handleServiciosMouseLeave}
+          >
+            {servicios.map((servicio) => (
+              <ServiceCardHorizontal
+                key={servicio.id}
+                servicio={servicio}
+              />
+            ))}
+          </div>
         </div>
+      {/* ← ← ← BOTÓN DE REGRESO (ESQUINA SUPERIOR IZQUIERDA) ← ← ← */}
+        <button
+          onClick={() => router.push('/categorias')}
+          className="absolute top-4 left-4 z-10 flex items-center gap-2 px-4 py-2 bg-white/90 hover:bg-white rounded-full text-gray-700 hover:text-blue-600 transition-all shadow-lg group"
+        >
+          <svg className="w-5 h-5 group-hover:-translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          <span className="text-sm font-medium hidden sm:inline">Volver a Categorías</span>
+        </button>
       </section>
+
     </div>
+  );
+
+
+}
+
+
+// ← ← ← COMPONENTE: CARD HORIZONTAL DE SERVICIO ← ← ←
+function ServiceCardHorizontal({ servicio }: { servicio: Servicio }) {
+  const imageUrl = api.getImageUrl(servicio.imagen, servicio.imagen_url) || 
+                   'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=400&q=80';
+
+  const servicioUrl = `/servicios/${servicio.slug}`;
+
+  return (
+    <a
+      href={servicioUrl}
+      className="flex-shrink-0 w-64 md:w-72 lg:w-80 group relative bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-200 hover:shadow-2xl transition-all duration-300 snap-start"
+    >
+      {/* ← ← ← IMAGEN CON NOMBRE SOBRE ELLA ← ← ← */}
+      <div className="aspect-[4/3] relative overflow-hidden">
+        <img
+          src={imageUrl}
+          alt={servicio.nombre}
+          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+          loading="lazy"
+          onError={(e) => {
+            const target = e.target as HTMLImageElement;
+            target.onerror = null;
+            target.src = 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=400&q=80';
+          }}
+        />
+        
+        {/* Overlay gradient para legibilidad */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
+        
+        {/* ← ← ← NOMBRE Y PRECIO SOBRE LA IMAGEN ← ← ← */}
+        <div className="absolute bottom-0 left-0 right-0 p-4">
+          <h3 className="text-lg md:text-xl font-bold text-white drop-shadow-lg group-hover:text-yellow-300 transition-colors">
+            {servicio.nombre}
+          </h3>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-sm font-semibold text-blue-300">
+              ${parseInt(servicio.precio_min).toLocaleString('es-CO')}
+            </span>
+            {servicio.precio_max && parseInt(servicio.precio_max) > parseInt(servicio.precio_min) && (
+              <span className="text-xs text-gray-300">
+                - ${parseInt(servicio.precio_max).toLocaleString('es-CO')}
+              </span>
+            )}
+          </div>
+          {servicio.duracion && (
+            <p className="text-xs text-gray-300 mt-1 flex items-center gap-1">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {servicio.duracion}
+            </p>
+          )}
+        </div>
+        
+        {/* Badge Destacado */}
+        {servicio.destacado && (
+          <div className="absolute top-3 right-3">
+            <span className="px-2 py-1 bg-yellow-500/95 text-white text-xs font-bold rounded-full shadow">
+              ⭐
+            </span>
+          </div>
+        )}
+        
+        {/* Icono de flecha al hover */}
+        <div className="absolute top-1/2 right-4 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="p-2 bg-white/90 rounded-full shadow-lg">
+            <svg className="w-5 h-5 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      {/* ← ← ← SECCIÓN INFERIOR BLANCA CON DESCRIPCIÓN ← ← ← */}
+      <div className="p-4 bg-white border-t border-gray-100">
+        <p className="text-sm text-gray-600 line-clamp-2">
+          {servicio.descripcion_corta || 'Servicio disponible para reservar'}
+        </p>
+        <div className="mt-3 flex items-center justify-between">
+          <span className={`text-xs px-2 py-1 rounded-full ${
+            servicio.disponible 
+              ? 'bg-green-100 text-green-700' 
+              : 'bg-gray-100 text-gray-500'
+          }`}>
+            {servicio.disponible ? '✓ Disponible' : '✗ No disponible'}
+          </span>
+          <span className="text-xs text-blue-600 font-medium group-hover:underline">
+            Ver detalle →
+          </span>
+        </div>
+      </div>
+    </a>
   );
 }
