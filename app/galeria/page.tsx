@@ -1,5 +1,7 @@
+// app/galeria/page.tsx
 'use client';
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';  // ← ← ← AGREGAR useMemo
+import { useRouter, useSearchParams } from 'next/navigation';  // ← ← ← useSearchParams desde next/navigation
 import { api } from '@/lib/api';
 import Link from 'next/link';
 
@@ -58,6 +60,14 @@ export default function GaleriaPage() {
     titulo: string;
   } | null>(null);
 
+  // ← ← ← NUEVO: Hooks para leer URL params ← ← ←
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  
+  // ← ← ← NUEVO: Estado para categoría filtrada desde URL ← ← ←
+  const [categoriaFiltroUrl, setCategoriaFiltroUrl] = useState<number | null>(null);
+  const [nombreCategoriaFiltro, setNombreCategoriaFiltro] = useState<string | null>(null);
+
   const API_DOMAIN = 'https://api.dzsalon.com';
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
 
@@ -89,6 +99,28 @@ export default function GaleriaPage() {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  // ← ← ← NUEVO EFECTO: Leer parámetro 'categoria' de la URL ← ← ←
+  useEffect(() => {
+    const categoriaParam = searchParams.get('categoria');
+    if (categoriaParam) {
+      const categoriaId = parseInt(categoriaParam);
+      if (!isNaN(categoriaId)) {
+        setCategoriaFiltroUrl(categoriaId);
+        setVistaActual('galeria');  // ← Cambiar vista automáticamente
+      }
+    }
+  }, [searchParams]);
+
+  // ← ← ← EFECTO: Buscar nombre de categoría para mostrar en header ← ← ←
+  useEffect(() => {
+    if (categoriaFiltroUrl && categoriasConGaleria.length > 0) {
+      const cat = categoriasConGaleria.find(c => c.id === categoriaFiltroUrl);
+      if (cat) {
+        setNombreCategoriaFiltro(cat.nombre);
+      }
+    }
+  }, [categoriaFiltroUrl, categoriasConGaleria]);
 
   useEffect(() => {
     async function loadData() {
@@ -147,19 +179,38 @@ export default function GaleriaPage() {
     loadData();
   }, []);
 
-  const galeriaFiltrada = categoriaSeleccionada
-    ? galeria.filter(item => item.categoria === categoriaSeleccionada)
-    : galeria;
+  // ← ← ← ACTUALIZADO: Filtrado con prioridad para URL ← ← ←
+  const galeriaFiltrada = useMemo(() => {
+    let resultados = galeria.filter(item => item.activo);
+    
+    // ← ← ← PRIORIDAD: Si hay filtro desde URL, usarlo ← ← ←
+    if (categoriaFiltroUrl) {
+      resultados = resultados.filter(item => item.categoria === categoriaFiltroUrl);
+    }
+    // ← ← ← Si no hay filtro de URL pero sí estado interno
+    else if (categoriaSeleccionada) {
+      resultados = resultados.filter(item => item.categoria === categoriaSeleccionada);
+    }
+    
+    return resultados.sort((a, b) => {
+      if (a.destacado && !b.destacado) return -1;
+      if (!a.destacado && b.destacado) return 1;
+      return a.orden - b.orden;
+    });
+  }, [galeria, categoriaFiltroUrl, categoriaSeleccionada]);
 
-  const galeriaOrdenada = [...galeriaFiltrada].sort((a, b) => {
-    if (a.destacado && !b.destacado) return -1;
-    if (!a.destacado && b.destacado) return 1;
-    return a.orden - b.orden;
-  });
+  const galeriaOrdenada = galeriaFiltrada;
 
-  const nombreCategoriaSeleccionada = categoriaSeleccionada
-    ? categoriasConGaleria.find(c => c.id === categoriaSeleccionada)?.nombre
-    : null;
+  // ← ← ← ACTUALIZADO: Nombre de categoría con soporte para filtro URL ← ← ←
+  const nombreCategoriaSeleccionada = useMemo(() => {
+    if (categoriaFiltroUrl) {
+      return categoriasConGaleria.find(c => c.id === categoriaFiltroUrl)?.nombre || null;
+    }
+    if (categoriaSeleccionada) {
+      return categoriasConGaleria.find(c => c.id === categoriaSeleccionada)?.nombre || null;
+    }
+    return null;
+  }, [categoriaFiltroUrl, categoriaSeleccionada, categoriasConGaleria]);
 
   const headerDesktopImage = getImageUrl(
     configuracion?.galeria_header_desktop ?? null,
@@ -207,7 +258,9 @@ export default function GaleriaPage() {
         <div className="w-full h-20 bg-gray-900 flex items-center justify-center px-4">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-center gap-2 md:gap-6">
             <h1 className="text-lg md:text-2xl font-bold text-white text-center md:text-left drop-shadow-lg">
-              {vistaActual === 'categorias' ? 'Nuestra Galería' : nombreCategoriaSeleccionada}
+              {vistaActual === 'categorias' 
+                ? 'Nuestra Galería' 
+                : (nombreCategoriaFiltro || nombreCategoriaSeleccionada || 'Galería')}
             </h1>
             <span className="hidden md:block w-px h-6 bg-white/30" />
             <p className="text-xs md:text-base text-gray-300 text-center md:text-left drop-shadow">
@@ -215,13 +268,26 @@ export default function GaleriaPage() {
                 ? 'Transformaciones reales de nuestros clientes'
                 : `${galeriaOrdenada.length} transformaciones`}
             </p>
+            
+            {/* ← ← ← BOTÓN "VOLVER" SOLO SI HAY FILTRO DE URL ← ← ← */}
+            {categoriaFiltroUrl && (
+              <button
+                onClick={() => {
+                  router.push('/galeria');  // ← Limpia URL params
+                  setCategoriaFiltroUrl(null);
+                  setNombreCategoriaFiltro(null);
+                }}
+                className="px-4 py-2 text-sm bg-white/10 hover:bg-white/20 rounded-lg transition-colors flex items-center gap-2 text-white"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Todas las categorías
+              </button>
+            )}
           </div>
         </div>
       </div>
-
-
-      
-
 
       {/* ========== VISTA: CATEGORÍAS SCROLL HORIZONTAL ========== */}
       {vistaActual === 'categorias' && (
@@ -252,15 +318,22 @@ export default function GaleriaPage() {
             <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
               <button
                 onClick={() => {
-                  setVistaActual('categorias');
-                  setCategoriaSeleccionada(null);
+                  // ← ← ← Si hay filtro URL, limpiarlo; si no, volver a categorías
+                  if (categoriaFiltroUrl) {
+                    router.push('/galeria');
+                    setCategoriaFiltroUrl(null);
+                    setNombreCategoriaFiltro(null);
+                  } else {
+                    setVistaActual('categorias');
+                    setCategoriaSeleccionada(null);
+                  }
                 }}
                 className="flex items-center gap-2 text-gray-700 hover:text-gray-900 font-medium transition-colors"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
-                Volver
+                {categoriaFiltroUrl ? 'Todas las categorías' : 'Volver'}
               </button>
               <span className="text-sm text-gray-500">
                 {galeriaOrdenada.length} {galeriaOrdenada.length === 1 ? 'foto' : 'fotos'}

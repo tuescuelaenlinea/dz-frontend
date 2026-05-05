@@ -516,7 +516,7 @@ const serviciosFiltrados = useMemo(() => {
     setServiceSearchTerm('');
     
     // ← ← ← NUEVO: Regresar automáticamente a categorías después de agregar servicio
-    setCategoriaSeleccionada(null);
+    //setCategoriaSeleccionada(null);
   };
 
   const agregarProducto = (producto: Producto) => {
