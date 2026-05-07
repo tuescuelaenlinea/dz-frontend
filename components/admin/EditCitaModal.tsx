@@ -69,6 +69,9 @@ export default function EditCitaModal({
   // ← API config
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
   const token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
+
+  const [precioInput, setPrecioInput] = useState<string>('');
+const [isEditingPrecio, setIsEditingPrecio] = useState(false);
   
   // ← Guardar valores originales para comparar cambios
   const [valoresOriginales, setValoresOriginales] = useState({
@@ -80,27 +83,26 @@ export default function EditCitaModal({
 
   // ← Inicializar valores cuando se abre el modal
   useEffect(() => {
-    if (cita) {
-      const precioNum = parseFloat(cita.precio_total) || 0;
-      setPrecio(precioNum);
-      setClienteNombre(cita.cliente_nombre || '');
-      setClienteTelefono(cita.cliente_telefono || '');
-      setClienteEmail(cita.cliente_email || '');
-      
-      // ← Guardar valores originales
-      setValoresOriginales({
-        precio: precioNum,
-        nombre: cita.cliente_nombre || '',
-        telefono: cita.cliente_telefono || '',
-        email: cita.cliente_email || ''
-      });
-      
-      // ← Cargar productos si es edición
-      if (cita.id) {
-        cargarProductosDeCita(cita.id);
-      }
+  if (cita) {
+    const precioNum = parseFloat(cita.precio_total) || 0;
+    setPrecio(precioNum);
+    setPrecioInput(precioNum.toString()); // ← Guardar valor numérico puro para edición
+    setClienteNombre(cita.cliente_nombre || '');
+    setClienteTelefono(cita.cliente_telefono || '');
+    setClienteEmail(cita.cliente_email || '');
+    
+    setValoresOriginales({
+      precio: precioNum,
+      nombre: cita.cliente_nombre || '',
+      telefono: cita.cliente_telefono || '',
+      email: cita.cliente_email || ''
+    });
+    
+    if (cita.id) {
+      cargarProductosDeCita(cita.id);
     }
-  }, [cita]);
+  }
+}, [cita]);
 
   // ← NUEVO: Cargar clientes cuando se abre la búsqueda
   useEffect(() => {
@@ -259,22 +261,40 @@ export default function EditCitaModal({
     setShowClientSearch(false);
   };
 
-  // ← Formatear precio como moneda sin decimales
-  const formatCurrency = (value: number): string => {
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(value).replace('COP', '$').trim();
-  };
-
-  // ← Manejar cambio de precio (acepta formato moneda)
-  const handlePrecioChange = (value: string) => {
-    const numericValue = value.replace(/[^0-9,.]/g, '').replace(',', '.');
-    const precioNum = parseFloat(numericValue) || 0;
-    setPrecio(precioNum);
-  };
+  // ← ← ← NUEVAS FUNCIONES PARA MANEJO DE PRECIO ← ← ←
+const formatCurrency = (value: number): string => {
+  if (!value && value !== 0) return '';
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(value).replace('COP', '').trim();
+};
+// Cuando el usuario empieza a editar: mostrar valor puro
+const handlePrecioFocus = () => {
+  setIsEditingPrecio(true);
+  setPrecioInput(precio.toString());
+};
+// Cuando termina de editar: formatear para display
+const handlePrecioBlur = () => {
+  setIsEditingPrecio(false);
+  if (precio > 0) {
+    setPrecioInput(formatCurrency(precio));
+  } else {
+    setPrecioInput('');
+  }
+};
+  // Procesar input: solo permitir números
+const handlePrecioChange = (value: string) => {
+  // Remover todo lo que no sea número
+  const numericValue = value.replace(/[^0-9]/g, '');
+  const precioNum = numericValue ? parseInt(numericValue, 10) : 0;
+  
+  setPrecio(precioNum);
+  // Mantener el valor que el usuario está escribiendo (sin formato)
+  setPrecioInput(numericValue);
+};
 
   // ← ← ← ACTUALIZADO: Guardar cita con productos ← ← ←
   const handleSave = async () => {
@@ -475,7 +495,7 @@ export default function EditCitaModal({
             </button>
           </div>
 
-          {/* Formulario con scroll */}
+         {/* Formulario con scroll */}
           <div className="p-6 space-y-4 overflow-y-auto flex-1">
             {/* Precio */}
             <div>
@@ -484,8 +504,12 @@ export default function EditCitaModal({
               </label>
               <input
                 type="text"
-                value={formatCurrency(precio)}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={isEditingPrecio ? precioInput : (precio > 0 ? formatCurrency(precio) : '')}
                 onChange={(e) => handlePrecioChange(e.target.value)}
+                onFocus={handlePrecioFocus}
+                onBlur={handlePrecioBlur}
                 className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none text-xl font-bold"
                 placeholder="$0"
               />

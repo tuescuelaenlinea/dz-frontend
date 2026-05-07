@@ -753,6 +753,13 @@ const getBoldPaymentUrl = () => {
       }
     }
       
+      // ← ← ← DEBUG: Verificar qué se está enviando ← ← ←
+  console.log('🔍 [DEBUG] Enviando cita con:', {
+    metodo_pago: selectedPaymentMethod,  // ← Debería ser 'bold', 'efectivo', etc.
+    precio_total: total,
+    cliente_nombre: clientData.cliente_nombre,
+  });
+
       // ← CORRECCIÓN #1: Ahora SÍ definir citaData (después de validar)
       const citaData: any = {
         servicio: selectedService.id,
