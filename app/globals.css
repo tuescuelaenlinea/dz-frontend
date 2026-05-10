@@ -112,3 +112,10 @@ html {
 [tabindex="-1"] {
   user-select: none;
 }
+
+/* En globals.css o tailwind.config */
+.select-metodo-edit {
+  @apply bg-gray-800 border border-blue-500 text-blue-400 text-xs rounded px-2 py-1;
+  @apply focus:outline-none focus:ring-1 focus:ring-blue-500 capitalize;
+  @apply cursor-pointer hover:border-blue-400 transition-colors;
+}

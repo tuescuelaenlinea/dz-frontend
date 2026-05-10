@@ -85,7 +85,7 @@ export default function CajaReciboModal({
   const [items, setItems] = useState<ReciboItem[]>([]);
   const [descuento, setDescuento] = useState<number>(0);
   const [propinaTotal, setPropinaTotal] = useState<number>(0);
-  const [metodoPago, setMetodoPago] = useState<string>('bold');
+  const [metodoPago, setMetodoPago] = useState<string>('pendiente');
   const [clienteNombre, setClienteNombre] = useState<string>('');
   const [clienteTelefono, setClienteTelefono] = useState<string>('');
   const [clienteEmail, setClienteEmail] = useState<string>('');
@@ -928,6 +928,40 @@ const quitarItemDelRecibo = (itemId: string) => {
         mostrarAlertaServiciosSinProfesional(validacion.serviciosSinProfesional);
         return;
       }
+
+      if (metodoPago === 'pendiente') {
+  const confirmarMetodo = window.confirm(
+    `⚠️ Método de pago no válido\n\n` +
+    `El recibo tiene seleccionado "Pendiente" como método de pago.\n` +
+    `Para publicar un recibo, debes seleccionar un método de pago válido:\n\n` +
+    `• 💵 Efectivo\n` +
+    `• 🏦 Transferencia\n` +
+    `• 📱 Nequi\n` +
+    `• 📱 Daviplata\n` +
+    `• 💳 Bold\n` +
+    `• 💳 Tarjeta\n\n` +
+    `¿Deseas cambiar el método de pago ahora?\n\n` +
+    `• "Aceptar": Ir a seleccionar método de pago\n` +
+    `• "Cancelar": Mantener en borrador`
+  );
+  return;
+  if (confirmarMetodo) {
+    // Enfocar el select de método de pago para facilitar la selección
+    const selectMetodoPago = document.querySelector('select[value="pendiente"]') as HTMLSelectElement;
+    if (selectMetodoPago) {
+      selectMetodoPago.focus();
+      // Scroll suave hacia el campo
+      selectMetodoPago.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    // No retornar: permitir que el usuario cambie el método y reintente
+    // Pero detenemos la publicación actual
+    return;
+  } else {
+    // Si cancela, mantener en borrador
+    alert('ℹ️ El recibo permanecerá como borrador hasta que selecciones un método de pago válido.');
+    return;
+  }
+}
       
       setLoading(true);
       
@@ -1003,17 +1037,22 @@ const quitarItemDelRecibo = (itemId: string) => {
           },
           body: JSON.stringify(payload)
         });
+       // ← ← ← LOGUEAR RESPUESTA (CORREGIDO) ← ← ←
+        const responseText = await res.clone().text();
+        console.log('📦 [DEBUG] Response status:', res.status);
+        console.log('📦 [DEBUG] Response body:', responseText);
 
         if (!res.ok) {
-          const errorText = await res.text();
-          console.error('❌ Error del servidor:', errorText);
           let errorData;
           try {
-            errorData = JSON.parse(errorText);
+            errorData = JSON.parse(responseText);
           } catch {
-            errorData = { detail: errorText };
+            errorData = { detail: responseText };
           }
-          throw new Error(errorData.detail || JSON.stringify(errorData));
+          const mensajeError = errorData.detail || errorData.error || 'Error desconocido';
+          const traceback = errorData.traceback || '';
+          alert(`❌ Error al actualizar recibo:\n${mensajeError}${traceback ? '\n\nTraceback:\n' + traceback : ''}`);
+          throw new Error(mensajeError);
         }
 
         const reciboActualizado = await res.json();
@@ -1082,6 +1121,22 @@ const quitarItemDelRecibo = (itemId: string) => {
       alert('⚠️ Agrega al menos un item al recibo');
       return;
     }
+    if (metodoPago === 'pendiente') {
+  const confirmarMetodo = window.confirm(
+    `⚠️ Método de pago no válido\n\n` +
+    `El recibo tiene seleccionado "Pendiente" como método de pago.\n` +
+    `Para publicar un recibo, debes seleccionar un método de pago válido:\n\n` +
+    `• 💵 Efectivo\n` +
+    `• 💳 Bold\n` +
+    `• 🏦 Transferencia\n` +
+    `• 📱 Nequi\n` +
+    `• 📱 Daviplata\n` +    
+    `¿Deseas cambiar el método de pago ahora?\n\n` +
+    `• "Aceptar": Ir a seleccionar método de pago\n` +
+    `• "Cancelar": Mantener en borrador`
+  );
+  return;
+   }
 
     // ← ← ← VALIDAR session_caja PARA NUEVOS RECIBOS ← ← ←
     // Para creación de nuevos recibos, session_caja es requerido

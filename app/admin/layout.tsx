@@ -48,7 +48,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return null;
   }
 
-  const menuItems = [
+  const menuItems = [    
     { href: '/admin', label: 'Dashboard', icon: '📊' },
     { href: '/admin/citas', label: ' Citas', icon: '📅' },
     { href: '/admin/clientes', label: ' Clientes', icon: '👥' },
@@ -59,6 +59,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { href: '/admin/profesionales', label: ' Profesionales', icon: '👨‍⚕️' },
     { href: '/admin/galeria', label: 'Galería', icon: '📸' },
     { href: '/admin/configuracion', label: 'Configuración', icon: '⚙️' },
+    
+    
   ];
 
   return (
@@ -98,20 +100,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {/* ← ← ← HEADER DEL SIDEBAR ← ← ← */}
         <div className="h-16 bg-gray-800 flex items-start justify-between px-3 border-b border-gray-700 flex-shrink-0">
           
-          {/* Título */}
-          <span className={`
-            font-bold text-lg whitespace-nowrap
-            /* Móvil: visible si sidebar abierto */
-            ${sidebarOpenMobile ? 'block' : 'hidden'}
-            /* Desktop: control por opacidad y hover */
-            lg:block lg:transition-opacity lg:duration-300
-            ${sidebarCollapsed
-              ? 'lg:opacity-0 group-hover:lg:opacity-100'
-              : 'lg:opacity-100'
-            }
-          `}>
-            DZ Admin
-          </span>
+          
           
           {/* Botón colapsar (solo desktop) */}
           <button
@@ -134,6 +123,20 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </svg>
           </button>
         </div>
+        {/* Título */}
+          <span className={`
+            font-bold text-lg whitespace-nowrap
+            /* Móvil: visible si sidebar abierto */
+            ${sidebarOpenMobile ? 'block' : 'hidden'}
+            /* Desktop: control por opacidad y hover */
+            lg:block lg:transition-opacity lg:duration-300
+            ${sidebarCollapsed
+              ? 'lg:opacity-0 group-hover:lg:opacity-100'
+              : 'lg:opacity-100'
+            }
+          `}>
+            DZ Admin
+          </span>
 
         {/* ← ← ← MENÚ DE NAVEGACIÓN ← ← ← */}
         {/* ← ← ← CORRECCIÓN: px-0 para eliminar padding lateral excesivo ← ← ← */}

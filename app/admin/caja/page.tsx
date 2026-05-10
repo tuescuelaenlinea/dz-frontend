@@ -1,7 +1,7 @@
 // app/admin/caja/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import CajaReciboModal from '@/components/admin/CajaReciboModal';
 import CalcularComisionesModal from '@/components/admin/CalcularComisionesModal';
@@ -90,6 +90,15 @@ interface ReciboSueltosModalProps {
   sessionActiva: CajaSession | null;
 }
 
+interface CitaHuerfana {
+  id: number;
+  codigo_reserva: string;
+  servicio_nombre: string;
+  cliente_nombre: string;
+  precio_total: string;
+  pago_acumulado: string;  // ← ← ← AGREGAR: Para calcular saldo
+  estado: string;
+}
 
 
 // ← ← ← COMPONENTE PRINCIPAL ← ← ←
@@ -145,6 +154,18 @@ export default function CajaPage() {
   const [asignarTodos, setAsignarTodos] = useState(true);
   const [loadingAsignacion, setLoadingAsignacion] = useState(false);
 
+  const [citasHuerfanas, setCitasHuerfanas] = useState<CitaHuerfana[]>([]);
+  const [modalHuerfanasOpen, setModalHuerfanasOpen] = useState(false);
+  const citasProcesadasRef = useRef<Set<number>>(new Set());
+  const audioNotifRef = useRef<HTMLAudioElement | null>(null);
+
+  // ← ← ← AGREGAR ESTOS ESTADOS para edición inline de método de pago
+  const [editandoMetodo, setEditandoMetodo] = useState(false);
+  const [metodoTemporal, setMetodoTemporal] = useState(detalleRecibo?.metodo_pago || '');
+
+  const [citasSeleccionadas, setCitasSeleccionadas] = useState<Set<number>>(new Set());
+  const [citasParaCancelar, setCitasParaCancelar] = useState<Set<number>>(new Set());
+
   // ← ← ← CONSTANTE: Opciones de método de pago para vales ← ← ←
   const METODOS_PAGO_VALE = [
     { value: 'efectivo', label: '💵 Efectivo' },
@@ -155,6 +176,62 @@ export default function CajaPage() {
     { value: 'tarjeta', label: '💳 Tarjeta en sitio' },
     { value: 'caja_menor', label: '📦 Caja menor' },
   ] as const;
+  // ← ← ← OPCIONES DE MÉTODO DE PAGO
+  const OPCIONES_METODO = [
+    { value: 'efectivo', label: '💵 Efectivo' },
+    { value: 'transferencia', label: '🏦 Transferencia' },
+    { value: 'nequi', label: '📱 Nequi' },
+    { value: 'daviplata', label: '📱 Daviplata' },
+    { value: 'bold', label: '💳 Bold' },
+    { value: 'tarjeta', label: '💳 Tarjeta' },
+    { value: 'pendiente', label: '⏳ Pendiente' },
+  ];
+
+  // ← ← ← FUNCIÓN: Guardar método de pago (USANDO ENDPOINT ESPECÍFICO) ← ← ←
+const handleGuardarMetodo = async (reciboId: number, nuevoMetodo: string) => {
+  // ← ← ← VALIDACIÓN: Verificar que tengamos un ID válido ← ← ←
+  if (!reciboId) {
+    console.error('❌ No se proporcionó reciboId');
+    setEditandoMetodo(false);
+    return;
+  }
+  
+  if (!nuevoMetodo || nuevoMetodo === detalleRecibo?.metodo_pago) {
+    setEditandoMetodo(false);
+    return;
+  }
+  
+  try {
+    const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/actualizar-metodo-pago/`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ metodo_pago: nuevoMetodo })
+    });
+    
+    if (res.ok) {
+      // Actualizar estado local para reflejar cambio inmediato
+      setDetalleRecibo(prev => prev ? { ...prev, metodo_pago: nuevoMetodo } : null);
+      console.log(`✅ Método actualizado: ${nuevoMetodo}`);
+      
+      // ← ← ← ACTUALIZAR TAMBIÉN LA LISTA DE RECIBOS ← ← ←
+      setRecibosRecientes(prev => prev.map(r => 
+        r.id === reciboId ? { ...r, metodo_pago: nuevoMetodo } : r
+      ));
+    } else {
+      console.error('❌ Error actualizando método de pago');
+      // Revertir al valor original si falla
+      setMetodoTemporal(detalleRecibo?.metodo_pago || '');
+    }
+  } catch (err) {
+    console.error('❌ Error de red:', err);
+    setMetodoTemporal(detalleRecibo?.metodo_pago || '');
+  } finally {
+    setEditandoMetodo(false);
+  }
+};
 
   // ← Formulario abrir caja
   const [formDataAbrir, setFormDataAbrir] = useState({
@@ -282,6 +359,72 @@ const [validacionSaldo, setValidacionSaldo] = useState<{
     return distribucion;
   };
 
+
+  // ← ← ← NUEVOS ESTADOS PARA CONTADOR DE CITAS HUÉRFANAS ← ← ←
+const [citasHuerfanasCount, setCitasHuerfanasCount] = useState<{
+  total: number;
+  pendientes: number;
+  confirmadas: number;
+  completadas: number;
+}>({ total: 0, pendientes: 0, confirmadas: 0, completadas: 0 });
+const [loadingCitasCount, setLoadingCitasCount] = useState(false);
+
+// ← ← ← FUNCIÓN: Cargar contador de citas sin recibo ← ← ←
+const cargarContadorCitasHuerfanas = async () => {
+  try {
+    setLoadingCitasCount(true);
+    const res = await fetch(`${apiUrl}/citas/sin-recibo-para-caja/`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const citas: CitaHuerfana[] = Array.isArray(data) ? data : [];
+      
+      // Contar por estado
+      const conteo = {
+        total: citas.length,
+        pendientes: citas.filter(c => c.estado === 'pendiente').length,
+        confirmadas: citas.filter(c => c.estado === 'confirmada').length,
+        completadas: citas.filter(c => c.estado === 'completada').length,
+      };
+      setCitasHuerfanasCount(conteo);
+    }
+  } catch (err) {
+    console.error('❌ Error cargando contador de citas:', err);
+  } finally {
+    setLoadingCitasCount(false);
+  }
+};
+
+// ← ← ← EFECTO: Cargar contador al montar componente y cuando cambie la sesión ← ← ←
+useEffect(() => {
+  if (sessionActiva?.id || !sessionActiva) {
+    cargarContadorCitasHuerfanas();
+  }
+}, [sessionActiva?.id]);
+
+// ← ← ← FUNCIÓN: Abrir modal de citas huérfanas manualmente ← ← ←
+const handleAbrirModalCitasHuerfanas = async () => {
+  // Recargar lista actualizada antes de abrir
+  try {
+    const res = await fetch(`${apiUrl}/citas/sin-recibo-para-caja/`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const citas: CitaHuerfana[] = Array.isArray(data) ? data : [];
+      setCitasHuerfanas(citas);
+      setModalHuerfanasOpen(true);
+    }
+  } catch (err) {
+    console.error('❌ Error cargando citas:', err);
+    alert('⚠️ No se pudieron cargar las citas');
+  }
+};
+
+
+
+
   // ← ← ← FUNCIÓN: Reabrir sesión cerrada ← ← ←
 const reabrirSesion = async (sesion: CajaSession) => {
   // Confirmación antes de reabrir
@@ -325,6 +468,189 @@ const reabrirSesion = async (sesion: CajaSession) => {
     alert(`❌ Error: ${err.message}`);
   }
 };
+
+useEffect(() => {
+  if (modalHuerfanasOpen && citasHuerfanas.length > 0) {
+    const seleccionInicial = new Set<number>();
+    citasHuerfanas.forEach(cita => {
+      // ✅ confirmada y completada → MARCADAS por defecto
+      if (cita.estado === 'confirmada' || cita.estado === 'completada') {
+        seleccionInicial.add(cita.id);
+      }
+      // ⏳ pendiente y ❌ cancelada → DESMARCADAS por defecto
+    });
+    setCitasSeleccionadas(seleccionInicial);
+  }
+}, [modalHuerfanasOpen, citasHuerfanas]);
+
+// ← ← ← Toggle selección de cita individual
+const toggleCitaSeleccionada = (citaId: number) => {
+  const nuevas = new Set(citasSeleccionadas);
+  if (nuevas.has(citaId)) {
+    nuevas.delete(citaId);
+  } else {
+    nuevas.add(citaId);
+    // Si se marca para recibo, quitar de cancelación
+    const paraCancelar = new Set(citasParaCancelar);
+    paraCancelar.delete(citaId);
+    setCitasParaCancelar(paraCancelar);
+  }
+  setCitasSeleccionadas(nuevas);
+};
+// ← ← ← NUEVO: Toggle para cancelar cita
+const toggleCitaParaCancelar = (citaId: number) => {
+  const nuevas = new Set(citasParaCancelar);
+  if (nuevas.has(citaId)) {
+    nuevas.delete(citaId);
+  } else {
+    nuevas.add(citaId);
+    // Si se marca para cancelar, quitar de recibo
+    const seleccionadas = new Set(citasSeleccionadas);
+    seleccionadas.delete(citaId);
+    setCitasSeleccionadas(seleccionadas);
+  }
+  setCitasParaCancelar(nuevas);
+};
+// ← ← ← NUEVO: Función para cancelar las citas marcadas
+const cancelarCitasHuerfanas = async () => {
+  if (citasParaCancelar.size === 0) return;
+  if (!confirm(`¿Estás seguro de cancelar ${citasParaCancelar.size} cita(s)? Esta acción no se puede deshacer.`)) return;
+
+  const idsACancelar = Array.from(citasParaCancelar);
+  let exitosas = 0;
+
+  for (const citaId of idsACancelar) {
+    try {
+      // Actualizamos el estado a 'cancelada'
+      const res = await fetch(`${apiUrl}/citas/${citaId}/`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ estado: 'cancelada' })
+      });
+      if (res.ok) exitosas++;
+    } catch (err) {
+      console.error(`❌ Error cancelando cita ${citaId}:`, err);
+    }
+  }
+
+  if (exitosas > 0) {
+    alert(`✅ Se cancelaron ${exitosas} cita(s) exitosamente.`);
+    // Limpiar de la lista visual
+    setCitasHuerfanas(prev => prev.filter(c => !citasParaCancelar.has(c.id)));
+    setCitasParaCancelar(new Set());
+    
+    // Si no quedan citas, cerrar modal
+    if (citasHuerfanas.filter(c => !citasParaCancelar.has(c.id)).length === 0) {
+       setModalHuerfanasOpen(false);
+    }
+  }
+};
+
+// ← ← ← Mapeo de colores por estado (según tu requerimiento)
+const getEstadoBadgeClass = (estado: string) => {
+  switch (estado) {
+    case 'pendiente': return 'bg-yellow-100 text-yellow-800';
+    case 'confirmada': return 'bg-blue-100 text-blue-800';
+    case 'completada': return 'bg-green-100 text-green-800';
+    case 'cancelada': return 'bg-red-100 text-red-800';
+    default: return 'bg-gray-100 text-gray-800';
+  }
+};
+// ← ← ← ESCUCHAR ACTUALIZACIONES DE MÉTODO DE PAGO
+useEffect(() => {
+  const handleReciboActualizado = (event: CustomEvent) => {
+    const { id, metodo_pago } = event.detail;
+    
+    console.log(`🔄 Actualizando recibo ${id} con método: ${metodo_pago}`);
+    
+    // Actualizar en recibosVentas
+    setRecibosVentas(prev => prev.map(r => 
+      r.id === id ? { ...r, metodo_pago } : r
+    ));
+    
+    // Actualizar en recibosComisiones
+    setRecibosComisiones(prev => prev.map(r => 
+      r.id === id ? { ...r, metodo_pago } : r
+    ));
+    
+    // Actualizar en recibosRecientes
+    setRecibosRecientes(prev => prev.map(r => 
+      r.id === id ? { ...r, metodo_pago } : r
+    ));
+  };
+  
+  window.addEventListener('reciboActualizado', handleReciboActualizado as EventListener);
+  
+  return () => {
+    window.removeEventListener('reciboActualizado', handleReciboActualizado as EventListener);
+  };
+}, []);
+// ← ← ← INICIALIZAR NOTIFICACIÓN DE SONIDO ← ← ←
+useEffect(() => {
+  // Puedes usar un archivo local: '/sounds/alert.mp3' 
+  // o una URL externa para pruebas rápidas:
+  audioNotifRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+  audioNotifRef.current.volume = 0.6; // Volumen al 60%
+  return () => { audioNotifRef.current = null; };
+}, []);
+
+// ← ← ← SONDEO AUTOMÁTICO: CITAS SIN RECIBO ← ← ←
+useEffect(() => {
+  if (!sessionActiva || sessionActiva.estado !== 'abierta') return;
+
+  const verificarCitasHuerfanas = async () => {
+    // Evitar interrumpir al usuario si ya tiene otro modal abierto
+    if (
+      modalNuevoReciboOpen || 
+      modalCerrarCajaOpen || 
+      modalHistorialOpen || 
+      modalHuerfanasOpen || 
+      modalEditarReciboOpen ||  // ← ← ← NUEVO: modal de edición
+      modalAsignarSueltosOpen   // ← ← ← NUEVO: modal de asignación
+    ) {
+      console.log('⏭️ [Sondeo] Saltando: hay modales abiertos');
+      return;
+    }
+    try {
+      const res = await fetch(`${apiUrl}/citas/sin-recibo-para-caja/`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        const citas: CitaHuerfana[] = Array.isArray(data) ? data : [];
+        
+        // Filtrar solo las que NO hemos mostrado ya en este ciclo de sesión
+        const nuevas = citas.filter(c => !citasProcesadasRef.current.has(c.id));
+        
+        if (nuevas.length > 0) {
+          console.log(`🚨 [Sondeo] ${nuevas.length} cita(s) huérfana(s) detectadas`);
+          setCitasHuerfanas(nuevas);
+          setModalHuerfanasOpen(true);
+
+           // 🔊 REPRODUCIR SONIDO
+            if (audioNotifRef.current) {
+              audioNotifRef.current.currentTime = 0; // Reiniciar si ya sonó
+              audioNotifRef.current.play().catch(() => console.log('🔇 Audio bloqueado por política del navegador'));
+            }
+          
+          // Marcar como procesadas para no volver a mostrarlas inmediatamente
+          nuevas.forEach(c => citasProcesadasRef.current.add(c.id));
+        }
+      }
+    } catch (err) {
+      console.error('❌ Error sondeando citas huérfanas:', err);
+    }
+  };
+
+  verificarCitasHuerfanas(); // Ejecutar inmediatamente al montar/cambiar sesión
+  const interval = setInterval(verificarCitasHuerfanas, 45000); // Cada 45 segundos
+
+  return () => clearInterval(interval);
+}, [sessionActiva?.id, sessionActiva?.estado]);
 
   // ← ← ← AGREGAR ESTE EFECTO para verificar borradores cuando cambia la sesión ← ← ←
 useEffect(() => {
@@ -499,6 +825,76 @@ useEffect(() => {
   }
 }, [sessionActiva?.id]);
 
+ // ← ← ← CREAR RECIBOS PARA CITAS HUÉRFANAS - VERSIÓN SECUENCIAL ← ← ←
+// ← ← ← EN page.tsx - función crearRecibosParaHuerfanas ← ← ←
+// ← ← ← EN page.tsx - función crearRecibosParaHuerfanas ACTUALIZADA ← ← ←
+const crearRecibosParaHuerfanas = async () => {
+  setModalHuerfanasOpen(false);
+  const resultados: Array<{cita: CitaHuerfana, exito: boolean, error?: string}> = [];
+
+  // Filtrar SOLO las citas marcadas por el usuario
+  const citasAProcesar = citasHuerfanas.filter(c => citasSeleccionadas.has(c.id));
+
+  if (citasAProcesar.length === 0) {
+    alert('⚠️ Debes seleccionar al menos una cita para generar recibos.');
+    setModalHuerfanasOpen(true);
+    return;
+  }
+
+  try {
+    const sessionCajaId = sessionActiva?.id || null;
+    
+    // ← ← ← CAMBIO CLAVE: Usar nuevo endpoint 'vincular-recibo-sin-pago' ← ← ←
+    for (const cita of citasAProcesar) {
+      try {
+        const res = await fetch(`${apiUrl}/citas/${cita.id}/vincular-recibo-sin-pago/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ 
+            session_caja_id: sessionCajaId  // ← ← ← Pasar sesión si existe
+          })
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          console.warn(`⚠️ Cita ${cita.codigo_reserva}: ${errorData.error || res.statusText}`);
+          resultados.push({ cita, exito: false, error: errorData.error });
+          continue;
+        }
+
+        const data = await res.json();
+        console.log(`✅ Cita ${cita.codigo_reserva} vinculada:`, data);
+        resultados.push({ cita, exito: true });
+        
+      } catch (err: any) {
+        console.error(`❌ Error para ${cita.codigo_reserva}:`, err);
+        resultados.push({ cita, exito: false, error: err.message });
+      }
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+
+    const exitosas = resultados.filter(r => r.exito).length;
+    const fallidas = resultados.filter(r => !r.exito).length;
+
+    if (exitosas > 0) {
+      alert(`✅ Se vincularon ${exitosas} cita(s) exitosamente (sin generar pagos duplicados).`);
+      await cargarRecibosRecientes(sessionActiva?.id || null, true, Date.now());
+      await cargarVales();
+    }
+    if (fallidas > 0) {
+      console.warn(`⚠️ ${fallidas} cita(s) fallaron. Revisa consola.`);
+    }
+  } catch (err) {
+    console.error('❌ Error crítico:', err);
+    alert('❌ Error de red al procesar citas.');
+  } finally {
+    setCitasHuerfanas([]);
+    setCitasSeleccionadas(new Set());
+  }
+};
 
   // ← ← ← NUEVA FUNCIÓN: Publicar recibo con validaciones ← ← ←
   const handlePublicarRecibo = async (reciboId: number) => {
@@ -827,9 +1223,11 @@ const cargarVales = async () => {
       console.log('📥 Todos los vales registrados:', todosVales.length);
       console.log('📋 Vales recibidos:', todosVales); // ← ← ← AGREGAR ESTO
       
-      // ← ← ← FILTRAR EN FRONTEND: Solo vales sin sesión ← ← ←
-      const valesGlobales = todosVales.filter((v: ValeEmpleado) => !v.session_caja);
-      //const valesGlobales = todosVales.filter((v: any) => !v.session_caja);
+      /// ← ← ← FILTRAR EN FRONTEND: Solo vales sin sesión ← ← ←
+      // ← ← ← CORRECCIÓN: Manejar null explícitamente ← ← ←
+      const valesGlobales = todosVales.filter((v: ValeEmpleado) => 
+          v.session_caja === null || v.session_caja === undefined || v.session_caja === 0
+      );
       console.log('✅ Vales pendientes globales (filtrados):', valesGlobales.length);
       setValesPendientes(valesGlobales);
     } else {
@@ -1536,7 +1934,7 @@ const handleCerrarCaja = async () => {
       {/* ← Acciones Rápidas */}
       <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
         <h3 className="text-lg font-semibold text-white mb-4">⚡ Acciones Rápidas</h3>
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
           
           <button
             onClick={() => router.push('/admin/caja/recibos')}
@@ -1605,6 +2003,57 @@ const handleCerrarCaja = async () => {
             </div>
           </button>
 
+
+          {/* ← ← ← NUEVO: Botón Citas sin Recibo ← ← ← */}
+          <button
+            onClick={handleAbrirModalCitasHuerfanas}
+            disabled={loadingCitasCount}
+            className="p-4 bg-gray-900 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg border border-gray-600 text-left transition-colors relative"
+            title="Ver citas confirmadas sin recibo asociado"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-yellow-600/20 rounded-lg flex items-center justify-center">
+                <span className="text-yellow-400 text-xl">🔔</span>
+              </div>
+              <div>
+                <p className="font-medium text-white">Citas sin Recibo</p>
+                <p className="text-xs text-gray-400">
+                  {loadingCitasCount ? (
+                    <span className="animate-pulse">Cargando...</span>
+                  ) : citasHuerfanasCount.total > 0 ? (
+                    <span className="flex items-center gap-1 flex-wrap">
+                      <span className="text-yellow-400 font-bold">{citasHuerfanasCount.total} total</span>
+                      {citasHuerfanasCount.pendientes > 0 && (
+                        <span className="px-1 bg-yellow-900/50 text-[10px] rounded">
+                          ⏳{citasHuerfanasCount.pendientes}
+                        </span>
+                      )}
+                      {citasHuerfanasCount.confirmadas > 0 && (
+                        <span className="px-1 bg-blue-900/50 text-[10px] rounded">
+                          ✅{citasHuerfanasCount.confirmadas}
+                        </span>
+                      )}
+                      {citasHuerfanasCount.completadas > 0 && (
+                        <span className="px-1 bg-green-900/50 text-[10px] rounded">
+                          🏁{citasHuerfanasCount.completadas}
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    'Sin citas pendientes'
+                  )}
+                </p>
+              </div>
+            </div>
+            
+            {/* ← ← ← BADGE DE NOTIFICACIÓN (si hay citas) ← ← ← */}
+            {citasHuerfanasCount.total > 0 && !loadingCitasCount && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-gray-800 animate-pulse">
+                {citasHuerfanasCount.total > 9 ? '9+' : citasHuerfanasCount.total}
+              </span>
+            )}
+          </button>
+
           {/* ← ← ← NUEVO: Botón Ver Historial de Sesiones ← ← ← */}
           <button
             onClick={() => {
@@ -1663,22 +2112,25 @@ const handleCerrarCaja = async () => {
                 </p>
               ) : (
                 recibosComisiones.map((recibo) => (
-                  <ReciboCard
-                    key={recibo.id}
-                    recibo={recibo}
-                    onExpand={cargarDetalleRecibo}
-                    isExpanded={reciboExpandido === recibo.id}
-                    onEditar={handleEditarRecibo}
-                    onPublicar={handlePublicarRecibo}
-                    formatMoney={formatMoney}
-                    formatDate={formatDate}
-                    getReciboColor={getReciboColor}
-                    getTipoItemBadge={getTipoItemBadge}
-                    loadingDetalle={loadingDetalle && reciboExpandido === recibo.id}
-                    detalleRecibo={detalleRecibo?.id === recibo.id ? detalleRecibo : null}
-                    sesionSeleccionada={sesionSeleccionada}
-                    sessionActiva={sessionActiva}
-                  />
+                    <ReciboCard
+                        key={recibo.id}
+                        recibo={recibo}
+                        onExpand={cargarDetalleRecibo}
+                        isExpanded={reciboExpandido === recibo.id}
+                        onEditar={handleEditarRecibo}
+                        onPublicar={handlePublicarRecibo}
+                        formatMoney={formatMoney}
+                        formatDate={formatDate}
+                        getReciboColor={getReciboColor}
+                        getTipoItemBadge={getTipoItemBadge}
+                        loadingDetalle={loadingDetalle && reciboExpandido === recibo.id}
+                        detalleRecibo={detalleRecibo?.id === recibo.id ? detalleRecibo : null}
+                        sesionSeleccionada={sesionSeleccionada}
+                        sessionActiva={sessionActiva}
+                        apiUrl={apiUrl}
+                        token={token}
+                        OPCIONES_METODO={OPCIONES_METODO}
+                    />
                 ))
               )}
             </div>
@@ -1714,22 +2166,25 @@ const handleCerrarCaja = async () => {
                 </p>
               ) : (
                 recibosVentas.map((recibo) => (
-                  <ReciboCard
-                    key={recibo.id}
-                    recibo={recibo}
-                    onExpand={cargarDetalleRecibo}
-                    isExpanded={reciboExpandido === recibo.id}
-                    onEditar={handleEditarRecibo}
-                    onPublicar={handlePublicarRecibo}
-                    formatMoney={formatMoney}
-                    formatDate={formatDate}
-                    getReciboColor={getReciboColor}
-                    getTipoItemBadge={getTipoItemBadge}
-                    loadingDetalle={loadingDetalle && reciboExpandido === recibo.id}
-                    detalleRecibo={detalleRecibo?.id === recibo.id ? detalleRecibo : null}
-                    sesionSeleccionada={sesionSeleccionada}
-                    sessionActiva={sessionActiva}
-                  />
+                    <ReciboCard
+                        key={recibo.id}
+                        recibo={recibo}
+                        onExpand={cargarDetalleRecibo}
+                        isExpanded={reciboExpandido === recibo.id}
+                        onEditar={handleEditarRecibo}
+                        onPublicar={handlePublicarRecibo}
+                        formatMoney={formatMoney}
+                        formatDate={formatDate}
+                        getReciboColor={getReciboColor}
+                        getTipoItemBadge={getTipoItemBadge}
+                        loadingDetalle={loadingDetalle && reciboExpandido === recibo.id}
+                        detalleRecibo={detalleRecibo?.id === recibo.id ? detalleRecibo : null}
+                        sesionSeleccionada={sesionSeleccionada}
+                        sessionActiva={sessionActiva}
+                        apiUrl={apiUrl}
+                        token={token}
+                        OPCIONES_METODO={OPCIONES_METODO}
+                    />
                 ))
               )}
             </div>
@@ -2487,6 +2942,177 @@ const handleCerrarCaja = async () => {
   </div>
 )}
 
+{/* ← ← ← MODAL: CITAS HUÉRFANAS DETECTADAS (SONDEO) ← ← ← */}
+{modalHuerfanasOpen && citasHuerfanas.length > 0 && (
+  <div className="fixed inset-0 z-[95] bg-black/80 flex items-center justify-center p-4 animate-fade-in">
+<div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg border border-yellow-500/50">
+  {/* Header del modal CON DESGLOSE POR ESTADO */}
+  <div className="p-5 border-b border-yellow-500/30 bg-yellow-900/20 flex items-start gap-3">
+    <div className="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center flex-shrink-0 animate-pulse">
+      🚨
+    </div>
+    <div className="flex-1">
+      <h3 className="text-lg font-bold text-yellow-400">Citas sin Recibo Detectadas</h3>
+      <p className="text-sm text-gray-300 mt-1">
+        Se encontraron <span className="font-bold text-white">{citasHuerfanas.length}</span> cita(s) en total.
+      </p>
+
+      {/* ← ← ← DESGLOSE AUTOMÁTICO POR ESTADO ← ← ← */}
+      <div className="flex flex-wrap gap-1 mt-3">
+        {(() => {
+          const pendientes = citasHuerfanas.filter(c => c.estado === 'pendiente').length;
+          const confirmadas = citasHuerfanas.filter(c => c.estado === 'confirmada').length;
+          const completadas = citasHuerfanas.filter(c => c.estado === 'completada').length;
+
+          return (
+            <>
+              {pendientes > 0 && (
+                <span className="px-2 py-1 bg-yellow-900/40 text-yellow-400 text-xs rounded border border-yellow-700/50">
+                  ⏳ {pendientes} Pendiente (no requiere recibo)
+                </span>
+              )}
+              {confirmadas > 0 && (
+                <span className="px-2 py-1 bg-blue-900/40 text-blue-400 text-xs rounded border border-blue-700/50">
+                  ✅ {confirmadas} Confirmada (requiere recibo)
+                </span>
+              )}
+              {completadas > 0 && (
+                <span className="px-2 py-1 bg-green-900/40 text-green-400 text-xs rounded border border-green-700/50">
+                  🏁 {completadas} Completada (requiere recibo)
+                </span>
+              )}
+            </>
+          );
+        })()}
+      </div>
+    </div>
+  </div>
+      
+      {/* Lista de citas con detalle de pago/saldo */}
+      <div className="p-4 max-h-60 overflow-y-auto space-y-3 bg-gray-900/50">
+        {citasHuerfanas.map((cita) => {
+          const total = parseFloat(cita.precio_total) || 0;
+          const pagado = parseFloat(cita.pago_acumulado) || 0;
+          const saldo = total - pagado;
+          const isParaRecibo = citasSeleccionadas.has(cita.id);
+          const isParaCancelar = citasParaCancelar.has(cita.id);
+          const isDisabled = cita.estado === 'cancelada';
+
+          return (
+            <div key={cita.id} className={`p-3 rounded border transition-all ${
+              isParaCancelar ? 'bg-red-900/20 border-red-500/50' :
+              isParaRecibo ? 'bg-green-900/20 border-green-500/50' :
+              'bg-gray-800 border-gray-700'
+            }`}>
+              <div className="flex items-start gap-3">
+                
+                {/* ← ← ← OPCIONES DE ACCIÓN (Checkboxes) ← ← ← */}
+                <div className="flex flex-col items-center gap-2 pt-1">
+                  {/* Opción 1: Crear Recibo */}
+                  <input
+                    type="checkbox"
+                    checked={isParaRecibo}
+                    disabled={isDisabled}
+                    onChange={() => toggleCitaSeleccionada(cita.id)}
+                    className="w-4 h-4 text-green-600 rounded focus:ring-green-500 cursor-pointer disabled:opacity-30"
+                    title="Marcar para crear recibo de pago"
+                  />
+                  <span className="text-[10px] text-gray-400">Recibo</span>
+                </div>
+
+                <div className="flex flex-col items-center gap-2 pt-1 border-l border-gray-700 pl-2">
+                  {/* Opción 2: Cancelar Cita */}
+                  <input
+                    type="checkbox"
+                    checked={isParaCancelar}
+                    disabled={isDisabled}
+                    onChange={() => toggleCitaParaCancelar(cita.id)}
+                    className="w-4 h-4 text-red-600 rounded focus:ring-red-500 cursor-pointer disabled:opacity-30"
+                    title="Marcar para cancelar esta cita"
+                  />
+                  <span className="text-[10px] text-gray-400">Cancelar</span>
+                </div>
+
+                {/* Detalle de la cita */}
+                <div className="flex-1 min-w-0 ml-2">
+                  <div className="flex justify-between items-start mb-1">
+                    <div>
+                      <p className="font-mono text-sm text-white font-bold">{cita.codigo_reserva}</p>
+                      <p className="text-xs text-gray-400">{cita.servicio_nombre}</p>
+                      <p className="text-xs text-gray-500">{cita.cliente_nombre}</p>
+                    </div>
+                    <span className={`text-xs px-2 py-1 rounded font-medium border ${getEstadoBadgeClass(cita.estado)}`}>
+                      {cita.estado.charAt(0).toUpperCase() + cita.estado.slice(1)}
+                    </span>
+                  </div>
+
+                  {/* Detalle financiero */}
+                  <div className="grid grid-cols-3 gap-2 text-xs mt-2">
+                    <div className="text-center p-2 bg-gray-900 rounded">
+                      <p className="text-gray-400">Total</p>
+                      <p className="font-bold text-white">{formatMoney(total)}</p>
+                    </div>
+                    <div className="text-center p-2 bg-green-900/20 rounded border border-green-700/50">
+                      <p className="text-green-400">Pagado</p>
+                      <p className="font-bold text-green-400">{formatMoney(pagado)}</p>
+                    </div>
+                    <div className={`text-center p-2 rounded border ${
+                      saldo > 0 && !isParaCancelar
+                      ? 'bg-orange-900/20 border-orange-700/50'
+                      : 'bg-gray-900 border-gray-700'
+                    }`}>
+                      <p className={saldo > 0 && !isParaCancelar ? 'text-orange-400' : 'text-gray-400'}>Saldo</p>
+                      <p className={`font-bold ${saldo > 0 && !isParaCancelar ? 'text-orange-400' : 'text-gray-500'}`}>
+                        {saldo > 0 && !isParaCancelar ? formatMoney(saldo) : '$0'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Footer con acciones */}
+      <div className="p-4 border-t border-gray-700 flex flex-col sm:flex-row gap-3">
+        <button
+          onClick={() => {
+            setModalHuerfanasOpen(false);
+            setCitasParaCancelar(new Set()); // Limpiar selección al cerrar
+          }}
+          className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+        >
+          ⏸️ Omitir por ahora
+        </button>
+        
+        {/* Botón de Cancelar (Solo visible si hay citas seleccionadas para cancelar) */}
+        {citasParaCancelar.size > 0 && (
+          <button
+            onClick={cancelarCitasHuerfanas}
+            className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2 shadow-lg shadow-red-900/30"
+          >
+            🗑️ Cancelar ({citasParaCancelar.size})
+          </button>
+        )}
+
+        {/* Botón de Crear Recibos (Siempre visible pero muestra contador) */}
+        <button
+          onClick={crearRecibosParaHuerfanas}
+          disabled={citasSeleccionadas.size === 0 && citasParaCancelar.size > 0} // Deshabilitar si solo hay cancelaciones
+          className={`flex-1 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 shadow-lg ${
+            citasSeleccionadas.size > 0
+              ? 'bg-yellow-600 hover:bg-yellow-700 text-white shadow-yellow-900/30'
+              : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          ✅ Crear Recibos ({citasSeleccionadas.size})
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
       {/* ← ← ← MODAL: Nuevo Recibo Compuesto ← ← ← CORREGIDO ← ← ← */}
       {modalNuevoReciboOpen && sessionActiva && (
         <CajaReciboModal
@@ -2767,8 +3393,11 @@ function ReciboCard({
   getTipoItemBadge,
   loadingDetalle,
   detalleRecibo,
-  sesionSeleccionada,  // ← AGREGAR
-  sessionActiva,        // ← AGREGAR
+  sesionSeleccionada,
+  sessionActiva,
+  OPCIONES_METODO,
+  apiUrl,      // ← ← ← AGREGAR
+  token,
 }: {
   recibo: ReciboCaja;
   onExpand: (id: number) => void;
@@ -2781,9 +3410,75 @@ function ReciboCard({
   getTipoItemBadge: (tipo: string, profesional?: string | null) => string;
   loadingDetalle: boolean;
   detalleRecibo: ReciboCaja | null;
-  sesionSeleccionada: CajaSession | null;  // ← AGREGAR
-  sessionActiva: CajaSession | null;        // ← AGREGAR
+  sesionSeleccionada: CajaSession | null;
+  sessionActiva: CajaSession | null;
+  OPCIONES_METODO: Array<{value: string, label: string}>;
+  apiUrl: string;        // ← ← ← AGREGAR TIPO
+  token: string | null;
 }) {
+
+  // Estados locales para editar método de pago
+  const [editandoMetodo, setEditandoMetodo] = useState(false);
+  const [metodoTemporal, setMetodoTemporal] = useState(recibo.metodo_pago || '');
+
+  
+  
+ const handleGuardarMetodoLocal = async (nuevoMetodo: string) => {
+    if (!nuevoMetodo || nuevoMetodo === recibo.metodo_pago) {
+      setEditandoMetodo(false);
+      return;
+    }
+    
+    try {
+      const res = await fetch(`${apiUrl}/caja/recibos/${recibo.id}/actualizar-metodo-pago/`, {
+      
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ metodo_pago: nuevoMetodo })
+      });
+      
+      if (res.ok) {
+        console.log(`✅ Método actualizado: ${nuevoMetodo}`);
+         // ← ← ← ACTUALIZAR EL RECIBO LOCALMENTE
+          // Actualizar el detalle si está expandido
+          /*if (detalleRecibo && detalleRecibo.id === recibo.id) {
+            setDetalleRecibo({ ...detalleRecibo, metodo_pago: nuevoMetodo });
+          }*/
+          
+          // ← ← ← NOTIFICAR AL PADRE PARA ACTUALIZAR LA LISTA
+          // Disparar evento personalizado
+          /*window.dispatchEvent(new CustomEvent('reciboActualizado', { 
+            detail: { id: recibo.id, metodo_pago: nuevoMetodo } 
+          }));*/
+
+          // ← ← ← NOTIFICAR AL PADRE VÍA EVENTO (YA FUNCIONA) ← ← ←
+      window.dispatchEvent(new CustomEvent('reciboActualizado', {
+        detail: { id: recibo.id, metodo_pago: nuevoMetodo }
+      }));
+          
+          setEditandoMetodo(false);
+      } else {
+        console.error('❌ Error actualizando método');
+        setMetodoTemporal(recibo.metodo_pago || '');
+      }
+    } catch (err) {
+      console.error('❌ Error:', err);
+      setMetodoTemporal(recibo.metodo_pago || '');
+    } finally {
+      setEditandoMetodo(false);
+    }
+  };
+
+  // ← ← ← FUNCIÓN: Manejar clic en método de pago (cabecera o detalle) ← ← ←
+  const handleClicMetodoPago = (e: React.MouseEvent) => {
+      e.stopPropagation(); // Evitar que se cierre/abra el acordeón
+      setMetodoTemporal(recibo.metodo_pago || '');
+      setEditandoMetodo(true);
+  };
+
   return (
     <div key={recibo.id} className="border border-gray-700 rounded-lg overflow-hidden">
       
@@ -2800,6 +3495,7 @@ function ReciboCard({
             <button 
               className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-white transition-transform"
               style={{ transform: isExpanded ? 'rotate(180deg)' : 'none' }}
+              onClick={handleClicMetodoPago}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -2810,6 +3506,11 @@ function ReciboCard({
               <p className="font-mono text-sm font-bold">
                 {recibo.codigo_recibo}
               </p>
+              {recibo.codigo_recibo.includes('-') && (
+                <p className="text-xs text-gray-500 font-mono">
+                  Base: {recibo.codigo_recibo.split('-').slice(0, -1).join('-')}
+                </p>
+              )}
               <p className="text-xs text-gray-400">
                 {recibo.cliente_nombre || 'Sin cliente'} • {formatDate(recibo.fecha)}
               </p>
@@ -2823,13 +3524,43 @@ function ReciboCard({
           </div>
           
           <div className="text-right">
-            <p className="font-bold">
-              {formatMoney(recibo.total)}
-            </p>
-            <p className="text-xs capitalize">
-              {recibo.tipo} • {recibo.metodo_pago}
-            </p>
-          </div>
+              <p className="font-bold">
+                {formatMoney(recibo.total)}
+              </p>
+              
+              {/* Contenedor flexible para alinear tipo y método */}
+              <div className="flex items-center justify-end gap-1 mt-1">
+                <span className="text-xs text-gray-400">{recibo.tipo} •</span>
+                
+                {/* ← ← ← IMPLEMENTADO: Método de pago editable ← ← ← */}
+                {editandoMetodo ? (
+                  <select
+                    value={metodoTemporal}
+                    onChange={(e) => setMetodoTemporal(e.target.value)}
+                    onBlur={() => handleGuardarMetodoLocal(metodoTemporal)}
+                    onClick={(e) => e.stopPropagation()}
+                    autoFocus
+                    className="bg-gray-800 border border-blue-500 text-blue-400 text-xs rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 capitalize min-w-[100px]"
+                  >
+                    {OPCIONES_METODO.map(opcion => (
+                      <option key={opcion.value} value={opcion.value}>
+                        {opcion.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span
+                    onClick={handleClicMetodoPago}
+                    className="text-xs text-blue-400 font-bold capitalize cursor-pointer hover:text-blue-300 hover:underline transition-colors px-1 py-0.5 rounded hover:bg-white/10"
+                    title="Clic para editar método de pago"
+                  >
+                    {recibo.metodo_pago ?
+                      OPCIONES_METODO.find(o => o.value === recibo.metodo_pago)?.label || recibo.metodo_pago
+                      : 'N/A'}
+                  </span>
+                )}
+              </div>
+            </div>
         </div>
         
         {recibo.propina_total && parseFloat(recibo.propina_total) > 0 && (
@@ -2920,23 +3651,50 @@ function ReciboCard({
                   </div>
                 </div>
                 
-                {/* Fila 2: Propina y Método de Pago */}
-                <div className="grid grid-cols-2 gap-4 text-sm">                                  
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400">💳 Método:</span>
-                    <span className="text-blue-400 font-semibold capitalize">
-                      {detalleRecibo.metodo_pago || 'N/A'}
-                    </span>
+                {/* Fila 2: Propina y Método de Pago (EDITABLE) */}
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-400">💳 Método:</span>
+                      
+                      {editandoMetodo ? (
+                        // ← ← ← MODO EDICIÓN: Select desplegable
+                        <select
+                          value={metodoTemporal}
+                          onChange={(e) => setMetodoTemporal(e.target.value)}
+                          onBlur={() => handleGuardarMetodoLocal(metodoTemporal)}
+                          autoFocus
+                          className="bg-gray-800 border border-blue-500 text-blue-400 text-xs rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 capitalize"
+                        >
+                          {OPCIONES_METODO.map(opcion => (
+                            <option key={opcion.value} value={opcion.value}>
+                              {opcion.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        // ← ← ← MODO LECTURA: Click para editar
+                        <button
+                          onClick={handleClicMetodoPago}
+                          className="text-blue-400 font-semibold capitalize hover:text-blue-300 hover:underline transition-colors text-left"
+                          title="Click para cambiar método de pago"
+                        >
+                          {detalleRecibo.metodo_pago ? 
+                            OPCIONES_METODO.find(o => o.value === detalleRecibo.metodo_pago)?.label || detalleRecibo.metodo_pago 
+                            : 'N/A'}
+                        </button>
+                      )}
+                    </div>
+                    
+                    {/* Propina (sin cambios) */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-400">💎 Propina:</span>
+                      <span className="text-purple-400 font-semibold">
+                        {parseFloat(detalleRecibo.propina_total) > 0
+                          ? `+${formatMoney(detalleRecibo.propina_total)}`
+                          : '$ 0'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400">💎 Propina:</span>
-                    <span className="text-purple-400 font-semibold">
-                      {parseFloat(detalleRecibo.propina_total) > 0 
-                        ? `+${formatMoney(detalleRecibo.propina_total)}` 
-                        : '$ 0'}
-                    </span>
-                  </div>
-                </div>
                 
                 {/* Fila 3: TOTAL (grande y destacado) */}
                 <div className="border-t border-gray-700 pt-3 mt-2">
