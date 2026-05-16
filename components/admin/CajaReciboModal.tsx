@@ -1,7 +1,7 @@
 // components/admin/CajaReciboModal.tsx
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import ProfessionalModal from '@/components/booking/ProfessionalModal';
 import CitasPendientesModal from '@/components/admin/CitasPendientesModal';
 import CalcularComisionesModal from '@/components/admin/CalcularComisionesModal'; // ← AGREGAR
@@ -50,6 +50,7 @@ interface ReciboItem {
   imagenUrl?: string | null;    // ← ← ← AGREGADO
   productosAsociados?: any[];   // ← ← ← AGREGADO
   stockActual?: number;         // ← ← ← AGREGADO
+  propinaItem?: number;  // Propina asignada a este item (para envío al backend)
 }
 
 interface CajaReciboModalProps {
@@ -65,7 +66,15 @@ interface CajaReciboModalProps {
   modalComisionesOpen?: boolean;
   onModalComisionesClose?: () => void;
 }
-
+interface AbonoRecibo {
+  id: number;
+  recibo: number;
+  monto: number;
+  metodo_pago: 'efectivo' | 'transferencia' | 'nequi' | 'daviplata' | 'bold' | 'tarjeta';
+  fecha_abono: string;
+  referencia_externa?: string;
+  metodo_pago_display: string;
+}
 export default function CajaReciboModal({
   isOpen,
   onClose,
@@ -85,11 +94,13 @@ export default function CajaReciboModal({
   const [items, setItems] = useState<ReciboItem[]>([]);
   const [descuento, setDescuento] = useState<number>(0);
   const [propinaTotal, setPropinaTotal] = useState<number>(0);
-  const [metodoPago, setMetodoPago] = useState<string>('pendiente');
+  const [metodoPago, setMetodoPago] = useState<string>('bold');
   const [clienteNombre, setClienteNombre] = useState<string>('');
   const [clienteTelefono, setClienteTelefono] = useState<string>('');
   const [clienteEmail, setClienteEmail] = useState<string>('');
-  const [notas, setNotas] = useState<string>('');
+  const [notas, setNotas] = useState<string>('');  
+  const [montoPagar, setMontoPagar] = useState<number>(0);
+  const montoPagarEditedRef = useRef(false);
   
   // ← ← ← NUEVOS ESTADOS PARA MODO EDICIÓN ← ← ←
   const [modoEdicion, setModoEdicion] = useState(false);
@@ -131,6 +142,40 @@ export default function CajaReciboModal({
   const [profesionales, setProfesionales] = useState<Profesional[]>([]);
   const [citaSeleccionada, setCitaSeleccionada] = useState<number | null>(null);
 
+  // ← ← ← NUEVOS ESTADOS PARA FLUJO DE ABONOS ← ← ←
+  const [showAbonoModal, setShowAbonoModal] = useState(false);
+  const [montoAbono, setMontoAbono] = useState('');
+  const [metodoPagoAbono, setMetodoPagoAbono] = useState('efectivo');
+  const [referenciaExterna, setReferenciaExterna] = useState<string>('');
+
+  const [abonos, setAbonos] = useState<AbonoRecibo[]>([]);
+const [resumenAbonos, setResumenAbonos] = useState<{
+  total_abonado: number;
+  saldo_pendiente: number;
+  porcentaje_abonado: number;
+  puede_publicar: boolean;
+} | null>(null);
+
+// ← ← ← NUEVO: Estado para saber si estamos editando o creando un abono
+const [abonoEditandoId, setAbonoEditandoId] = useState<number | null>(null);
+
+// 3. FUNCIÓN para cargar resumen de abonos
+const cargarResumenAbonos = async (reciboId: number) => {
+  try {
+    const res = await fetch(`${apiUrl}/caja/abonos/resumen/${reciboId}/`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setResumenAbonos(data);
+      setAbonos(data.abonos);
+    }
+  } catch (err) {
+    console.error('Error cargando abonos:', err);
+  }
+};
+
+
   // ← ← ← CALCULAR TOTALES ← ← ←
   const subtotal = useMemo(() => {
     return items.reduce((sum, item) => sum + item.subtotal, 0);
@@ -140,6 +185,23 @@ export default function CajaReciboModal({
     return subtotal - descuento + propinaTotal;
   }, [subtotal, descuento, propinaTotal]);
 
+  // ... (tu código existente con const total = useMemo(...))
+
+
+
+  // ← ← ← REEMPLAZAR el useEffect existente por este ← ← ←
+useEffect(() => {
+  // Solo sincronizar si el usuario NO ha editado manualmente
+  if (!montoPagarEditedRef.current && total > 0) {
+    setMontoPagar(total);
+  }
+}, [total]);  // Se ejecuta cuando cambia el total calculado
+
+
+// ← ← ← MODIFICAR el onChange del input de montoPagar ← ← ←
+// BUSCAR: el input con onChange={(e) => { ... setMontoPagar(valor); ... }}
+// Y AGREGAR esta línea dentro del onChange:
+montoPagarEditedRef.current = true;  // ← ← ← MARCAR COMO EDITADO MANUALMENTE
 
 
   // ← Formatear moneda
@@ -195,6 +257,31 @@ useEffect(() => {
       return {};
     }
   };
+  // ← ← ← AGREGAR ESTA FUNCIÓN en CajaReciboModal ← ← ←
+const registrarAbonoEnCitas = async (montoAbono: number, metodoPago: string) => {
+  // Obtener IDs de citas asociadas a los items de servicio
+  const citasConServicio = items
+    .filter(i => i.tipo === 'servicio' && i.citaId)
+    .map(i => i.citaId);
+  
+  if (citasConServicio.length === 0) return;
+  
+  // Registrar pago parcial en cada cita (ajusta el endpoint según tu backend)
+  for (const citaId of citasConServicio) {
+    await fetch(`${apiUrl}/citas/${citaId}/registrar-abono/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        monto_abono: montoAbono / citasConServicio.length, // Distribuir proporcionalmente
+        metodo_pago: metodoPago,
+        recibo_caja_id: reciboId // Si estás editando
+      })
+    });
+  }
+};
 
   const cargarReciboParaEditar = async () => {
     if (!reciboParaEditarId) return;
@@ -230,11 +317,13 @@ useEffect(() => {
       setPropinaTotal(parseFloat(recibo.propina_total) || 0);
       setPropinaEditable(String(recibo.propina_total || 0));
       setMetodoPago(recibo.metodo_pago || 'efectivo');
-      setClienteNombre(recibo.cliente_nombre || '');
-      setClienteTelefono(recibo.cliente_telefono || '');
-      setClienteEmail(recibo.cliente_email || '');
+      setClienteNombre(recibo.cliente_nombre || 'No proporcionado com');
+      setClienteTelefono(recibo.cliente_telefono || 'No proporcionado com');
+      setClienteEmail(recibo.cliente_email || 'No@proporcionado.com');
       setNotas(recibo.notas || '');
       setEstadoRecibo(recibo.estado);
+      setMontoPagar(parseFloat(recibo.total) || 0);
+      montoPagarEditedRef.current = false;
       setPropinaMetodo(recibo.propina_metodo_distribucion || 'proporcional');
       
       // ← ← ← 4. CARGAR ITEMS CON ESTRUCTURA CORRECTA ← ← ←
@@ -384,6 +473,10 @@ useEffect(() => {
             console.log(`💰 [CajaReciboModal] Propina distribuida: ${distribucionInicial.length} profesionales`);
           }
         }
+      }
+
+      if (recibo.id) {
+        await cargarResumenAbonos(recibo.id);
       }
       
     } catch (err) {
@@ -607,9 +700,9 @@ useEffect(() => {
             fecha_cita: new Date().toISOString().split('T')[0],
             hora_inicio: new Date().toTimeString().slice(0, 5),
             precio_total: precio,
-            cliente_nombre: clienteNombre || '',
-            cliente_telefono: clienteTelefono || '',
-            cliente_email: clienteEmail || '',
+            cliente_nombre: clienteNombre || 'No proporcionado com',
+            cliente_telefono: clienteTelefono || 'No proporcionado com',
+            cliente_email: clienteEmail || 'No@proporcionado.com',
             notas: notas || ''
           })
         });
@@ -623,7 +716,7 @@ useEffect(() => {
         
         // 2. Agregar item CON cita ya creada
         const nuevoItem: ReciboItem = {
-          id: `servicio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          id: `new-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // ← Prefijo "new-"
           tipo: 'servicio',
           servicioId: servicio.id,
           citaId: cita_id,
@@ -638,7 +731,7 @@ useEffect(() => {
           profesionalNombre: undefined,
           imagenUrl: servicio.imagen_url,
           productosAsociados: [],
-          esNuevo: modoEdicion  // ← ← ← MARCAR COMO NUEVO SI ESTÁ EN MODO EDICIÓN
+          esNuevo: true,  // ← ← ← MARCAR COMO NUEVO SI ESTÁ EN MODO EDICIÓN
         };
 
         setItems(prev => [...prev, nuevoItem]);
@@ -713,82 +806,97 @@ useEffect(() => {
     }));
   };
 
-  // ← ← ← FUNCIÓN REMOVER ITEM MEJORADA ← ← ←
-  const removerItem = async (itemId: string) => {
-    const item = items.find(i => i.id === itemId);
+// ← ← ← FUNCIÓN REMOVER ITEM CORREGIDA ← ← ←
+const removerItem = async (itemId: string) => {
+  const item = items.find(i => i.id === itemId);
+  
+  if (!item) return;
+  
+  // Si es modo edición y el item tiene cita asociada, confirmar eliminación
+  if (modoEdicion && item.tipo === 'servicio' && item.citaId) {
+    const confirmar = window.confirm(
+      `⚠️ ¿Estás seguro de eliminar este servicio?\n\n` +
+      `• Servicio: ${item.descripcion}\n` +
+      `• Cita: ${item.codigoReserva || `#${item.citaId}`}\n\n` +
+      `Esta acción eliminará permanentemente la cita del sistema.`
+    );
     
-    if (!item) return;
+    if (!confirmar) return;
     
-    // Si es modo edición y el item tiene cita asociada, confirmar eliminación
-    if (modoEdicion && item.tipo === 'servicio' && item.citaId) {
-      const confirmar = window.confirm(
-        `⚠️ ¿Estás seguro de eliminar este servicio?\n\n` +
-        `• Servicio: ${item.descripcion}\n` +
-        `• Cita: ${item.codigoReserva || `#${item.citaId}`}\n\n` +
-        `Esta acción eliminará permanentemente la cita del sistema.`
-      );
+    try {
+      setLoading(true);
       
-      if (!confirmar) return;
+      // ← ← ← ELIMINAR CITA DEL BACKEND ← ← ←
+      const resCita = await fetch(`${apiUrl}/citas/${item.citaId}/`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      });
       
-      try {
-        setLoading(true);
-        
-        // ← ← ← ELIMINAR CITA DEL BACKEND ← ← ←
-        const resCita = await fetch(`${apiUrl}/citas/${item.citaId}/`, {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-          }
-        });
-        
-        if (!resCita.ok && resCita.status !== 404) {
-          const errorText = await resCita.text();
-          console.warn('⚠️ No se pudo eliminar la cita:', errorText);
-          // Continuar eliminando el item del recibo aunque falle la cita
-        }
-        
-        // ← ← ← ELIMINAR ITEM DEL RECIBO (ReciboCajaItem) ← ← ←
-        // Nota: Esto requiere endpoint para eliminar items individuales
-        // Si no existe, solo eliminamos visualmente y se sincroniza al guardar
-        if (item.id && !isNaN(parseInt(item.id))) {
-          try {
-            await fetch(`${apiUrl}/caja/recibos/${reciboId}/items/${item.id}/`, {
-              method: 'DELETE',
-              headers: {
-                'Content-Type': 'application/json',
-                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-              }
-            });
-          } catch (err) {
-            console.warn('⚠️ No se pudo eliminar el item del recibo en backend');
-          }
-        }
-        
-      } catch (err: any) {
-        console.error('❌ Error eliminando item/cita:', err);
-        alert(`⚠️ Error: ${err.message}`);
-      } finally {
-        setLoading(false);
+      if (!resCita.ok && resCita.status !== 404) {
+        const errorText = await resCita.text();
+        console.warn('⚠️ No se pudo eliminar la cita:', errorText);
       }
-    } else {
-      // Modo nuevo recibo o item sin cita: solo eliminar localmente
-      if (!modoEdicion || !confirm('¿Eliminar este item del recibo?')) {
-        if (!modoEdicion) return;
+      
+      // ← ← ← ELIMINAR ITEM DEL RECIBO EN BACKEND ← ← ←
+      if (item.id && !isNaN(parseInt(item.id))) {
+        try {
+          await fetch(`${apiUrl}/caja/recibos/${reciboId}/items/${item.id}/`, {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            }
+          });
+        } catch (err) {
+          console.warn('⚠️ No se pudo eliminar el item del recibo en backend');
+        }
       }
+      
+    } catch (err: any) {
+      console.error('❌ Error eliminando item/cita:', err);
+      alert(`⚠️ Error: ${err.message}`);
+    } finally {
+      setLoading(false);
     }
-    
-    // ← ← ← ELIMINAR DEL ESTADO LOCAL ← ← ←
-    setItems(prev => prev.filter(i => i.id !== itemId));
-    
-    // ← ← ← ACTUALIZAR DISTRIBUCIÓN DE PROPINA SI APLICA ← ← ←
-    if (propinaTotal > 0 && item.tipo === 'servicio' && item.profesionalId) {
-      setPropinaDistribucion(calcularDistribucionPropina);
+  } else {
+    // Modo nuevo recibo o item sin cita: solo eliminar localmente
+    if (!modoEdicion || !confirm('¿Eliminar este item del recibo?')) {
+      if (!modoEdicion) return;
     }
+  }
+  
+  // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+  // ← ← ← CORRECCIÓN CLAVE: Agregar a itemsQuitados en modo edición ← ← ←
+  // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+  if (modoEdicion) {
+    const itemIdNum = Number(itemId);
+    const esIdNumerico = !isNaN(itemIdNum) && itemIdNum > 0;
     
-    console.log(`✅ Item eliminado: ${item.descripcion}${item.citaId ? ` + Cita #${item.citaId}` : ''}`);
-  };
-
+    if (esIdNumerico) {
+      // ID de BD: agregar para eliminación en backend (evitar duplicados)
+      setItemsQuitados(prev => {
+        if (!prev.includes(itemId)) {
+          console.log(`🗑️ [removerItem] Agregando ${itemId} a itemsQuitados`);
+          return [...prev, itemId];
+        }
+        return prev;
+      });
+    }
+  }
+  
+  // ← ← ← ELIMINAR DEL ESTADO LOCAL ← ← ←
+  setItems(prev => prev.filter(i => i.id !== itemId));
+  
+  // ← ← ← ACTUALIZAR DISTRIBUCIÓN DE PROPINA SI APLICA ← ← ←
+  if (propinaTotal > 0 && item.tipo === 'servicio' && item.profesionalId) {
+    setPropinaDistribucion(calcularDistribucionPropina);
+  }
+  
+  console.log(`✅ Item eliminado: ${item.descripcion}${item.citaId ? ` + Cita #${item.citaId}` : ''} | itemsQuitados:`, itemsQuitados);
+};
    
 
   // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
@@ -892,7 +1000,7 @@ useEffect(() => {
   // ← ← ← NUEVO ESTADO: Para rastrear items quitados en modo edición ← ← ←
 const [itemsQuitados, setItemsQuitados] = useState<string[]>([]);
 
-// ← ← ← FUNCIÓN: Quitar item del recibo SIN eliminar cita del sistema ← ← ←
+// ← ← ← UBICACIÓN: Función quitarItemDelRecibo en CajaReciboModal.tsx
 const quitarItemDelRecibo = (itemId: string) => {
   const item = items.find(i => i.id === itemId);
   if (!item) return;
@@ -901,13 +1009,32 @@ const quitarItemDelRecibo = (itemId: string) => {
     return;
   }
   
-  // ← ← ← Registrar item quitado si es modo edición ← ← ←
+  // ← ← ← CORRECCIÓN CLAVE: Registrar SIEMPRE en modo edición ← ← ←
   if (modoEdicion) {
-    setItemsQuitados(prev => [...prev, itemId]);
+    // Verificar si es un ID numérico de BD (para eliminar en backend)
+    const itemIdNum = Number(itemId);
+    const esIdNumerico = !isNaN(itemIdNum) && itemIdNum > 0;
+    
+    console.log(`🗑️ [quitarItemDelRecibo] Item: ${itemId} | esNumérico: ${esIdNumerico} | modoEdicion: ${modoEdicion}`);
+    
+    if (esIdNumerico) {
+      // ID de BD: agregar para eliminación en backend
+      setItemsQuitados(prev => {
+        if (!prev.includes(itemId)) {
+          return [...prev, itemId];
+        }
+        return prev;
+      });
+    } else {
+      // ID temporal: solo eliminación local (no existe en BD aún)
+      console.log(`ℹ️ [quitarItemDelRecibo] Item ${itemId} es temporal, solo eliminación local`);
+    }
   }
   
+  // Eliminar del estado local SIEMPRE
   setItems(prev => prev.filter(i => i.id !== itemId));
   
+  // Recalcular propina si aplica
   if (propinaTotal > 0 && item.tipo === 'servicio' && item.profesionalId) {
     const nuevaDistribucion = calcularDistribucionPropina;
     if (nuevaDistribucion.length > 0) {
@@ -915,8 +1042,15 @@ const quitarItemDelRecibo = (itemId: string) => {
     }
   }
   
-  console.log(`✅ Item quitado: ${item.descripcion}`);
+  console.log(`✅ Item quitado: ${item.descripcion} | itemsQuitados:`, itemsQuitados);
 };
+// ← ← ← AGREGAR ESTE useEffect PARA CARGAR ABONOS ← ← ←
+useEffect(() => {
+  if (isOpen && reciboId && modoEdicion) {
+    cargarResumenAbonos(reciboId);
+  }
+}, [isOpen, reciboId, modoEdicion]);
+
 
 
   const handleActualizarRecibo = async () => {
@@ -929,39 +1063,39 @@ const quitarItemDelRecibo = (itemId: string) => {
         return;
       }
 
-      if (metodoPago === 'pendiente') {
-  const confirmarMetodo = window.confirm(
-    `⚠️ Método de pago no válido\n\n` +
-    `El recibo tiene seleccionado "Pendiente" como método de pago.\n` +
-    `Para publicar un recibo, debes seleccionar un método de pago válido:\n\n` +
-    `• 💵 Efectivo\n` +
-    `• 🏦 Transferencia\n` +
-    `• 📱 Nequi\n` +
-    `• 📱 Daviplata\n` +
-    `• 💳 Bold\n` +
-    `• 💳 Tarjeta\n\n` +
-    `¿Deseas cambiar el método de pago ahora?\n\n` +
-    `• "Aceptar": Ir a seleccionar método de pago\n` +
-    `• "Cancelar": Mantener en borrador`
-  );
+      /*if (metodoPago === 'pendiente' && !reciboEditando?.metodo_pago) {
+        const confirmarMetodo = window.confirm(
+          `⚠️ Método de pago no válido\n\n` +
+          `El recibo tiene seleccionado "Pendiente" como método de pago.\n` +
+          `Para publicar un recibo, debes seleccionar un método de pago válido:\n\n` +
+          `• 💵 Efectivo\n` +
+          `• 🏦 Transferencia\n` +
+          `• 📱 Nequi\n` +
+          `• 📱 Daviplata\n` +
+          `• 💳 Bold\n` +
+          `• 💳 Tarjeta\n\n` +
+          `¿Deseas cambiar el método de pago ahora?\n\n` +
+          `• "Aceptar": Ir a seleccionar método de pago\n` +
+          `• "Cancelar": Mantener en borrador`
+        );
   return;
-  if (confirmarMetodo) {
-    // Enfocar el select de método de pago para facilitar la selección
-    const selectMetodoPago = document.querySelector('select[value="pendiente"]') as HTMLSelectElement;
-    if (selectMetodoPago) {
-      selectMetodoPago.focus();
-      // Scroll suave hacia el campo
-      selectMetodoPago.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-    // No retornar: permitir que el usuario cambie el método y reintente
-    // Pero detenemos la publicación actual
-    return;
-  } else {
-    // Si cancela, mantener en borrador
-    alert('ℹ️ El recibo permanecerá como borrador hasta que selecciones un método de pago válido.');
-    return;
-  }
-}
+        if (confirmarMetodo) {
+          // Enfocar el select de método de pago para facilitar la selección
+          const selectMetodoPago = document.querySelector('select[value="pendiente"]') as HTMLSelectElement;
+          if (selectMetodoPago) {
+            selectMetodoPago.focus();
+            // Scroll suave hacia el campo
+            selectMetodoPago.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+          // No retornar: permitir que el usuario cambie el método y reintente
+          // Pero detenemos la publicación actual
+          return;
+        } else {
+          // Si cancela, mantener en borrador
+          alert('ℹ️ El recibo permanecerá como borrador hasta que selecciones un método de pago válido.');
+          return;
+        }
+      }*/
       
       setLoading(true);
       
@@ -989,9 +1123,15 @@ const quitarItemDelRecibo = (itemId: string) => {
           metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
           // ← ← ← session_caja: puede ser undefined si no hay sesión activa (TypeScript lo acepta)
           session_caja: sessionCajaId,
-          cliente_nombre: tipoRecibo === 'venta' ? clienteNombre : null,
-          cliente_telefono: tipoRecibo === 'venta' ? clienteTelefono : null,
-          cliente_email: tipoRecibo === 'venta' ? clienteEmail : null,
+          cliente_nombre: tipoRecibo === 'venta' 
+          ? (clienteNombre?.trim() || 'No proporcionado')   // ← Si es null/undefined/empty → ''
+          : '',          
+        cliente_telefono: tipoRecibo === 'venta' 
+          ? (clienteTelefono?.trim() || 'No proporcionado')  // ← CAMBIO CLAVE: '' en lugar de null
+          : '',          
+        cliente_email: tipoRecibo === 'venta' 
+          ? (clienteEmail?.trim() || 'No@proporcionado.com')     // ← CAMBIO CLAVE: '' en lugar de null
+          : '',
           notas: notas || '',
           
           // ← ← ← items_data: lista de items a mantener/actualizar ← ← ←
@@ -1011,19 +1151,20 @@ const quitarItemDelRecibo = (itemId: string) => {
               descripcion: item.descripcion,
               cantidad: item.cantidad,
               precio_unitario: item.precioUnitario,
-              subtotal: item.subtotal,
+              //subtotal: item.subtotal,
               propina_item: distribucionActual.find(d => d.profesionalId === item.profesionalId)?.monto || 0
             };
           }),
           
           // ← ← ← items_a_eliminar: lista de IDs a eliminar (SEPARADO) ← ← ←
+          
           ...(modoEdicion && itemsQuitados.length > 0 && {
             items_a_eliminar: itemsQuitados
               .map(id => {
                 const numId = Number(id);
-                return !isNaN(numId) ? numId : null;
+                return !isNaN(numId) && numId > 0 ? numId : null;
               })
-              .filter((id): id is number => id !== null)
+              .filter((id): id is number => id !== null)  // ← ← ← Filtrar nulls
           })
         };
 
@@ -1116,6 +1257,108 @@ const quitarItemDelRecibo = (itemId: string) => {
       }
     };
 
+  // ← ← ← NUEVA FUNCIÓN: Manejar abono parcial (NO toca handleActualizarRecibo) ← ← ←
+  const handleAbonar = async () => {
+    const monto = parseFloat(montoAbono);
+    if (isNaN(monto) || monto <= 0) {
+      alert('⚠️ Ingresa un monto válido mayor a 0');
+      return;
+    }
+    if (monto > total) {
+      alert(`⚠️ El monto excede el total del recibo (${formatMoney(total)})`);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/abonar/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          monto_abono: monto,
+          metodo_pago: metodoPagoAbono
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || err.detail || 'Error al registrar abono');
+      }
+
+      const resultado = await res.json();
+      alert(`✅ Abono registrado exitosamente\nRecibo: ${resultado.recibo_abono.codigo_recibo}\nSaldo restante: ${formatMoney(resultado.recibo_saldo_actualizado.total)}`);
+      
+      // Recargar datos del recibo actualizado
+      setMontoAbono('');
+      setShowAbonoModal(false);
+      await cargarReciboParaEditar(); 
+      if (onReciboActualizado) onReciboActualizado(resultado.recibo_saldo_actualizado);
+      
+    } catch (err: any) {
+      console.error('❌ Error abonando:', err);
+      alert(`❌ Error: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+const handleRegistrarAbono = async () => {
+  if (!reciboId || !montoAbono) return;
+  
+  const montoNum = parseFloat(montoAbono);
+  const maxAbono = total - (resumenAbonos?.total_abonado || 0) + (abonoEditandoId ? parseFloat(abonos.find(a => a.id === abonoEditandoId)?.monto.toString() || '0') : 0);
+  
+  // Validación extra de seguridad (permitir guardar el mismo monto en edición)
+  if (montoNum > maxAbono && !abonoEditandoId) {
+    alert(`⚠️ El monto excede el saldo pendiente (${formatMoney(maxAbono)})`);
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const isEditing = abonoEditandoId !== null;
+    const method = isEditing ? 'PATCH' : 'POST';
+    const url = isEditing 
+      ? `${apiUrl}/caja/abonos/${abonoEditandoId}/` 
+      : `${apiUrl}/caja/abonos/`;
+
+    const res = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        recibo: reciboId,
+        monto: montoNum,
+        metodo_pago: metodoPagoAbono,
+        referencia_externa: referenciaExterna || undefined
+      })
+    });
+    
+    if (res.ok) {
+      alert(`✅ Abono ${isEditing ? 'actualizado' : 'registrado'} exitosamente`);
+      // ← ← ← Limpiar estado de edición y recargar ← ← ←
+      setAbonoEditandoId(null);
+      await cargarResumenAbonos(reciboId);
+      setMontoAbono('');
+      setReferenciaExterna('');
+      setShowAbonoModal(false);
+    } else {
+      const error = await res.json();
+      alert(`❌ Error: ${error.detail || error.error || 'Error al guardar abono'}`);
+    }
+  } catch (err: any) {
+    console.error('❌ Error en handleRegistrarAbono:', err);
+    alert(`❌ Error de conexión: ${err.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
+
   const handleGuardar = async () => {
     if (items.length === 0 && tipoRecibo !== 'entrada') {
       alert('⚠️ Agrega al menos un item al recibo');
@@ -1167,9 +1410,15 @@ const quitarItemDelRecibo = (itemId: string) => {
         metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
         // ← ← ← session_caja: requerido para creación, TypeScript acepta el valor
         session_caja: sessionCajaId,
-        cliente_nombre: tipoRecibo === 'venta' ? clienteNombre : null,
-        cliente_telefono: tipoRecibo === 'venta' ? clienteTelefono : null,
-        cliente_email: tipoRecibo === 'venta' ? clienteEmail : null,
+        cliente_nombre: tipoRecibo === 'venta' 
+          ? (clienteNombre?.trim() || 'No proporcionado')   // ← Si es null/undefined/empty → ''
+          : '',          
+        cliente_telefono: tipoRecibo === 'venta' 
+          ? (clienteTelefono?.trim() || 'No proporcionado')  // ← CAMBIO CLAVE: '' en lugar de null
+          : '',          
+        cliente_email: tipoRecibo === 'venta' 
+          ? (clienteEmail?.trim() || 'No@proporcionado.com')     // ← CAMBIO CLAVE: '' en lugar de null
+          : '',
         notas: notas || '',
         items_data: items.map(item => {
           // ← ← ← VALIDACIÓN MEJORADA DE ID ← ← ←
@@ -1251,6 +1500,315 @@ const quitarItemDelRecibo = (itemId: string) => {
       setLoading(false);
     }
   };
+
+  // ← ← ← AGREGAR ESTAS FUNCIONES AUXILIARES ← ← ←
+
+const handleGuardarConPayload = async (payloadBase: any) => {
+  setLoading(true);
+  try {
+    const payload = {
+      ...payloadBase,
+      items_data: items.map(item => {
+        const itemIdNum = item.id && !isNaN(Number(item.id)) ? Number(item.id) : null;
+        return {
+          ...(itemIdNum && { id: itemIdNum }),
+          tipo_item: item.tipo,
+          ...(item.servicioId && { cita: item.citaId, profesional: item.profesionalId }),
+          ...(item.productoId && { producto: item.productoId }),
+          descripcion: item.descripcion,
+          cantidad: item.cantidad,
+          precio_unitario: item.precioUnitario,
+          //subtotal: item.subtotal,
+          propina_item: propinaDistribucion.find(d => d.profesionalId === item.profesionalId)?.monto || 0
+        };
+      })
+    };
+
+    const res = await fetch(`${apiUrl}/caja/recibos/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.detail || JSON.stringify(error));
+    }
+
+    const reciboCreado = await res.json();
+    
+    // ← ← ← MANEJAR RESPUESTA DE ABONO PARCIAL ← ← ←
+    if (reciboCreado.nuevo_borrador_id) {
+      alert(`✅ Abono registrado\nSaldo restante: ${formatMoney(parseFloat(reciboCreado.saldo_restante))}`);
+      // Cargar el nuevo borrador para continuar
+      setReciboId(reciboCreado.nuevo_borrador_id);
+      await cargarReciboParaEditar();
+      return;
+    }
+    
+    // Distribuir propina si aplica
+    if (propinaTotal > 0) {
+      const distribucionActual = calcularDistribucionPropina;
+      if (distribucionActual.length > 0) {
+        await fetch(`${apiUrl}/caja/recibos/${reciboCreado.id}/distribuir_propina/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+          body: JSON.stringify({
+            monto_propina: propinaTotal,
+            metodo: propinaMetodo,
+            distribucion: distribucionActual.map(d => ({ profesional: d.profesionalId, monto: d.monto, porcentaje: d.porcentaje }))
+          })
+        });
+      }
+    }
+
+    alert(`✅ Recibo ${reciboCreado.codigo_recibo} publicado`);
+    onReciboCreado?.(reciboCreado);
+    handleClose();
+    
+  } catch (err: any) {
+    console.error('❌ Error guardando:', err);
+    alert(`❌ Error: ${err.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
+
+// ← ← ← AGREGAR ESTA FUNCIÓN DENTRO DEL COMPONENTE CajaReciboModal ← ← ←
+// Ubicación recomendada: después de los hooks, antes de los useEffect
+
+const sanitizeForJSON = (value: any): any => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') {
+    if (isNaN(value) || !isFinite(value)) return 0;
+    return Math.round(value * 100) / 100; // 2 decimales máx
+  }
+  if (typeof value === 'string') {
+    return String(value).trim().replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
+  }
+  if (Array.isArray(value)) {
+    return value.map(sanitizeForJSON);
+  }
+  if (typeof value === 'object') {
+    const sanitized: any = {};
+    for (const [key, val] of Object.entries(value)) {
+      sanitized[key] = sanitizeForJSON(val);
+    }
+    return sanitized;
+  }
+  return value;
+};
+
+const handleActualizarReciboConPayload = async (payloadBase: any) => {
+  if (!reciboId) return;
+  setLoading(true);
+  
+  try {   
+    // ← ← ← 1. CONSTRUIR items_data CON VALIDACIÓN ESTRICTA ← ← ←
+    const itemsData = items.map(item => {
+      // ← ← ← SOLO incluir id si: NO es nuevo Y es numérico válido de BD
+      const shouldIncludeId = !item.esNuevo && 
+                              item.id && 
+                              /^\d+$/.test(String(item.id)) &&  // ← Solo dígitos
+                              Number(item.id) > 0;
+      
+      const itemData: any = {
+        tipo_item: item.tipo || 'servicio',
+        descripcion: String(item.descripcion || '').trim() || 'Sin descripción',
+        cantidad: Math.max(1, parseInt(String(item.cantidad)) || 1),
+        precio_unitario: Math.round((parseFloat(String(item.precioUnitario)) || 0) * 100) / 100,
+        propina_item: Math.round((parseFloat(String(item.propinaItem)) || 0) * 100) / 100,
+        // ← ← ← NO enviar subtotal (el backend lo calcula)
+      };
+      
+      // ← ← ← SOLO agregar id si cumple las condiciones
+      if (shouldIncludeId) {
+        itemData.id = Number(item.id);
+      }
+      
+      // Campos específicos por tipo
+      if (item.tipo === 'servicio') {
+        if (item.citaId && /^\d+$/.test(String(item.citaId))) {
+          itemData.cita = Number(item.citaId);
+        }
+        if (item.profesionalId && /^\d+$/.test(String(item.profesionalId))) {
+          itemData.profesional = Number(item.profesionalId);
+        }
+      } else if (item.tipo === 'producto') {
+        if (item.productoId && /^\d+$/.test(String(item.productoId))) {
+          itemData.producto = Number(item.productoId);
+        }
+      }
+      
+      return itemData;
+    });
+
+    // ← ← ← 2. CONSTRUIR PAYLOAD BASE ← ← ←
+    const payloadBaseSanitized = {
+      tipo: payloadBase.tipo,
+      estado: payloadBase.estado,
+      subtotal: Math.round(subtotal * 100) / 100,
+      descuento: Math.round(descuento * 100) / 100,
+      total: Math.round(total * 100) / 100,
+      propina_total: Math.round(propinaTotal * 100) / 100,
+      propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
+      metodo_pago: payloadBase.metodo_pago,
+      session_caja: sessionCajaId,
+      cliente_nombre: tipoRecibo === 'venta'
+        ? (clienteNombre?.trim() || 'No proporcionado')
+        : '',
+      cliente_telefono: tipoRecibo === 'venta'
+        ? (clienteTelefono?.trim() || 'No proporcionado')
+        : '',
+      cliente_email: tipoRecibo === 'venta'
+        ? (clienteEmail?.trim() || 'No@proporcionado.com')
+        : '',
+      notas: notas?.trim() || '',
+      items_data: itemsData,
+      ...(modoEdicion && itemsQuitados.length > 0 && {
+        items_a_eliminar: itemsQuitados
+          .map(id => Number(id))
+          .filter(id => !isNaN(id) && id > 0)
+      })
+    };
+
+    // ← ← ← 3. SANITIZAR PAYLOAD COMPLETO PARA EVITAR JSON INVÁLIDO ← ← ←
+    console.log('🔍 [DEBUG] itemsQuitados para enviar:', itemsQuitados);
+    console.log('🔍 [DEBUG] itemsQuitados filtrados (numéricos):', 
+      itemsQuitados.map(id => Number(id)).filter(id => !isNaN(id) && id > 0)
+    );
+
+    const payloadSanitized = sanitizeForJSON(payloadBaseSanitized);
+
+    // ← ← ← LOG DEL PAYLOAD FINAL ← ← ←
+    console.log('📦 [DEBUG] Payload final PATCH:', JSON.stringify({
+      ...payloadSanitized,
+      items_a_eliminar: payloadSanitized.items_a_eliminar
+    }, null, 2));
+
+    // ← ← ← 4. VERIFICAR JSON VÁLIDO ANTES DE ENVIAR ← ← ←
+    try {
+      const jsonString = JSON.stringify(payloadSanitized);
+      console.log('✅ Payload JSON válido, longitud:', jsonString.length);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('📦 [DEBUG] Payload PATCH completo:', JSON.stringify(payloadSanitized, null, 2));
+      }
+    } catch (e) {
+      console.error('❌ Payload NO es JSON válido:', e);
+      alert('⚠️ Error interno: datos inválidos para enviar');
+      setLoading(false);
+      return;
+    }
+
+    console.log('🔍 [DIAGNÓSTICO] Payload completo enviado:', JSON.stringify(payloadSanitized, null, 2));
+    console.log('🔍 [DIAGNÓSTICO] Recibo ID:', reciboId);
+    console.log('🔍 [DIAGNÓSTICO] modoEdicion:', modoEdicion);
+    console.log('🔍 [DIAGNÓSTICO] itemsQuitados:', itemsQuitados);
+
+    // ← ← ← 5. ENVIAR PETICIÓN PATCH ← ← ←
+    const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/`, {
+      method: 'PATCH',
+      headers: { 
+        'Content-Type': 'application/json', 
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}) 
+      },
+      body: JSON.stringify(payloadSanitized)
+    });
+
+    // ← ← ← 6. LOGGING DE RESPUESTA ← ← ←
+    const responseText = await res.clone().text();
+    console.log('📦 [DEBUG] Response status:', res.status);
+    console.log('📦 [DEBUG] Response body:', responseText);
+
+    if (!res.ok) {
+      let errorData;
+      try {
+        errorData = JSON.parse(responseText);
+      } catch {
+        errorData = { detail: responseText };
+      }
+      const mensajeError = errorData.detail || errorData.error || 'Error desconocido';
+      const traceback = errorData.traceback || '';
+      alert(`❌ Error al actualizar recibo:\n${mensajeError}${traceback ? '\n\nTraceback:\n' + traceback : ''}`);
+      throw new Error(mensajeError);
+    }
+
+    const reciboActualizado = await res.json();
+    
+    // ← ← ← FORZAR RECARGA EXPLÍCITA DEL RECIBO ACTUALIZADO ← ← ←
+    let datosParaNotificar = reciboActualizado;
+
+    try {
+      const reciboRefrescado = await fetch(`${apiUrl}/caja/recibos/${reciboId}/`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        cache: 'no-store'
+      });
+      
+      if (reciboRefrescado.ok) {
+        const datosFrescos = await reciboRefrescado.json();
+        console.log('✅ [DEBUG] Recibo refrescado con totales actualizados:', datosFrescos.total);
+        datosParaNotificar = datosFrescos;
+      }
+    } catch (refreshErr) {
+      console.warn('⚠️ No se pudo refrescar recibo, usando respuesta original del PATCH:', refreshErr);
+    }
+
+    // ← ← ← 8. DISTRIBUIR PROPINA SI APLICA ← ← ←
+    if (propinaTotal > 0 && reciboActualizado?.propina_distribuida === false) {
+      const distribucionActual = calcularDistribucionPropina;
+      if (distribucionActual.length > 0) {
+        const payloadPropina = sanitizeForJSON({
+          monto_propina: propinaTotal,
+          metodo: propinaMetodo,
+          distribucion: distribucionActual.map(d => ({
+            profesional: d.profesionalId,
+            monto: d.monto,
+            porcentaje: d.porcentaje
+          }))
+        });
+        
+        await fetch(`${apiUrl}/caja/recibos/${reciboId}/distribuir_propina/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+          body: JSON.stringify(payloadPropina)
+        });
+      }
+    }
+
+    // ← ← ← 9. ÉXITO: NOTIFICAR AL PADRE CON DATOS GARANTIZADOS ← ← ←
+    alert(`✅ Recibo ${datosParaNotificar.codigo_recibo} actualizado`);
+
+    if (onReciboActualizado) {
+      onReciboActualizado(datosParaNotificar);
+      
+      window.dispatchEvent(new CustomEvent('reciboActualizado', {
+        detail: {
+          id: datosParaNotificar.id,
+          metodo_pago: datosParaNotificar.metodo_pago,
+          subtotal: datosParaNotificar.subtotal,
+          total: datosParaNotificar.total,
+          propina_total: datosParaNotificar.propina_total,
+          items: datosParaNotificar.items,
+          distribuciones_propina: datosParaNotificar.distribuciones_propina,
+          ...datosParaNotificar
+        }
+      }));
+      
+      console.log(`📡 [CajaReciboModal] Evento reciboActualizado disparado`);
+    }
+    
+    alert(`✅ Recibo ${reciboActualizado.codigo_recibo} actualizado`);
+    if (onReciboActualizado) {
+      onReciboActualizado(reciboActualizado);
+    }
+    
+  } catch (err: any) {
+    console.error('❌ Error actualizando:', err);
+    alert(`❌ Error: ${err.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleClose = () => {
     setItems([]);
@@ -1562,7 +2120,7 @@ const quitarItemDelRecibo = (itemId: string) => {
 
 
 
-                  <div className="mt-3">
+                  {/*<div className="mt-3">
                     <button
                       onClick={() => setShowCitasModal(true)}
                       className="w-full px-4 py-3 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-700 rounded-lg text-blue-300 hover:text-blue-200 transition-colors flex items-center justify-center gap-2"
@@ -1572,7 +2130,7 @@ const quitarItemDelRecibo = (itemId: string) => {
                       </svg>
                       📅 Agregar Cita Existente
                     </button>
-                  </div>
+                  </div>*/}
                   {searchResults.length > 0 && (
                     <div className="mt-3 max-h-48 overflow-y-auto border border-gray-700 rounded-lg">
                       {searchResults.map((item: any) => (
@@ -1603,7 +2161,7 @@ const quitarItemDelRecibo = (itemId: string) => {
 
              
 
-              {/* Método de Pago */}
+              {/* Método de Pago 
               {tipoRecibo === 'venta' && (
                 <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
                   <label className="block text-sm font-semibold text-gray-300 mb-3">
@@ -1623,7 +2181,133 @@ const quitarItemDelRecibo = (itemId: string) => {
                     
                   </select>
                 </div>
-              )}
+              )}*/}
+
+              {/* ← ← ← SECCIÓN DE ABONOS REGISTRADOS (CORREGIDA) ← ← ← */}
+        {modoEdicion && reciboId && estadoRecibo === 'borrador' && tipoRecibo === 'venta' && (
+          <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
+            <label className="block text-sm font-semibold text-gray-300 mb-3">
+              💰 Pagos Registrados
+            </label>
+            
+            {/* ← ← ← MOSTRAR RESUMEN DE ABONOS ← ← ← */}
+            {resumenAbonos ? (
+              <div className="space-y-3 mb-4">
+                {/* Barra de progreso */}
+                <div className="w-full bg-gray-700 rounded-full h-3">
+                  <div 
+                    className={`h-3 rounded-full transition-all duration-300 ${
+                      resumenAbonos.puede_publicar ? 'bg-green-500' : 'bg-orange-500'
+                    }`}
+                    style={{ width: `${Math.min(100, resumenAbonos.porcentaje_abonado)}%` }}
+                  />
+                </div>
+                
+                {/* Stats */}
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="bg-gray-800 rounded p-2 text-center">
+                    <p className="text-gray-500 text-xs">Abonado</p>
+                    <p className="text-green-400 font-bold">{formatMoney(resumenAbonos.total_abonado)}</p>
+                  </div>
+                  
+                  {/* ← ← ← MODIFICAR ESTE BLOQUE: Agregar onClick y estilos de interacción ← ← ← */}
+                  <div 
+                    onClick={() => {
+                      if (resumenAbonos.saldo_pendiente > 0) {
+                        // Precargar monto pendiente
+                        setMontoAbono(resumenAbonos.saldo_pendiente.toString());
+                        // Resetear estado de edición
+                        setAbonoEditandoId(null);
+                        // Abrir modal
+                        setShowAbonoModal(true);
+                      }
+                    }}
+                    className={`bg-gray-800 rounded p-2 text-center cursor-pointer transition-all hover:bg-gray-700 hover:scale-[1.02] ${
+                      resumenAbonos.saldo_pendiente > 0 ? 'hover:shadow-lg hover:shadow-orange-500/20' : 'opacity-50 cursor-default'
+                    }`}
+                    title={resumenAbonos.saldo_pendiente > 0 ? "Clic para abonar el saldo pendiente" : "Saldo saldado"}
+                  >
+                    <p className="text-gray-500 text-xs">Pendiente</p>
+                    <p className={`font-bold flex items-center justify-center gap-1 ${
+                      resumenAbonos.saldo_pendiente > 0 ? 'text-orange-400' : 'text-green-400'
+                    }`}>
+                      {formatMoney(resumenAbonos.saldo_pendiente)}
+                      {resumenAbonos.saldo_pendiente > 0 && (
+                        <span className="text-xs animate-pulse">👆</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                
+                {/* Porcentaje */}
+                <p className={`text-xs text-center font-medium ${
+                  resumenAbonos.puede_publicar ? 'text-green-400' : 'text-orange-400'
+                }`}>
+                  {resumenAbonos.puede_publicar 
+                    ? '✅ 100% abonado - Listo para publicar' 
+                    : `⏳ ${resumenAbonos.porcentaje_abonado.toFixed(1)}% completado`}
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500 mb-3 text-center">
+                Cargando información de abonos...
+              </p>
+            )}
+            
+            {/* ← ← ← LISTA DE ABONOS REGISTRADOS ← ← ← */}
+            {abonos.length > 0 && (
+              <div className="mb-4">
+                <p className="text-xs text-gray-500 mb-2 font-medium">Historial de abonos (clic para editar):</p>
+                <div className="max-h-32 overflow-y-auto space-y-1">
+                  {abonos.map(abono => (
+                    <div 
+                      key={abono.id} 
+                      onClick={() => {
+                        // ← ← ← Cargar datos en el formulario y abrir modal
+                        setAbonoEditandoId(abono.id);
+                        setMontoAbono(abono.monto.toString());
+                        setMetodoPagoAbono(abono.metodo_pago);
+                        setReferenciaExterna(abono.referencia_externa || '');
+                        setShowAbonoModal(true);
+                      }}
+                      className="flex justify-between items-center text-xs py-1.5 px-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-700 transition-colors border border-transparent hover:border-blue-500/50"
+                      title="Clic para editar este abono"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400">{abono.metodo_pago_display}</span>
+                        {abono.referencia_externa && (
+                          <span className="text-gray-600 text-[10px]" title={abono.referencia_externa}>
+                            • {abono.referencia_externa.substring(0, 10)}...
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <span className="text-green-400 font-medium">{formatMoney(abono.monto)}</span>
+                        <p className="text-[10px] text-gray-600">
+                          {new Date(abono.fecha_abono).toLocaleDateString('es-CO', {
+                            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* ← ← ← BOTÓN PARA REGISTRAR NUEVO ABONO ← ← ← */}
+            <button
+              onClick={() => setShowAbonoModal(true)}
+              className="w-full px-4 py-3 bg-green-700 hover:bg-green-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              💰 Registrar Pago(s)
+            </button>
+          </div>
+        )}
+
             </div>
 
             {/* ← Columna Central: Items del Recibo */}
@@ -1706,20 +2390,26 @@ const quitarItemDelRecibo = (itemId: string) => {
                       </div>
                     )}
                     
-                    <div className="border-t border-gray-600 pt-2 mt-2">
-                      <div className="flex justify-between font-bold text-lg">
-                        <span className="text-gray-300">TOTAL:</span>
-                        <span className="text-green-400">{formatMoney(total)}</span>
-                      </div>
-                      {/* ← ← ← MÉTODO DE PAGO DEBAJO DEL TOTAL ← ← ← */}
-                      {tipoRecibo === 'venta' && (
-                        <div className="flex justify-between text-sm mt-1">
-                          <span className="text-gray-500">Método:</span>
-                          <span className="text-gray-300 capitalize">{metodoPago}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                    {/* ← ← ← TOTAL CORREGIDO (incluye propina) ← ← ← */}
+<div className="border-t border-gray-600 pt-2 mt-2">
+  <div className="flex justify-between font-bold text-lg">
+    <span className="text-gray-300">TOTAL:</span>
+    <span className="text-green-400">{formatMoney(total)}</span>
+  </div>
+  
+  {/* ← ← ← INDICADOR DE ESTADO DE ABONOS ← ← ← */}
+  {resumenAbonos && (
+    <div className={`text-xs mt-2 p-2 rounded ${
+      resumenAbonos.puede_publicar 
+        ? 'bg-green-900/30 text-green-400' 
+        : 'bg-orange-900/30 text-orange-400'
+    }`}>
+      {resumenAbonos.puede_publicar 
+        ? '✅ 100% abonado - Listo para publicar' 
+        : `⏳ ${resumenAbonos.porcentaje_abonado.toFixed(1)}% (${formatMoney(resumenAbonos.total_abonado)} / ${formatMoney(total)})`}
+    </div>
+  )}
+</div>                  </div>
 
                   {/* Inputs de Descuento y Propina */}
                   <div className="grid grid-cols-2 gap-3 mt-4">
@@ -1760,6 +2450,9 @@ const quitarItemDelRecibo = (itemId: string) => {
 
                 </div>
 
+
+
+
               </div>
                
                {/* Notas */}
@@ -1782,57 +2475,426 @@ const quitarItemDelRecibo = (itemId: string) => {
 
          
 
-        {/* ← Footer con acciones */}
-          <div className="sticky bottom-0 bg-gray-900 px-6 py-4 border-t border-gray-700 rounded-b-2xl flex gap-3">
-            <button
-              onClick={handleClose}
-              disabled={loading}
-              className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
-            >
-              Cancelar
-            </button>
-            
-            {estadoRecibo === 'borrador' && !modoEdicion && (
-              <button
-                onClick={() => {
-                  setEstadoRecibo('borrador');
-                  handleGuardar();
-                }}
-                disabled={loading}
-                className="px-6 py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
-              >
-                {loading ? 'Guardando...' : '💾 Guardar Borrador'}
-              </button>
-            )}
-            
+        
+        {/*{tipoRecibo === 'venta' && estadoRecibo === 'borrador' && (
+          <div className="bg-gray-900 rounded-xl p-4 border border-gray-700 mb-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1">
+                <label className="block text-sm font-semibold text-gray-300 mb-1">
+                  💰 Monto a Pagar
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="100"
+                    value={montoPagar}
+                    onChange={(e) => {
+                        
+                        const valor = parseFloat(e.target.value) || 0;
+                        setMontoPagar(valor);
+                        
+                        // ← ← ← CLAVE: Marcar que el usuario editó manualmente ← ← ←
+                        montoPagarEditedRef.current = true;
+                        // Dentro del onChange del input de montoPagar:
+                        console.log('🔍 montoPagar:', valor, '| editedRef:', montoPagarEditedRef.current, '| total:', total);
+                        // Validación visual (opcional)
+                        if (valor > total) {
+                          e.target.classList.add('border-red-500');
+                        } else {
+                          e.target.classList.remove('border-red-500');
+                        }
+                      }}
+                    className="w-full px-3 py-2 pl-8 bg-gray-800 border border-gray-600 rounded-lg text-white text-lg font-bold focus:border-green-500 focus:outline-none"
+                  />
+                </div>
+                {montoPagar > total && (
+                  <p className="text-xs text-red-400 mt-1">
+                    ⚠️ El monto excede el total ({formatMoney(total)})
+                  </p>
+                )}
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-gray-500">Total recibo</p>
+                <p className="text-lg font-bold text-green-400">{formatMoney(total)}</p>
+              </div>
+            </div>
+          </div>
+        )}*/}
+
+        {/* ← ← ← FOOTER CON BOTONES ACTUALIZADO ← ← ← */}
+        <div className="sticky bottom-0 bg-gray-900 px-6 py-4 border-t border-gray-700 rounded-b-2xl flex gap-3">
+          
+          {/* ← ← ← BOTÓN CANCELAR ← ← ← */}
+          <button
+            onClick={handleClose}
+            disabled={loading}
+            className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          
+          {/* ← ← ← BOTÓN BORRADOR: Siempre visible para guardar sin publicar ← ← ← */}
+          {estadoRecibo === 'borrador' && !reciboId && !modoEdicion && (
             <button
               onClick={() => {
-                if (modoEdicion) {
-                  setEstadoRecibo('publicado');
-                  handleActualizarRecibo();
-                } else {
-                  setEstadoRecibo('publicado');
-                  handleGuardar();
-                }
+                setEstadoRecibo('borrador');
+                handleGuardar();  // ← Esto hace POST para crear nuevo recibo
               }}
               disabled={loading || (items.length === 0 && tipoRecibo !== 'entrada')}
-              className="flex-1 px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-6 py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
             >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Procesando...
-                </span>
-              ) : modoEdicion ? (
-                '✅ Actualizar y Publicar'
-              ) : estadoRecibo === 'borrador' ? (
-                '✅ Publicar Recibo'
-              ) : (
-                '✅ Guardar y Publicar'
-              )}
+              {loading ? 'Guardando...' : '💾 Guardar Borrador'}
             </button>
-          </div>
+          )}
+          {/* ← ← ← BOTÓN ACTUALIZAR: Solo para edición de borrador existente ← ← ← */}
+          {estadoRecibo === 'borrador' && modoEdicion && reciboId && (
+            <button
+              onClick={() => {
+                setEstadoRecibo('borrador');
+                // Usar la función de actualización con payload
+                // ← ← ← PREPARAR PAYLOAD ← ← ←
+                const payloadBase = {
+                  tipo: tipoRecibo,
+                  estado: 'borrador',  
+                  subtotal: subtotal,
+                  descuento: descuento,
+                  total: total,
+                  propina_total: propinaTotal,
+                  propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
+                  metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,  // ← ← ← AGREGAR ESTO
+                  session_caja: sessionCajaId,
+                  cliente_nombre: tipoRecibo === 'venta'
+                    ? (clienteNombre?.trim() || 'No proporcionado')
+                    : '',
+                  cliente_telefono: tipoRecibo === 'venta'
+                    ? (clienteTelefono?.trim() || 'No proporcionado')
+                    : '',
+                  cliente_email: tipoRecibo === 'venta'
+                    ? (clienteEmail?.trim() || 'No@proporcionado.com')
+                    : '',
+                  notas: notas || '',
+                };
+                handleActualizarReciboConPayload(payloadBase);  // ← Esto hace PATCH
+              }}
+              disabled={loading}
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Actualizando...' : '✏️ Actualizar Borrador'}
+            </button>
+          )}
+          {/* ← ← ← BOTÓN PUBLICAR: Solo habilitado si abonos = 100% ← ← ← */}
+          {/* ← ← ← BOTÓN PUBLICAR ACTUALIZADO ← ← ← */}
+  <button
+    onClick={async () => {
+      // ← ← ← VALIDACIÓN: Verificar 100% abonado ← ← ←
+      if (!resumenAbonos?.puede_publicar) {
+        alert(`⚠️ El recibo debe estar 100% abonado para publicar.\n\nActual: ${resumenAbonos?.porcentaje_abonado.toFixed(1)}% (${formatMoney(resumenAbonos?.total_abonado || 0)} / ${formatMoney(total)})`);
+        return;
+      }
+      
+      // ← ← ← VALIDACIÓN DE PROFESIONALES ← ← ←
+      const validacion = validarServiciosConProfesional();
+      if (!validacion.valido) {
+        mostrarAlertaServiciosSinProfesional(validacion.serviciosSinProfesional);
+        return;
+      }
+      
+      // ← ← ← VALIDAR MÉTODO DE PAGO (si aplica) ← ← ←
+      if (metodoPago === 'pendiente' && tipoRecibo === 'venta') {
+        alert('⚠️ Selecciona un método de pago válido antes de publicar');
+        return;
+      }
+      
+      setEstadoRecibo('publicado');
+      
+      // ← ← ← PREPARAR PAYLOAD ← ← ←
+      const payloadBase = {
+        tipo: tipoRecibo,
+        estado: 'publicado',
+        subtotal: subtotal,
+        descuento: descuento,
+        total: total,
+        propina_total: propinaTotal,
+        propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
+        metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
+        session_caja: sessionCajaId,        
+        cliente_nombre: tipoRecibo === 'venta' 
+          ? (clienteNombre?.trim() || 'No proporcionado')   // ← Si es null/undefined/empty → ''
+          : '',          
+        cliente_telefono: tipoRecibo === 'venta' 
+          ? (clienteTelefono?.trim() || 'No proporcionado')  // ← CAMBIO CLAVE: '' en lugar de null
+          : '',          
+        cliente_email: tipoRecibo === 'venta' 
+          ? (clienteEmail?.trim() || 'No@proporcionado.com')     // ← CAMBIO CLAVE: '' en lugar de null
+          : '',    
+        notas: notas || '',
+      };
+      
+      console.log('🔍 [DEBUG] Payload para /publicar/:', payloadBase);
+      
+      if (modoEdicion && reciboId) {
+        await handleActualizarReciboConPayload(payloadBase);
+      } else {
+        await handleGuardarConPayload(payloadBase);
+      }
+    }}
+    disabled={
+      loading || 
+      (items.length === 0 && tipoRecibo !== 'entrada') || 
+      !resumenAbonos?.puede_publicar  // ← ← ← CLAVE: Solo habilitar si 100% abonado
+    }
+    className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
+      !resumenAbonos?.puede_publicar 
+        ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
+        : 'bg-green-600 hover:bg-green-700 text-white'
+    }`}
+  >
+    {loading ? (
+      <>
+        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+        Procesando...
+      </>
+    ) : !resumenAbonos ? (
+      '⏳ Cargando abonos...'
+    ) : !resumenAbonos.puede_publicar ? (
+      `⏳ ${resumenAbonos.porcentaje_abonado.toFixed(1)}% - Faltan ${formatMoney(resumenAbonos.saldo_pendiente)}`
+    ) : (
+      '✅ Publicar Recibo'
+    )}
+  </button>
+        </div>
+
       </div>
+
+      {/* ← ← ← NUEVO: Modal interno para registrar abono ← ← ← */}
+      {/* ← ← ← MODAL DE ABONO: CORREGIDO ← ← ← */}
+      {showAbonoModal && reciboId && (
+        <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-green-700 max-h-[90vh] flex flex-col">
+            
+            {/* ← ← ← HEADER CON BOTÓN X ← ← ← */}
+            <div className="p-6 border-b border-gray-700 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  {abonoEditandoId ? '✏️ Editar Abono' : '💰 Registrar Abono'}
+                  {abonoEditandoId && <span className="text-xs text-gray-400 font-normal">(Modo edición)</span>}
+                </h3>
+                <p className="text-sm text-gray-400 mt-1">
+                  Registra un pago parcial del total pendiente
+                </p>
+              </div>
+              
+              {/* ← ← ← BOTÓN X PARA CERRAR SIN GUARDAR ← ← ← */}
+              <button
+                // En el botón "Cancelar" del modal de abono:
+                onClick={() => {
+                  setShowAbonoModal(false);
+                  setAbonoEditandoId(null);  // ← ← ← AGREGAR ESTA LÍNEA
+                  setMontoAbono('');
+                  setReferenciaExterna('');
+                }}
+                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-700 rounded-full transition-colors"
+                title="Cerrar sin guardar"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* ← ← ← BODY CON SCROLL ← ← ← */}
+            <div className="p-6 space-y-4 overflow-y-auto flex-1">
+              
+              {/* ← ← ← RESUMEN DEL SALDO (CORREGIDO: INCLUYE PROPINA) ← ← ← */}
+              <div className="bg-gray-900 rounded-lg p-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">Subtotal servicios:</span>
+                  <span className="text-white">{formatMoney(subtotal)}</span>
+                </div>
+                
+                {propinaTotal > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">💎 Propina:</span>
+                    <span className="text-purple-400">{formatMoney(propinaTotal)}</span>
+                  </div>
+                )}
+                
+                {descuento > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">Descuento:</span>
+                    <span className="text-orange-400">-{formatMoney(descuento)}</span>
+                  </div>
+                )}
+                
+                <div className="border-t border-gray-700 pt-2 mt-2">
+                  <div className="flex justify-between font-bold">
+                    <span className="text-gray-300">TOTAL A PAGAR:</span>
+                    <span className="text-green-400">{formatMoney(total)}</span>
+                  </div>
+                </div>
+                
+                {/* Saldo restante para abono */}
+                {resumenAbonos && (
+                  <>
+                    <div className="flex justify-between text-xs text-gray-500 pt-1">
+                      <span>Abonado:</span>
+                      <span>{formatMoney(resumenAbonos.total_abonado)} / {formatMoney(total)}</span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-2">
+                      <div 
+                        className={`h-2 rounded-full transition-all ${
+                          resumenAbonos.puede_publicar ? 'bg-green-500' : 'bg-orange-500'
+                        }`}
+                        style={{ width: `${Math.min(100, resumenAbonos.porcentaje_abonado)}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 text-center">
+                      {resumenAbonos.porcentaje_abonado}% completado
+                    </p>
+                  </>
+                )}
+              </div>
+
+              {/* ← ← ← INPUT DE MONTO DE ABONO ← ← ← */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-300 mb-2">
+                  Monto del abono *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                  <input
+                    type="number"
+                    min="1000"
+                    step="1000"
+                    value={montoAbono}
+                    onChange={(e) => setMontoAbono(e.target.value)}
+                    className="w-full px-4 py-3 pl-8 bg-gray-900 border border-gray-600 rounded-lg text-white text-lg font-bold focus:border-green-500 focus:outline-none"
+                    placeholder="0"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Mínimo $1.000 • Máximo: {formatMoney(total - (resumenAbonos?.total_abonado || 0))}
+                </p>
+                {/* Validación visual */}
+                {montoAbono && parseFloat(montoAbono) > (total - (resumenAbonos?.total_abonado || 0)) && (
+                  <p className="text-xs text-red-400 mt-1">
+                    ⚠️ El monto excede el saldo pendiente
+                  </p>
+                )}
+              </div>
+
+              {/* ← ← ← MÉTODO DE PAGO DEL ABONO ← ← ← */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-300 mb-2">
+                  Método de pago del abono
+                </label>
+                <select
+                  value={metodoPagoAbono}
+                  onChange={(e) => setMetodoPagoAbono(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-green-500 focus:outline-none"
+                >
+                  <option value="efectivo">💵 Efectivo</option>
+                  <option value="transferencia">🏦 Transferencia</option>
+                  <option value="nequi">📱 Nequi</option>
+                  <option value="daviplata">📱 Daviplata</option>
+                  <option value="bold">💳 Bold</option>
+                  <option value="tarjeta">💳 Tarjeta en sitio</option>
+                </select>
+              </div>
+
+              {/* ← ← ← REFERENCIA EXTERNA (OPCIONAL) ← ← ← */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-300 mb-2">
+                  Referencia externa (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={referenciaExterna}
+                  onChange={(e) => setReferenciaExterna(e.target.value)}
+                  placeholder="Ej: ID transacción, número de transferencia..."
+                  className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-green-500 focus:outline-none"
+                />
+              </div>
+
+            </div>
+
+            {/* ← ← ← FOOTER CON ACCIONES ← ← ← */}
+            <div className="p-6 border-t border-gray-700 flex gap-3">
+              
+              {/* ← ← ← BOTÓN CANCELAR: Cierra modal SIN registrar nada ← ← ← */}
+              <button
+                onClick={() => {
+                  setShowAbonoModal(false);
+                  setMontoAbono('');
+                  setReferenciaExterna('');
+                  // NO llamar a handleRegistrarAbono
+                  // NO cambiar estado del recibo
+                }}
+                className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                ❌ Cancelar
+              </button>
+              
+              {/* ← ← ← BOTÓN REGISTRAR: SOLO registra abono, NO publica ← ← ← */}
+              <button
+                onClick={async () => {
+                  const montoNum = parseFloat(montoAbono);
+                  const maxAbono = total - (resumenAbonos?.total_abonado || 0);
+                  
+                  // Validaciones
+                  if (isNaN(montoNum) || montoNum <= 0) {
+                    alert('⚠️ Ingresa un monto válido mayor a 0');
+                    return;
+                  }
+                  if (montoNum < 1000) {
+                    alert('⚠️ El monto mínimo es $1.000');
+                    return;
+                  }
+                  if (montoNum > maxAbono) {
+                    alert(`⚠️ El monto excede el saldo pendiente (${formatMoney(maxAbono)})`);
+                    return;
+                  }
+                  
+                  setLoading(true);
+                  try {
+                    // ← ← ← SOLO REGISTRAR ABONO ← ← ←
+                    await handleRegistrarAbono();
+                    
+                    // ← ← ← El modal ya se cierra en handleRegistrarAbono ← ← ←
+                    // ← ← ← El frontend se actualiza al recargar resumen ← ← ←
+                    // ← ← ← La publicación se hace SOLO desde el footer principal ← ← ←
+                    
+                  } catch (err: any) {
+                    console.error('❌ Error registrando abono:', err);
+                    alert(`❌ Error: ${err.message}`);
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={
+                  loading || 
+                  !montoAbono || 
+                  parseFloat(montoAbono) < 1000 || 
+                  parseFloat(montoAbono) > (total - (resumenAbonos?.total_abonado || 0))
+                }
+                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Procesando...
+                  </>
+                ) : (
+                  '✅ Registrar Abono'  // ← ← ← TEXTO CORREGIDO: Sin "y Publicar"
+                )}
+              </button>
+            </div>
+            
+          </div>
+        </div>
+      )}
 
       {/* ← ← ← MODAL DE PROPINA ← ← ← */}
       {showPropinaModal && tipoRecibo === 'venta' && (

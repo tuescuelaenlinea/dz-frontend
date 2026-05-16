@@ -1386,12 +1386,12 @@ const handleCrearRecibo = async () => {
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-gray-300 whitespace-nowrap">TOTAL:</span>
                 <span className="text-lg font-bold text-green-400 flex-1 text-right">{formatCurrency(total)}</span>
-                <button
+                {/*<button
                   onClick={() => setShowPaymentMethodModal(true)}
                   className="px-3 py-1 bg-orange-900/30 border border-orange-700 rounded text-xs text-orange-300 hover:bg-orange-900/50 whitespace-nowrap"
                 >
                   💳 {metodoPago.charAt(0).toUpperCase() + metodoPago.slice(1)}
-                </button>
+                </button>*/}
               </div>
             </div>
                 {/* [5%] ACCIONES - Una fila */}

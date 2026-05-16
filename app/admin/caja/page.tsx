@@ -253,7 +253,7 @@ const handleGuardarMetodo = async (reciboId: number, nuevoMetodo: string) => {
     profesional: '',
     monto: '',
     session_caja: '',
-    metodo_pago: 'efectivo',  // ← ← ← NUEVO: default efectivo
+    metodo_pago: 'bold',  // ← ← ← NUEVO: default efectivo
     notas: '',
     notificar_whatsapp: false
   });
@@ -559,35 +559,47 @@ const getEstadoBadgeClass = (estado: string) => {
     default: return 'bg-gray-100 text-gray-800';
   }
 };
-// ← ← ← ESCUCHAR ACTUALIZACIONES DE MÉTODO DE PAGO
+// ← ← ← ESCUCHAR ACTUALIZACIONES DE RECIBO (CORREGIDO)
 useEffect(() => {
   const handleReciboActualizado = (event: CustomEvent) => {
-    const { id, metodo_pago } = event.detail;
+    const { id, metodo_pago, subtotal, total, propina_total, items, distribuciones_propina, ...datosCompletos } = event.detail;
+    console.log(`🔄 Actualizando recibo ${id} | subtotal: ${subtotal} | total: ${total}`);
     
-    console.log(`🔄 Actualizando recibo ${id} con método: ${metodo_pago}`);
+    // ← ← ← 1. Actualizar en listas principales
+    const actualizarLista = (prev: ReciboCaja[]) => prev.map(r =>
+      r.id === id ? { ...r, metodo_pago, subtotal, total, propina_total, items, ...datosCompletos } : r
+    );
     
-    // Actualizar en recibosVentas
-    setRecibosVentas(prev => prev.map(r => 
-      r.id === id ? { ...r, metodo_pago } : r
-    ));
+    setRecibosVentas(actualizarLista);
+    setRecibosComisiones(actualizarLista);
+    setRecibosRecientes(actualizarLista);
     
-    // Actualizar en recibosComisiones
-    setRecibosComisiones(prev => prev.map(r => 
-      r.id === id ? { ...r, metodo_pago } : r
-    ));
-    
-    // Actualizar en recibosRecientes
-    setRecibosRecientes(prev => prev.map(r => 
-      r.id === id ? { ...r, metodo_pago } : r
-    ));
+    // ← ← ← 2. CLAVE: Actualizar detalleRecibo si está expandido ← ← ←
+    if (reciboExpandido === id) {
+      setDetalleRecibo(prev => {
+        if (prev?.id === id) {
+          console.log(`🔄 [page.tsx] ✅ Actualizando detalleRecibo ID=${id} | total=${total}`);
+          return { 
+            ...prev, 
+            metodo_pago, 
+            subtotal, 
+            total, 
+            propina_total, 
+            items, 
+            distribuciones_propina,
+            ...datosCompletos 
+          };
+        }
+        return prev;
+      });
+    }
   };
   
   window.addEventListener('reciboActualizado', handleReciboActualizado as EventListener);
-  
   return () => {
     window.removeEventListener('reciboActualizado', handleReciboActualizado as EventListener);
   };
-}, []);
+}, [reciboExpandido]);  // ← ← ← AGREGAR esta dependencia CRÍTICA
 // ← ← ← INICIALIZAR NOTIFICACIÓN DE SONIDO ← ← ←
 useEffect(() => {
   // Puedes usar un archivo local: '/sounds/alert.mp3' 
@@ -854,7 +866,7 @@ const crearRecibosParaHuerfanas = async () => {
             ...(token ? { 'Authorization': `Bearer ${token}` } : {})
           },
           body: JSON.stringify({ 
-            session_caja_id: sessionCajaId  // ← ← ← Pasar sesión si existe
+            session_caja_id: sessionActiva?.id || null,  // ← ← ← Pasar sesión si existe
           })
         });
 
@@ -1004,19 +1016,13 @@ const crearRecibosParaHuerfanas = async () => {
   }, []);
 
 // ← Cargar datos principales
-// ← Cargar datos principales
-const cargarDatosCaja = async () => {
+const cargarDatosCaja = async (cacheBuster?: number) => {
   setLoading(true);
   try {
-    // ← ← ← PRIMERO cargar la sesión
     const session = await cargarSessionActiva();
     
-    // ← ← ← ELIMINAR EL setTimeout - NO ES NECESARIO
-    // await new Promise(resolve => setTimeout(resolve, 100));
-    
-    // ← ← ← Cargar TODO en paralelo usando la sesión retornada
     await Promise.all([
-      cargarRecibosRecientes(session?.id || null, !!session),  // ← Pasar esSesionActiva=true
+      cargarRecibosRecientes(session?.id || null, !!session, cacheBuster),  // ← ← ← Pasar cacheBuster
       cargarVales(),
       cargarCategorias(),
       cargarProfesionalesParaVales()
@@ -1104,33 +1110,35 @@ const cargarSessionActiva = async (): Promise<CajaSession | null> => {
 
 
 // ← ← ← FUNCIÓN: Cargar recibos recientes (CORREGIDA) ← ← ←
-// ← ← ← FUNCIÓN: Cargar recibos recientes (CON CACHE-BUSTER) ← ← ←
+// ← ← ← FUNCIÓN: Cargar recibos recientes (CORREGIDA CON CACHE-BUSTER) ← ← ←
 const cargarRecibosRecientes = async (
-  sessionId?: number | null, 
+  sessionId?: number | null,
   esSesionActiva: boolean = false,
-  cacheBuster?: string | number  // ← ← ← AGREGAR ESTE PARÁMETRO
+  cacheBuster?: string | number
 ) => {
   try {
-    let url = `${apiUrl}/caja/recibos/?ordering=-fecha&limit=50`;
+    let url: string;
     
-    // ← ← ← AGREGAR CACHE-BUSTER SI SE PROPORCIONA
-    if (cacheBuster) {
-      url += `&_t=${cacheBuster}`;
-    }
-    
+    // ← ← ← 1. CONSTRUIR URL BASE SEGÚN CONDICIONES ← ← ←
     if (esSesionActiva && sessionId) {
-      // ← ← ← NUEVO ENDPOINT que incluye borradores
+      // Endpoint que incluye borradores + recibos de sesión
       url = `${apiUrl}/caja/recibos/para-sesion-activa/?session_id=${sessionId}&ordering=-fecha&limit=50`;
-      if (cacheBuster) url += `&_t=${cacheBuster}`;
       console.log('📦 Cargando recibos: sesión activa + borradores');
     } else if (sessionId) {
-      // ← ← ← Sesión histórica (solo lectura)
-      url += `&session_caja=${sessionId}`;
+      // Sesión histórica (solo lectura)
+      url = `${apiUrl}/caja/recibos/?ordering=-fecha&limit=50&session_caja=${sessionId}`;
       console.log('📦 Cargando recibos de sesión histórica:', sessionId);
     } else {
-      // ← ← ← Sin sesión → solo borradores
-      url += `&session_caja=`;
+      // Sin sesión → solo borradores
+      url = `${apiUrl}/caja/recibos/?ordering=-fecha&limit=50&session_caja=`;
       console.log('📦 Cargando solo borradores sin sesión');
+    }
+    
+    // ← ← ← 2. AGREGAR CACHE-BUSTER AL FINAL (SIEMPRE) ← ← ←
+    if (cacheBuster) {
+      const separator = url.includes('?') ? '&' : '?';
+      url += `${separator}_t=${cacheBuster}`;
+      console.log(`🔄 Cache-buster aplicado: ${cacheBuster}`);
     }
     
     const res = await fetch(url, {
@@ -1144,16 +1152,14 @@ const cargarRecibosRecientes = async (
     
     const data = await res.json();
     const todosRecibos = Array.isArray(data) ? data : (data.results || []);
-    
     console.log('📦 Total recibos cargados:', todosRecibos.length);
     
-    // Separar por tipo (mantener lógica existente)
+    // Separar por tipo
     const ventas = todosRecibos
       .filter((r: ReciboCaja) => r.tipo === 'venta' && r.estado !== 'anulado')
       .slice(0, 10);
-    
     const comisiones = todosRecibos
-      .filter((r: ReciboCaja) => 
+      .filter((r: ReciboCaja) =>
         (r.tipo === 'salida' || r.tipo === 'entrada') && r.estado !== 'anulado'
       )
       .slice(0, 10);
@@ -1384,7 +1390,7 @@ const cargarVales = async () => {
         profesional: '', 
         monto: '', 
         session_caja: sessionActiva?.id?.toString() || '', 
-        metodo_pago: 'efectivo',  // ← ← ← NUEVO: reset a default
+        metodo_pago: 'bold',  // ← ← ← NUEVO: reset a default
         notas: '', 
         notificar_whatsapp: false 
       });
@@ -1643,7 +1649,7 @@ const handleCerrarCaja = async () => {
         console.log('📤 [asignar] ENVIANDO PETICIÓN:', {
           url: `${apiUrl}/caja/recibos/asignar-a-sesion/`,
           payload: {
-            session_caja_id: sessionActiva.id,
+            session_caja_id: sessionActiva?.id || null,
             recibos_ids: idsAAsignar,
             solo_borradores: true
           },
@@ -1660,7 +1666,7 @@ const handleCerrarCaja = async () => {
             ...(token ? { 'Authorization': `Bearer ${token}` } : {})
           },
           body: JSON.stringify({
-            session_caja_id: sessionActiva.id,
+            session_caja_id: sessionActiva?.id || null,
             recibos_ids: idsAAsignar,
             solo_borradores: false
           })
@@ -2592,8 +2598,14 @@ const handleCerrarCaja = async () => {
           apiUrl={apiUrl}
           token={token}
           onReciboActualizado={(recibo) => {
-            // Recargar datos después de editar
-            cargarDatosCaja();
+            console.log('🔄 [CajaPage] Recibo actualizado, recargando datos...', {
+              reciboId: recibo.id,
+              codigo: recibo.codigo_recibo,
+              total: recibo.total,
+              timestamp: Date.now()
+            });
+            const cacheBuster = Date.now();
+            cargarDatosCaja(cacheBuster);
             setModalEditarReciboOpen(false);
             setReciboEditarId(null);
           }}
@@ -3506,11 +3518,11 @@ function ReciboCard({
               <p className="font-mono text-sm font-bold">
                 {recibo.codigo_recibo}
               </p>
-              {recibo.codigo_recibo.includes('-') && (
+              {/*{recibo.codigo_recibo.includes('-') && (
                 <p className="text-xs text-gray-500 font-mono">
                   Base: {recibo.codigo_recibo.split('-').slice(0, -1).join('-')}
                 </p>
-              )}
+              )}*/}
               <p className="text-xs text-gray-400">
                 {recibo.cliente_nombre || 'Sin cliente'} • {formatDate(recibo.fecha)}
               </p>
@@ -3532,7 +3544,7 @@ function ReciboCard({
               <div className="flex items-center justify-end gap-1 mt-1">
                 <span className="text-xs text-gray-400">{recibo.tipo} •</span>
                 
-                {/* ← ← ← IMPLEMENTADO: Método de pago editable ← ← ← */}
+                {/* ← ← ← IMPLEMENTADO: Método de pago editable ← ← ← 
                 {editandoMetodo ? (
                   <select
                     value={metodoTemporal}
@@ -3558,7 +3570,7 @@ function ReciboCard({
                       OPCIONES_METODO.find(o => o.value === recibo.metodo_pago)?.label || recibo.metodo_pago
                       : 'N/A'}
                   </span>
-                )}
+                )}*/}
               </div>
             </div>
         </div>
@@ -3716,7 +3728,7 @@ function ReciboCard({
                   >
                     ✏️ Editar
                   </button>
-                  <button
+                  {/*<button
                     onClick={(e) => {
                       e.stopPropagation();
                       onPublicar(detalleRecibo.id);
@@ -3724,7 +3736,7 @@ function ReciboCard({
                     className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors"
                   >
                     📤 Publicar
-                  </button>
+                  </button>*/}
                 </div>
               )}
 
