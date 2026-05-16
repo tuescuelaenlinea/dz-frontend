@@ -98,6 +98,8 @@ interface CitaHuerfana {
   precio_total: string;
   pago_acumulado: string;  // ← ← ← AGREGAR: Para calcular saldo
   estado: string;
+  fecha?: string;       // ← NUEVO: Fecha de la cita
+  hora_inicio?: string; // ← NUEVO: Hora de la cita
 }
 
 
@@ -3049,9 +3051,24 @@ const handleCerrarCaja = async () => {
                 <div className="flex-1 min-w-0 ml-2">
                   <div className="flex justify-between items-start mb-1">
                     <div>
-                      <p className="font-mono text-sm text-white font-bold">{cita.codigo_reserva}</p>
+                      <p className="font-mono text-sm text-white font-bold">{cita.codigo_reserva} </p>
                       <p className="text-xs text-gray-400">{cita.servicio_nombre}</p>
                       <p className="text-xs text-gray-500">{cita.cliente_nombre}</p>
+                       {(cita.fecha || cita.hora_inicio) && (
+        <div className="flex items-center gap-2 mt-1">
+          {cita.fecha && (
+            <span className="flex items-center gap-1 text-[10px] text-blue-300 bg-blue-900/30 px-1.5 py-0.5 rounded border border-blue-800/50 whitespace-nowrap">
+              📅 {new Date(cita.fecha).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+            </span>
+          )}
+          {cita.hora_inicio && (
+            <span className="flex items-center gap-1 text-[10px] text-purple-300 bg-purple-900/30 px-1.5 py-0.5 rounded border border-purple-800/50">
+              🕒 {cita.hora_inicio.substring(0, 5)}
+            </span>
+          )}
+        </div>
+      )}
+
                     </div>
                     <span className={`text-xs px-2 py-1 rounded font-medium border ${getEstadoBadgeClass(cita.estado)}`}>
                       {cita.estado.charAt(0).toUpperCase() + cita.estado.slice(1)}
