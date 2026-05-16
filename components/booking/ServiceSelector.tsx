@@ -135,7 +135,7 @@ useEffect(() => {
   }
 
   return (
-    <div className="space-y-3">
+     <div className="space-y-3 relative z-0">
       {/* ← Título 
       <h2 className="text-base font-bold text-gray-900">Selecciona tu servicio</h2>*/}
 
@@ -191,109 +191,112 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* ← GRID DE CARDS - Altura reducida */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1">
-        {filteredServices.length === 0 ? (
-          <div className="col-span-full text-center text-gray-500 text-xs py-4">
-            No hay servicios disponibles
-          </div>
-        ) : (
-          filteredServices.map((servicio) => {
-            const isSelected = selectedService === servicio.id;
-            const imageUrl = api.getImageUrl(servicio.imagen, servicio.imagen_url);
-            
-            return (
-              <button
-                key={servicio.id}
-                type="button"
-                onClick={() => onServiceSelect(isSelected ? null : servicio)}
-                className={`relative rounded-lg overflow-hidden text-left transition-all hover:shadow-lg hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white ${
-                  isSelected
-                    ? 'ring-2 ring-blue-500 ring-offset-1'
-                    : 'ring-1 ring-gray-200'
-                }`}
-              >
-                {/* Imagen */}
-                <div className="relative h-24">
-                  {imageUrl ? (
-                    <img 
-                      src={imageUrl} 
-                      alt={servicio.nombre}
-                      className="absolute inset-0 w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = 'image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="2"%3E%3Crect x="3" y="3" width="18" height="18" rx="2" ry="2"%3E%3C/rect%3E%3Ccircle cx="8.5" cy="8.5" r="1.5"%3E%3C/circle%3E%3Cpolyline points="21 15 16 10 5 21"%3E%3C/polyline%3E%3C/svg%3E';
-                      }}
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="absolute inset-0 bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center">
-                      <span className="text-3xl">💆</span>
-                    </div>
-                  )}
-                  
-                  {/* Overlay gradiente inferior */}
-                  <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none" />
-                  
-                  {/* Badge categoría */}
-                  <div className="absolute top-1 right-1 z-10">
-                    <span className="px-1.5 py-0.5 bg-blue-500/90 text-white text-[9px] font-bold rounded-full backdrop-blur-sm shadow-sm">
-                      {servicio.categoria_nombre?.slice(0, 12)}{servicio.categoria_nombre?.length > 12 ? '...' : ''}
-                    </span>
-                  </div>
-                  
-                  {/* Check de selección */}
-                  {isSelected && (
-                    <div className="absolute top-1 left-1 z-10 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center shadow">
-                      <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                  )}
-                  
-                  {/* Info en parte inferior */}
-                  <div className="absolute bottom-0 left-0 right-0 p-1.5 z-10">
-                    <h3 className="font-bold text-xs text-white line-clamp-1 mb-0.5 drop-shadow">
-                      
-                    </h3>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-bold text-green-400 drop-shadow">
-                        {formatPrice(servicio)}
-                      </span>
-                      {servicio.duracion && (
-                        <span className="text-[12px] text-gray-200 drop-shadow">
-                          ⏱️ {servicio.duracion.replace(' minutos', 'm')}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Tags adicionales compactos */}
-                <div className="px-1.5 py-1 bg-white border-t border-gray-100">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-0.5">
-                      {mode === 'salon' && servicio.disponible_salon && (
-                        <span className="px-1 py-0.5 bg-green-100 text-black-700 text-[12px] rounded font-medium">
-                          🏠 {servicio.nombre}
-                        </span>
-                      )}
-                      {mode === 'domicilio' && servicio.disponible_domicilio && (
-                        <span className="px-1 py-0.5 bg-purple-100 text-black-700 text-[12px] rounded font-medium">
-                          🚗 {servicio.nombre}
-                        </span>
-                      )}
-                    </div>
-                    {mode === 'domicilio' && servicio.adicional_domicilio && parseInt(servicio.adicional_domicilio) > 0 && (
-                      <span className="text-[12px] text-orange-600 font-semibold">
-                      Domicilio  ${parseInt(servicio.adicional_domicilio).toLocaleString()} 
-                      </span>
+      {/* ← GRID DE CARDS - Altura reducida */}    
+      <div className="relative z-0">  {/* ← Contenedor padre con z-0 */}  
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1 [contain:paint]">
+          {filteredServices.length === 0 ? (
+            <div className="col-span-full text-center text-gray-500 text-xs py-4">
+              No hay servicios disponibles
+            </div>
+          ) : (
+            filteredServices.map((servicio) => {
+              const isSelected = selectedService === servicio.id;
+              const imageUrl = api.getImageUrl(servicio.imagen, servicio.imagen_url);
+              
+              return (
+
+                <button
+                  key={servicio.id}
+                  type="button"
+                  onClick={() => onServiceSelect(isSelected ? null : servicio)}
+                  className={`relative rounded-lg overflow-hidden text-left transition-all hover:shadow-lg hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white ${
+                    isSelected
+                      ? 'ring-2 ring-blue-500 ring-offset-1'
+                      : 'ring-1 ring-gray-200'
+                  }`}
+                >
+                  {/* Imagen */}
+                  <div className="relative h-24">
+                    {imageUrl ? (
+                      <img 
+                        src={imageUrl} 
+                        alt={servicio.nombre}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = 'image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="2"%3E%3Crect x="3" y="3" width="18" height="18" rx="2" ry="2"%3E%3C/rect%3E%3Ccircle cx="8.5" cy="8.5" r="1.5"%3E%3C/circle%3E%3Cpolyline points="21 15 16 10 5 21"%3E%3C/polyline%3E%3C/svg%3E';
+                        }}
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="absolute inset-0 bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center">
+                        <span className="text-3xl">💆</span>
+                      </div>
                     )}
+                    
+                    {/* Overlay gradiente inferior */}
+                    <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none" />
+                    
+                    {/* Badge categoría */}
+                    <div className="absolute top-1 right-1 z-10">
+                      <span className="px-1.5 py-0.5 bg-blue-500/90 text-white text-[9px] font-bold rounded-full backdrop-blur-sm shadow-sm">
+                        {servicio.categoria_nombre?.slice(0, 12)}{servicio.categoria_nombre?.length > 12 ? '...' : ''}
+                      </span>
+                    </div>
+                    
+                    {/* Check de selección */}
+                    {isSelected && (
+                      <div className="absolute top-1 left-1 z-10 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center shadow">
+                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                    )}
+                    
+                    {/* Info en parte inferior */}
+                    <div className="absolute bottom-0 left-0 right-0 p-1.5 z-10">
+                      <h3 className="font-bold text-xs text-white line-clamp-1 mb-0.5 drop-shadow">
+                        
+                      </h3>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-green-400 drop-shadow">
+                          {formatPrice(servicio)}
+                        </span>
+                        {servicio.duracion && (
+                          <span className="text-[12px] text-gray-200 drop-shadow">
+                            ⏱️ {servicio.duracion.replace(' minutos', 'm')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </button>
-            );
-          })
-        )}
+                  
+                  {/* Tags adicionales compactos */}
+                  <div className="px-1.5 py-1 bg-white border-t border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-0.5">
+                        {mode === 'salon' && servicio.disponible_salon && (
+                          <span className="px-1 py-0.5 bg-green-100 text-black-700 text-[12px] rounded font-medium">
+                            🏠 {servicio.nombre}
+                          </span>
+                        )}
+                        {mode === 'domicilio' && servicio.disponible_domicilio && (
+                          <span className="px-1 py-0.5 bg-purple-100 text-black-700 text-[12px] rounded font-medium">
+                            🚗 {servicio.nombre}
+                          </span>
+                        )}
+                      </div>
+                      {mode === 'domicilio' && servicio.adicional_domicilio && parseInt(servicio.adicional_domicilio) > 0 && (
+                        <span className="text-[12px] text-orange-600 font-semibold">
+                        Domicilio  ${parseInt(servicio.adicional_domicilio).toLocaleString()} 
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );

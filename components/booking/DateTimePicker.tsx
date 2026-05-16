@@ -21,19 +21,35 @@ interface DateTimePickerProps {
   onAvailabilityError?: (message: string) => void;
 }
 
-// ← FUNCIÓN SIMPLIFICADA: Formatear Date a YYYY-MM-DD en zona local
+// ← ← ← FUNCIÓN ROBUSTA: Extraer componentes LOCALES sin conversión UTC
 const formatDateLocal = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  // ← Usar Intl para forzar zona horaria local (America/Bogota)
+  const formatter = new Intl.DateTimeFormat('es-CO', {
+    timeZone: 'America/Bogota',  // ← ← ← CLAVE: zona horaria de Colombia
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  
+  const parts = formatter.formatToParts(date);
+  const year = parts.find(p => p.type === 'year')?.value;
+  const month = parts.find(p => p.type === 'month')?.value;
+  const day = parts.find(p => p.type === 'day')?.value;
+  
   return `${year}-${month}-${day}`;
 };
 
-// ← FUNCIÓN SIMPLIFICADA: Parsear YYYY-MM-DD a Date (mediodía para evitar DST)
+// ← ← ← FUNCIÓN ROBUSTA: Parsear YYYY-MM-DD a Date en zona local
 const parseDateLocal = (dateString: string): Date => {
   const [year, month, day] = dateString.split('-').map(Number);
-  // ← Usar 12:00 (mediodía) para evitar problemas con timezone/DST
-  return new Date(year, month - 1, day, 12, 0, 0, 0);
+  
+  // ← Crear fecha usando constructor con zona local explícita
+  // Mes es 0-indexed en JavaScript (0 = enero)
+  const date = new Date(year, month - 1, day, 12, 0, 0, 0);
+  
+  // ← ← ← FORZAR que la fecha se interprete en zona horaria local
+  // Esto evita que new Date() la convierta a UTC y desplace el día
+  return new Date(date.toLocaleString('en-US', { timeZone: 'America/Bogota' }));
 };
 
 export default function DateTimePicker({
@@ -82,6 +98,16 @@ export default function DateTimePicker({
     // ← CORREGIDO: Obtener fecha como string LOCAL directamente del Date
     // Sin pasar por toISOString() que convierte a UTC
     const fechaStr = formatDateLocal(selectedDate);
+        // ← ← ← VALIDACIÓN: Asegurar que fechaStr sea YYYY-MM-DD válido
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) {
+      console.error('❌ Fecha inválida para API:', fechaStr, 'desde selectedDate:', selectedDate);
+      setAllDaySlots([]);
+      setOccupiedTimes([]);
+      return;
+    }
+    
+    // ← ← ← LOG PARA DEBUG (puedes remover después de probar)
+    console.log('🔍 [DateTimePicker] Fecha enviada al backend:', fechaStr, '| selectedDate toString:', selectedDate?.toString());
     const profesionalIdToUse = profesionalId;
 
     async function loadAvailability() {

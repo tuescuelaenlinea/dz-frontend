@@ -124,21 +124,15 @@ export default function CitasContent() {
   const [saldoPendiente, setSaldoPendiente] = useState<number | null>(null);
 
   // ← FUNCIÓN AUXILIAR: Formatear fecha en zona horaria local (Colombia)
+// ← ← ← FUNCIÓN CORREGIDA: Formatear fecha SIN desfase de zona horaria
 const formatDateLocal = (date: Date | null): string => {
   if (!date) return '';
   
-  // Usar Intl para formatear en zona horaria local
-  const formatter = new Intl.DateTimeFormat('es-CO', {
-    timeZone: 'America/Bogota',  // ← Zona horaria de Colombia
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-  
-  const parts = formatter.formatToParts(date);
-  const year = parts.find(p => p.type === 'year')?.value;
-  const month = parts.find(p => p.type === 'month')?.value;
-  const day = parts.find(p => p.type === 'day')?.value;
+  // ← ← ← CLAVE: Usar métodos getFullYear/getMonth/getDate que usan zona LOCAL
+  // Esto evita el desfase UTC que causa el problema del día siguiente
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0'); // Mes es 0-indexed
+  const day = String(date.getDate()).padStart(2, '0');
   
   return `${year}-${month}-${day}`;
 };
@@ -1452,7 +1446,7 @@ const getBoldPaymentUrl = () => {
     if (currentStep === 6 && selectedPaymentMethod) return null;
     
     return (
-      <div className="sticky bottom-6 bg-white rounded-2xl shadow-lg p-6 border-t">
+      <div className="sticky bottom-6 bg-white rounded-2xl shadow-lg p-6 border-t z-60 relative">
         <div className="flex gap-4">
           {currentStep > 1 && (
             <button
@@ -1515,7 +1509,7 @@ const getBoldPaymentUrl = () => {
           </p>
         </div>
         {renderProgressBar()}
-        <form id="booking-form" onSubmit={handleSubmit} className="space-y-6">
+        <form id="booking-form" onSubmit={handleSubmit} className="space-y-6 pb-28">
           {renderStepContent()}
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
