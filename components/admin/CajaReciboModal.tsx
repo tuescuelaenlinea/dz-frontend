@@ -316,7 +316,7 @@ const registrarAbonoEnCitas = async (montoAbono: number, metodoPago: string) => 
       setDescuento(parseFloat(recibo.descuento) || 0);
       setPropinaTotal(parseFloat(recibo.propina_total) || 0);
       setPropinaEditable(String(recibo.propina_total || 0));
-      setMetodoPago(recibo.metodo_pago || 'efectivo');
+      setMetodoPago(recibo.metodo_pago || 'bold');
       setClienteNombre(recibo.cliente_nombre || 'No proporcionado com');
       setClienteTelefono(recibo.cliente_telefono || 'No proporcionado com');
       setClienteEmail(recibo.cliente_email || 'No@proporcionado.com');
@@ -1063,39 +1063,11 @@ useEffect(() => {
         return;
       }
 
-      /*if (metodoPago === 'pendiente' && !reciboEditando?.metodo_pago) {
-        const confirmarMetodo = window.confirm(
-          `⚠️ Método de pago no válido\n\n` +
-          `El recibo tiene seleccionado "Pendiente" como método de pago.\n` +
-          `Para publicar un recibo, debes seleccionar un método de pago válido:\n\n` +
-          `• 💵 Efectivo\n` +
-          `• 🏦 Transferencia\n` +
-          `• 📱 Nequi\n` +
-          `• 📱 Daviplata\n` +
-          `• 💳 Bold\n` +
-          `• 💳 Tarjeta\n\n` +
-          `¿Deseas cambiar el método de pago ahora?\n\n` +
-          `• "Aceptar": Ir a seleccionar método de pago\n` +
-          `• "Cancelar": Mantener en borrador`
-        );
-  return;
-        if (confirmarMetodo) {
-          // Enfocar el select de método de pago para facilitar la selección
-          const selectMetodoPago = document.querySelector('select[value="pendiente"]') as HTMLSelectElement;
-          if (selectMetodoPago) {
-            selectMetodoPago.focus();
-            // Scroll suave hacia el campo
-            selectMetodoPago.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }
-          // No retornar: permitir que el usuario cambie el método y reintente
-          // Pero detenemos la publicación actual
-          return;
-        } else {
-          // Si cancela, mantener en borrador
-          alert('ℹ️ El recibo permanecerá como borrador hasta que selecciones un método de pago válido.');
-          return;
-        }
-      }*/
+      // ← ← ← CORREGIDO: Si es 'pendiente', cambiar automáticamente a 'bold' ← ← ←
+      if (metodoPago === 'pendiente') {
+        setMetodoPago('bold');
+        console.log('🔄 Método de pago cambiado automáticamente: pendiente → bold');
+      }
       
       setLoading(true);
       
@@ -1364,23 +1336,11 @@ const handleRegistrarAbono = async () => {
       alert('⚠️ Agrega al menos un item al recibo');
       return;
     }
-    if (metodoPago === 'pendiente') {
-  const confirmarMetodo = window.confirm(
-    `⚠️ Método de pago no válido\n\n` +
-    `El recibo tiene seleccionado "Pendiente" como método de pago.\n` +
-    `Para publicar un recibo, debes seleccionar un método de pago válido:\n\n` +
-    `• 💵 Efectivo\n` +
-    `• 💳 Bold\n` +
-    `• 🏦 Transferencia\n` +
-    `• 📱 Nequi\n` +
-    `• 📱 Daviplata\n` +    
-    `¿Deseas cambiar el método de pago ahora?\n\n` +
-    `• "Aceptar": Ir a seleccionar método de pago\n` +
-    `• "Cancelar": Mantener en borrador`
-  );
-  return;
-   }
-
+    // ← ← ← CORREGIDO: Si es 'pendiente', cambiar automáticamente a 'bold' ← ← ←
+if (metodoPago === 'pendiente') {
+  setMetodoPago('bold');
+  console.log('🔄 Método de pago cambiado automáticamente: pendiente → bold');
+}
     // ← ← ← VALIDAR session_caja PARA NUEVOS RECIBOS ← ← ←
     // Para creación de nuevos recibos, session_caja es requerido
     if (!sessionCajaId) {
@@ -1823,7 +1783,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
     setReciboEditando(null);
     setReciboId(null);
     setTipoRecibo('venta');
-    setMetodoPago('efectivo');
+    setMetodoPago('bold');
     setEstadoRecibo('borrador');
     setPropinaMetodo('proporcional');
     setShowProfessionalModal(false);
@@ -2391,25 +2351,25 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
                     )}
                     
                     {/* ← ← ← TOTAL CORREGIDO (incluye propina) ← ← ← */}
-<div className="border-t border-gray-600 pt-2 mt-2">
-  <div className="flex justify-between font-bold text-lg">
-    <span className="text-gray-300">TOTAL:</span>
-    <span className="text-green-400">{formatMoney(total)}</span>
-  </div>
-  
-  {/* ← ← ← INDICADOR DE ESTADO DE ABONOS ← ← ← */}
-  {resumenAbonos && (
-    <div className={`text-xs mt-2 p-2 rounded ${
-      resumenAbonos.puede_publicar 
-        ? 'bg-green-900/30 text-green-400' 
-        : 'bg-orange-900/30 text-orange-400'
-    }`}>
-      {resumenAbonos.puede_publicar 
-        ? '✅ 100% abonado - Listo para publicar' 
-        : `⏳ ${resumenAbonos.porcentaje_abonado.toFixed(1)}% (${formatMoney(resumenAbonos.total_abonado)} / ${formatMoney(total)})`}
-    </div>
-  )}
-</div>                  </div>
+                    <div className="border-t border-gray-600 pt-2 mt-2">
+                      <div className="flex justify-between font-bold text-lg">
+                        <span className="text-gray-300">TOTAL:</span>
+                        <span className="text-green-400">{formatMoney(total)}</span>
+                      </div>
+                      
+                      {/* ← ← ← INDICADOR DE ESTADO DE ABONOS ← ← ← */}
+                      {resumenAbonos && (
+                        <div className={`text-xs mt-2 p-2 rounded ${
+                          resumenAbonos.puede_publicar 
+                            ? 'bg-green-900/30 text-green-400' 
+                            : 'bg-orange-900/30 text-orange-400'
+                        }`}>
+                          {resumenAbonos.puede_publicar 
+                            ? '✅ 100% abonado - Listo para publicar' 
+                            : `⏳ ${resumenAbonos.porcentaje_abonado.toFixed(1)}% (${formatMoney(resumenAbonos.total_abonado)} / ${formatMoney(total)})`}
+                        </div>
+                      )}
+                    </div>                  </div>
 
                   {/* Inputs de Descuento y Propina */}
                   <div className="grid grid-cols-2 gap-3 mt-4">
@@ -2603,8 +2563,8 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
       
       // ← ← ← VALIDAR MÉTODO DE PAGO (si aplica) ← ← ←
       if (metodoPago === 'pendiente' && tipoRecibo === 'venta') {
-        alert('⚠️ Selecciona un método de pago válido antes de publicar');
-        return;
+       setMetodoPago('bold');
+        console.log('🔄 Método de pago cambiado automáticamente: pendiente → bold');
       }
       
       setEstadoRecibo('publicado');

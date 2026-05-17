@@ -2,7 +2,15 @@
 'use client';
 import { useState } from 'react';
 
-export type PaymentMethod = 'bold' | 'efectivo' | 'pendiente';
+// ✅ Definición completa y type-safe
+export type PaymentMethod = 
+  | 'bold'
+  | 'efectivo'
+  | 'transferencia'
+  | 'nequi'
+  | 'daviplata'
+  | 'tarjeta'
+  | 'pendiente';
 
 interface PaymentMethodSelectorProps {
   onSelect: (method: PaymentMethod) => void;
@@ -54,18 +62,18 @@ export default function PaymentMethodSelector({ onSelect, total }: PaymentMethod
         </div>
       </div>
 
-      {/* Opción 2: Efectivo/Transferencia */}
+      {/* Opción 2: Transferencia */}
       <div
-        onClick={() => handleSelect('efectivo')}
+        onClick={() => handleSelect('transferencia')}
         className={`relative p-4 border-2 rounded-xl cursor-pointer transition-all ${
-          selectedMethod === 'efectivo'
+          selectedMethod === 'transferencia'
             ? 'border-green-600 bg-green-50 shadow-md'
             : 'border-gray-200 hover:border-green-300 hover:bg-gray-50'
         }`}
       >
         <div className="flex items-start gap-4">
           <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 ${
-            selectedMethod === 'efectivo' ? 'bg-green-600' : 'bg-gray-100'
+            selectedMethod === 'transferencia' ? 'bg-green-600' : 'bg-gray-100'
           }`}>
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -74,9 +82,9 @@ export default function PaymentMethodSelector({ onSelect, total }: PaymentMethod
           <div className="flex-1">
             <h4 className="font-semibold text-gray-900">Transferencia, Nequi o Efectivo</h4>
             <p className="text-sm text-gray-600 mt-1">
-              Paga por transferencia bancaria, Nequi, Daviplata o en efectivo.
+              Paga por transferencia bancaria, Nequi, Daviplata o otro.
             </p>
-            {selectedMethod === 'efectivo' && (
+            {selectedMethod === 'transferencia' && (
               <div className="mt-3 p-3 bg-green-100 rounded-lg">
                 <p className="text-xs text-green-800">
                   📱 Realiza el pago con tu metodo favorito y luego sube el comprobante para confirmar la cita. De lo contrario Tu cita quedará <strong>pendiente de confirmación</strong> hasta que nos envies el comprobante de pago.

@@ -762,7 +762,7 @@ const getBoldPaymentUrl = () => {
         hora_inicio: selectedTime,
         hora_fin: calculateEndTime(selectedTime, selectedService.duracion),
         precio_total: total,
-        metodo_pago: selectedPaymentMethod,
+        metodo_pago: selectedPaymentMethod,       
         estado_pago: 'pendiente',
         cliente_nombre: clientData.cliente_nombre.trim(),
         cliente_telefono: clientData.cliente_telefono.trim(),
@@ -840,7 +840,7 @@ const getBoldPaymentUrl = () => {
           body: JSON.stringify({
             monto: montoFinal,
             metodo_pago: selectedPaymentMethod,
-            estado: selectedPaymentMethod === 'efectivo' ? 'pendiente' : 'exitoso',
+            estado: selectedPaymentMethod === 'transferencia' ? 'pendiente' : 'exitoso',
             origen_tipo: 'cita',
             origen_id: citaId,
             referencia_externa: `RESERVA-${codigoReserva}`,
@@ -898,7 +898,7 @@ const getBoldPaymentUrl = () => {
         
         // ← NO retornar aquí, dejar que la redirección ocurra
         
-     } else if (selectedPaymentMethod === 'efectivo') {
+     } else if (selectedPaymentMethod === 'transferencia') {
         // ← MOSTRAR MODAL DE SUBIDA DE COMPROBANTE
         /*  enviarNotificacionAdminWhatsApp({
           codigo_reserva: codigoReserva,
@@ -1349,7 +1349,16 @@ const getBoldPaymentUrl = () => {
               
               {/* ← Selector de método de pago */}
               <PaymentMethodSelector
-                onSelect={(method) => {
+                onSelect={(method: PaymentMethod) => { 
+                  
+                  // ← ← ← VALIDAR que el método sea uno de los permitidos ← ← ←
+                  const metodosValidos = ['bold', 'efectivo', 'transferencia', 'nequi', 'daviplata', 'tarjeta', 'pendiente'];
+                  if (!metodosValidos.includes(method)) {
+                    console.warn('⚠️ Método de pago no válido:', method);
+                    return;
+                  }
+                  
+                  console.log('💳 [PaymentMethodSelector] Método seleccionado:', method);
                   setSelectedPaymentMethod(method);
                   
                   if (method === 'pendiente') {
@@ -1359,6 +1368,8 @@ const getBoldPaymentUrl = () => {
                   } else if (method === 'efectivo') {
                     setShowBankAccountsModal(true);
                   }
+                  // ← ← ← IMPORTANTE: NO hacer nada para 'transferencia', 'nequi', etc.
+                  // Dejar que selectedPaymentMethod mantenga el valor seleccionado
                 }}
                 total={calcularPrecioTotal()}
               />

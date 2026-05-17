@@ -31,6 +31,7 @@ interface Cita {
   fecha: string;
   hora_inicio: string;
   hora_fin: string;
+  fecha_reserva: string;      // ← ← ← NUEVO: Fecha/hora cuando se programó la cita
   precio_total: string;
   metodo_pago: string;
   estado: string;
@@ -532,7 +533,21 @@ const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
       month: 'short' 
     });
   };
-
+    // ← ← ← NUEVO: Formatear fecha_reserva para display (fecha + hora de programación)
+  const formatFechaReserva = (fechaReservaStr: string): string => {
+    if (!fechaReservaStr) return 'N/A';
+    
+    const date = new Date(fechaReservaStr);
+    
+    // Formato: "16 May, 3:45 pm"
+    return date.toLocaleDateString('es-CO', { 
+      day: '2-digit', 
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    }).replace(',', '');
+  };
   // ← Obtener color según estado
   const getEstadoColor = (estado: string): string => {
     const colors: Record<string, string> = {
@@ -811,6 +826,15 @@ const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
                   <p className="text-white font-semibold text-sm truncate">
                     {cita.cliente_nombre}
                   </p>
+                  {/* ← ← ← NUEVO: Fecha y hora de programación de la cita ← ← ← */}
+                  <div className="flex items-center gap-1 mt-1 text-[10px] text-gray-500">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span title={`Programada: ${cita.fecha}`}>
+                      📅 {formatFechaReserva(cita.fecha)}
+                    </span>
+                  </div>
                   <p className="text-gray-400 text-xs">
                     {cita.hora_inicio} - {cita.hora_fin}
                   </p>
@@ -904,7 +928,7 @@ const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
             setCitaEditandoId(null);
           }}
           cita={citaSeleccionada}
-          onCitaUpdated={handleCitaUpdated}
+          onCitaUpdated={(cita: any) => handleCitaUpdated(cita as Cita)}
         />
       )}
 
