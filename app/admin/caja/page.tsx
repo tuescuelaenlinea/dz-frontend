@@ -1737,15 +1737,31 @@ const handleCerrarCaja = async () => {
     }).format(num || 0);
   };
 
-  // ← Formatear fecha
-  const formatDate = (dateStr: string): string => {
-    return new Date(dateStr).toLocaleDateString('es-CO', {
+  // ← Formatear fecha - CORREGIDO PARA TIMEZONE COLOMBIA
+const formatDate = (dateStr: string): string => {
+  if (!dateStr) return '';
+  
+  // ← ← ← Si es formato YYYY-MM-DD (DateField de Django), parsear como fecha LOCAL
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    // new Date(year, month-1, day) crea fecha en timezone local
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('es-CO', {
       day: '2-digit',
       month: 'short',
-      hour: '2-digit',
-      minute: '2-digit'
     });
-  };
+  }
+  
+  // ← ← ← Para datetime completo (ISO string), forzar timezone Colombia
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('es-CO', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'America/Bogota'  // ← ← ← CLAVE: Forzar timezone correcto
+  });
+};
 
   // ← Obtener color por tipo de recibo
   const getReciboColor = (tipo: string, estado: string): string => {
@@ -3275,7 +3291,16 @@ const handleCerrarCaja = async () => {
                                         <div>
                                           <p className="text-gray-400">📅 Fecha</p>
                                           <p className="text-white font-medium">
-                                            {new Date(sesion.fecha).toLocaleDateString('es-CO')}
+                                            {(() => {
+                                              if (!sesion.fecha) return '';
+                                              // ← ← ← Parseo manual: YYYY-MM-DD → Fecha LOCAL (evita desfase UTC)
+                                              const [y, m, d] = sesion.fecha.split('-').map(Number);
+                                              return new Date(y, m - 1, d).toLocaleDateString('es-CO', {
+                                                day: '2-digit',
+                                                month: 'short',
+                                                year: 'numeric'
+                                              });
+                                            })()}
                                           </p>
                                         </div>
                                         <div>

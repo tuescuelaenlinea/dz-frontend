@@ -75,6 +75,53 @@ interface AbonoRecibo {
   referencia_externa?: string;
   metodo_pago_display: string;
 }
+
+// ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+// ← ← ← HELPERS: Fechas con timezone Colombia (UTC-5) ← ← ←
+// ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+
+// Obtener fecha en formato YYYY-MM-DD en timezone Colombia
+const getColombiaDate = (): string => {
+  const now = new Date();
+  const colombiaDate = new Intl.DateTimeFormat('es-CO', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(now);
+  const [day, month, year] = colombiaDate.split('/');
+  return `${year}-${month}-${day}`;
+};
+
+// Obtener hora en formato HH:MM en timezone Colombia
+const getColombiaTime = (): string => {
+  const now = new Date();
+  return new Intl.DateTimeFormat('es-CO', {
+    timeZone: 'America/Bogota',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(now);
+};
+
+// Obtener datetime completo en formato ISO Colombia
+const getColombiaDateTime = (): string => {
+  const now = new Date();
+  const colombiaStr = new Intl.DateTimeFormat('es-CO', {
+    timeZone: 'America/Bogota',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false
+  }).format(now).replace(',', '');
+  // Convertir "YYYY/MM/DD HH:MM:SS" → "YYYY-MM-DDTHH:MM:SS"
+  const [datePart, timePart] = colombiaStr.split(' ');
+  const [y, m, d] = datePart.split('/');
+  return `${y}-${m}-${d}T${timePart}`;
+};
+
+
+
+
 export default function CajaReciboModal({
   isOpen,
   onClose,
@@ -174,6 +221,32 @@ const cargarResumenAbonos = async (reciboId: number) => {
     console.error('Error cargando abonos:', err);
   }
 };
+
+// ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+// ← ← ← WORKAROUND: Ajustar fecha para timezone Colombia (UTC-5) ← ← ←
+// ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+const adjustDateForColombia = (date: Date): string => {
+  const utcHours = date.getUTCHours();
+  
+  // Si la hora UTC es < 5, en Colombia es el día anterior
+  if (utcHours < 5) {
+    const adjusted = new Date(date);
+    adjusted.setUTCDate(adjusted.getUTCDate() - 1);
+    return adjusted.toISOString().split('T')[0];
+  }
+  return date.toISOString().split('T')[0];
+};
+
+// ← ← ← Helper para hora en Colombia
+const getTimeForColombia = (date: Date): string => {
+  return date.toLocaleTimeString('es-CO', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'America/Bogota'
+  });
+};
+
 
 
   // ← ← ← CALCULAR TOTALES ← ← ←
@@ -696,9 +769,10 @@ const registrarAbonoEnCitas = async (montoAbono: number, metodoPago: string) => 
           },
           body: JSON.stringify({
             servicio_id: servicio.id,
-            profesional_id: undefined,
-            fecha_cita: new Date().toISOString().split('T')[0],
-            hora_inicio: new Date().toTimeString().slice(0, 5),
+            profesional_id: undefined,              
+              // ← ← ← CORREGIDO: Usar timezone Colombia para evitar desfase después de las 7 PM ← ← ←
+  fecha_cita: adjustDateForColombia(new Date()),
+  hora_inicio: getTimeForColombia(new Date()),
             precio_total: precio,
             cliente_nombre: clienteNombre || 'No proporcionado com',
             cliente_telefono: clienteTelefono || 'No proporcionado com',
@@ -1362,6 +1436,7 @@ if (metodoPago === 'pendiente') {
       const payload: any = {
         tipo: tipoRecibo,
         estado: estadoRecibo,
+        fecha: getColombiaDateTime(),  // Ej: "2026-05-19T19:30:00"
         subtotal: subtotal,
         descuento: descuento,
         total: total,
@@ -2378,9 +2453,13 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
                       <input
                         type="number"
                         min="0"
+                        step="100"
                         value={descuento}
-                        onChange={(e) => !modoEdicion && setDescuento(parseFloat(e.target.value) || 0)}
-                        disabled={modoEdicion}
+                        onChange={(e) => {
+                          const valor = parseFloat(e.target.value);
+                          setDescuento(!isNaN(valor) && valor >= 0 ? valor : 0);
+                        }}
+                        //disabled={modoEdicion}
                         className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm disabled:opacity-50"
                         placeholder="0"
                       />
@@ -2400,7 +2479,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
                               setPropinaDistribucion(calcularDistribucionPropina);
                             }
                           }}
-                          disabled={modoEdicion}
+                          //disabled={modoEdicion}
                           className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm disabled:opacity-50"
                           placeholder="0"
                         />

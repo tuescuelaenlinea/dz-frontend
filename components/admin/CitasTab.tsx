@@ -559,6 +559,24 @@ const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
     return colors[estado] || 'bg-gray-600';
   };
 
+
+  // ← ← ← CORREGIDO: Formatear fecha de cita (YYYY-MM-DD) SIN timezone shift
+const formatFechaCita = (fechaStr: string): string => {
+  if (!fechaStr) return 'N/A';
+  
+  // ← Parseo MANUAL para evitar conversión UTC → local
+  const [year, month, day] = fechaStr.split('-').map(Number);
+  
+  // ← Crear Date en zona LOCAL (mes es 0-indexed)
+  const date = new Date(year, month - 1, day);
+  
+  return date.toLocaleDateString('es-CO', { 
+    weekday: 'short', 
+    day: '2-digit', 
+    month: 'short' 
+  });
+};
+
   // ← NUEVO: Manejar clic en card de total para filtrar citas (AGREGADO 'pendiente')
   const handleFiltroClick = (tipo: 'todas' | 'pendiente' | 'confirmada_pendiente' | 'completada_pagada') => {
     console.log(`🔍 [CitasTab] Filtro aplicado: ${tipo}`);
@@ -832,7 +850,7 @@ const handleMetodoPagoSelected = async (metodo: MetodoPago) => {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <span title={`Programada: ${cita.fecha}`}>
-                      📅 {formatFechaReserva(cita.fecha)}
+                      📅 {formatFechaCita(cita.fecha)}
                     </span>
                   </div>
                   <p className="text-gray-400 text-xs">

@@ -90,6 +90,7 @@ const cargarRecibos = async () => {
     const params = new URLSearchParams();
     params.append('ordering', '-fecha');
     params.append('limit', '100'); // Aumentar límite si hay muchos recibos
+    params.append('solo_borradores', 'false');
     
     if (filtroFechaInicio) params.append('fecha_inicio', filtroFechaInicio);
     if (filtroFechaFin) params.append('fecha_fin', filtroFechaFin);

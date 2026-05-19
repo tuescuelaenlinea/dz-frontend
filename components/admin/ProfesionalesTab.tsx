@@ -52,7 +52,9 @@ interface Configuracion {
 interface DetalleCita {
   cita: Cita;
   precioTotal: number;
-  comisionBold: number;  // ← Ahora es "Impuesto" para todos los métodos
+  montoPropina: number;              // ← NUEVO: Propina asignada
+  baseParaImpuesto: number;          // ← NUEVO: Servicio + Propina
+  comisionBold: number;              // ← Ahora calculada sobre (servicio + propina)
   porcentajeProfesional: number;
   gananciaProfesional: number;
   saldo: number;
@@ -233,15 +235,24 @@ export default function ProfesionalesTab() {
   };
 
   // ← ← ← ACTUALIZADO: Calcular detalles de ganancias para cada cita ← ← ←
+  // ← ← ← ACTUALIZADO: Calcular detalles de ganancias para cada cita ← ← ←
   const calcularDetallesCitas = (citasList: Cita[], spList: ServicioProfesional[], configData: Configuracion): DetalleCita[] => {
     const porcentajeBold = parseFloat(String(configData.porcentaje_bold || 3.5));
     
     return citasList.map(cita => {
       const precioTotal = parseFloat(cita.precio_total) || 0;
       const totalProductos = cita.total_productos || 0;
-      
-      // ← ← ← IMPUESTO: Se cobra el % configurado a TODOS los métodos de pago ← ← ←
-      const comisionBold = precioTotal * (porcentajeBold / 100);
+      // ← ← ← NUEVO: Obtener propina del backend (si está disponible en la cita) ← ← ←
+     // ← ← ← NUEVO: Obtener propina del backend (si está disponible en la cita) ← ← ←
+const montoPropina = (cita as any).monto_propina ?? (cita as any).montoPropina ?? 0;
+const baseParaImpuesto = (cita as any).base_para_impuesto ?? (cita as any).baseParaImpuesto ?? precioTotal;
+
+// ← ← ← DEBUG: Verificar en consola ← ← ←
+console.log(`🔍 Cita ${cita.id}: monto_propina=${montoPropina}, base_para_impuesto=${baseParaImpuesto}`);
+    // ← ← ← IMPUESTO: Se cobra el % configurado sobre (servicio + propina) ← ← ←
+// Si el backend ya calculó base_para_impuesto, úsalo; si no, calcúlalo aquí
+const baseCalculoImpuesto = baseParaImpuesto > 0 ? baseParaImpuesto : (precioTotal + montoPropina);
+const comisionBold = baseCalculoImpuesto * (porcentajeBold / 100);
       
       // Calcular porcentaje del profesional
       let porcentajeProf = 0;
@@ -258,12 +269,14 @@ export default function ProfesionalesTab() {
         }
       }
       
-      // ← ← ← NUEVA FÓRMULA: (precio - impuesto - productos) × %profesional ← ← ←
+      // ← ← ← FÓRMULA ACTUALIZADA: (precio_servicio - impuesto - productos) × %profesional + propina ← ← ←
+      // La propina va 100% al profesional, el impuesto se calcula sobre (servicio + propina)
       const baseCalculable = precioTotal - comisionBold - totalProductos;
-      const gananciaProfesional = baseCalculable * (porcentajeProf / 100);
+      const gananciaPorServicio = baseCalculable * (porcentajeProf / 100);
+      const gananciaProfesional = gananciaPorServicio + montoPropina;  // ← Propina completa para el profesional
       
-      // Saldo para el salón
-      const saldo = precioTotal - comisionBold - gananciaProfesional - totalProductos;
+      // Saldo para el salón (sin incluir la propina que ya fue al profesional)
+      const saldo = precioTotal - comisionBold - gananciaPorServicio - totalProductos;
       
       // Horas de la cita
       const horasCita = calcularHorasCita(cita.hora_inicio, cita.hora_fin);
@@ -271,12 +284,14 @@ export default function ProfesionalesTab() {
       return {
         cita,
         precioTotal,
-        comisionBold,
+        montoPropina,              // ← NUEVO
+        baseParaImpuesto,          // ← NUEVO
+        comisionBold,              // ← Ahora calculada sobre baseParaImpuesto
         porcentajeProfesional: porcentajeProf,
-        gananciaProfesional,
+        gananciaProfesional,       // ← Incluye propina completa
         saldo,
         horasCita,
-        totalProductos  // ← NUEVO
+        totalProductos
       };
     });
   };
@@ -426,8 +441,10 @@ const handleOpenProductosModal = async (cita: Cita) => {
     const totalServicios = detalleCitas.reduce((sum, d) => sum + d.precioTotal, 0);
     const totalHoras = detalleCitas.reduce((sum, d) => sum + d.horasCita, 0);
     const totalProductos = detalleCitas.reduce((sum, d) => sum + d.totalProductos, 0);
+    // ← ← ← NUEVO: Total de propinas ← ← ←
+    const totalPropinas = detalleCitas.reduce((sum, d) => sum + d.montoPropina, 0);
     
-    return { totalComisionBold, totalGananciaProfesionales, totalSaldos, totalServicios, totalHoras, totalProductos };
+    return { totalComisionBold, totalGananciaProfesionales, totalSaldos, totalServicios, totalHoras, totalProductos, totalPropinas };
   };
 
   // ← Formatear fecha para display
@@ -1054,6 +1071,7 @@ const handleOpenProductosModal = async (cita: Cita) => {
                         <td className="px-3 py-3 text-gray-300">{detalle.cita.cliente_nombre}</td>
                         <td className="px-3 py-3 text-gray-300">{detalle.cita.profesional_nombre || 'Sin asignar'}</td>
                         <td className="px-3 py-3 text-right text-green-400 font-semibold">${detalle.precioTotal.toLocaleString()}</td>
+                        <td className="px-3 py-3 text-right text-pink-400">${detalle.montoPropina.toLocaleString()}</td>
                         <td className="px-3 py-3 text-right text-orange-400">${detalle.totalProductos.toLocaleString()}</td>
                         <td className="px-3 py-3 text-right text-orange-400">${detalle.comisionBold.toLocaleString()} ({porcentajeBold}%)</td>
                         <td className="px-3 py-3 text-right text-purple-400 font-semibold">${detalle.gananciaProfesional.toLocaleString()}</td>
@@ -1066,14 +1084,18 @@ const handleOpenProductosModal = async (cita: Cita) => {
             </div>
 
             {/* Totales */}
-            {(() => {
-              const { totalComisionBold, totalGananciaProfesionales, totalSaldos, totalServicios, totalProductos } = obtenerTotalesModal();
+            {(() => {              
+              const { totalComisionBold, totalGananciaProfesionales, totalSaldos, totalServicios, totalProductos, totalPropinas } = obtenerTotalesModal();
               return (
                 <div className="sticky bottom-0 bg-gray-900 px-6 py-4 border-t border-gray-700 rounded-b-2xl">
                   <div className="grid grid-cols-5 gap-3">
-                    <div className="bg-blue-900/30 border border-blue-700 rounded-lg p-3">
-                      <p className="text-xs text-blue-300 mb-1">💰 Total Servicios</p>
-                      <p className="text-lg font-bold text-blue-400">${totalServicios.toLocaleString('es-CO')}</p>
+                    <div className="bg-green-900/30 border border-green-700 rounded-lg p-3">
+                      <p className="text-xs text-green-300 mb-1">💰 Total Servicios</p>
+                      <p className="text-lg font-bold text-green-400">${totalServicios.toLocaleString('es-CO')}</p>
+                    </div>
+                    <div className="bg-pink-900/30 border border-pink-700 rounded-lg p-3">
+                      <p className="text-xs text-pink-300 mb-1">💝 Total Propinas</p>
+                      <p className="text-lg font-bold text-pink-400">${totalPropinas.toLocaleString('es-CO')}</p>
                     </div>
                     <div className="bg-orange-900/30 border border-orange-700 rounded-lg p-3">
                       <p className="text-xs text-orange-300 mb-1">📦 Total Productos</p>
@@ -1086,10 +1108,6 @@ const handleOpenProductosModal = async (cita: Cita) => {
                     <div className="bg-purple-900/30 border border-purple-700 rounded-lg p-3">
                       <p className="text-xs text-purple-300 mb-1">💵 Total Ganancia Profesionales</p>
                       <p className="text-lg font-bold text-purple-400">${totalGananciaProfesionales.toLocaleString('es-CO')}</p>
-                    </div>
-                    <div className="bg-green-900/30 border border-green-700 rounded-lg p-3">
-                      <p className="text-xs text-green-300 mb-1">💰 Total Saldo Salón</p>
-                      <p className="text-lg font-bold text-green-400">${totalSaldos.toLocaleString('es-CO')}</p>
                     </div>
                   </div>
                 </div>
@@ -1137,6 +1155,7 @@ const handleOpenProductosModal = async (cita: Cita) => {
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-300">Servicio</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-cyan-300">Hora Inicio</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-green-300">Valor Servicio</th>
+                    <th className="px-3 py-3 text-right text-xs font-semibold text-pink-300">💝 Propina</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-orange-300">📦 Productos</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-orange-300">🧾 Impuesto</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-purple-300">Ganancia Profesional</th>
@@ -1153,6 +1172,7 @@ const handleOpenProductosModal = async (cita: Cita) => {
                         <td className="px-3 py-3 text-gray-300">{detalle.cita.servicio_nombre}</td>
                         <td className="px-3 py-3 text-right text-cyan-400 text-xs">{formatHora(detalle.cita.hora_inicio)}</td>
                         <td className="px-3 py-3 text-right text-green-400 font-semibold">${detalle.precioTotal.toLocaleString()}</td>
+                        <td className="px-3 py-3 text-right text-pink-400">${detalle.montoPropina.toLocaleString()}</td>
                         <td className="px-3 py-3 text-right text-orange-400">${detalle.totalProductos.toLocaleString()}</td>
                         <td className="px-3 py-3 text-right text-orange-400">${detalle.comisionBold.toLocaleString()} ({porcentajeBold}%)</td>
                         <td className="px-3 py-3 text-right text-purple-400 font-semibold">${detalle.gananciaProfesional.toLocaleString()}</td>
@@ -1164,14 +1184,18 @@ const handleOpenProductosModal = async (cita: Cita) => {
             </div>
 
             {/* Totales */}
-            {(() => {
-              const { totalComisionBold, totalGananciaProfesionales, totalServicios, totalProductos } = obtenerTotalesModal();
+            {(() => {              
+              const { totalComisionBold, totalGananciaProfesionales, totalServicios, totalProductos, totalPropinas } = obtenerTotalesModal();
               return (
                 <div className="sticky bottom-0 bg-gray-900 px-6 py-4 border-t border-gray-700 rounded-b-2xl">
-                  <div className="grid grid-cols-4 gap-3">
+                  <div className="grid grid-cols-5 gap-3">
                     <div className="bg-green-900/30 border border-green-700 rounded-lg p-3">
                       <p className="text-xs text-green-300 mb-1">💰 Total Servicios</p>
                       <p className="text-lg font-bold text-green-400">${totalServicios.toLocaleString('es-CO')}</p>
+                    </div>
+                    <div className="bg-pink-900/30 border border-pink-700 rounded-lg p-3">
+                      <p className="text-xs text-pink-300 mb-1">💝 Total Propinas</p>
+                      <p className="text-lg font-bold text-pink-400">${totalPropinas.toLocaleString('es-CO')}</p>
                     </div>
                     <div className="bg-orange-900/30 border border-orange-700 rounded-lg p-3">
                       <p className="text-xs text-orange-300 mb-1">📦 Total Productos</p>
