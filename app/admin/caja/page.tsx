@@ -1,7 +1,7 @@
 // app/admin/caja/page.tsx
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import CajaReciboModal from '@/components/admin/CajaReciboModal';
 import CalcularComisionesModal from '@/components/admin/CalcularComisionesModal';
@@ -106,6 +106,10 @@ interface CitaHuerfana {
 // ← ← ← COMPONENTE PRINCIPAL ← ← ←
 
 export default function CajaPage() {
+  // ← ← ← AGREGAR ESTO AQUÍ (al inicio del componente)
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+  const token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
+  
   const router = useRouter();
   
   // ← Estados
@@ -167,6 +171,11 @@ export default function CajaPage() {
 
   const [citasSeleccionadas, setCitasSeleccionadas] = useState<Set<number>>(new Set());
   const [citasParaCancelar, setCitasParaCancelar] = useState<Set<number>>(new Set());
+
+
+  // ... dentro del componente:
+  const [recibos, setRecibos] = useState<any[]>([]);
+  const [refreshTrigger, setRefreshTrigger] = useState(0); // ← Para forzar re-render
 
   // ← ← ← CONSTANTE: Opciones de método de pago para vales ← ← ←
   const METODOS_PAGO_VALE = [
@@ -234,6 +243,88 @@ const handleGuardarMetodo = async (reciboId: number, nuevoMetodo: string) => {
     setEditandoMetodo(false);
   }
 };
+
+// ← ← ← FUNCIÓN QUE CARGA RECIBOS (ADAPTALA A TU LÓGICA EXISTENTE)
+const cargarRecibos = useCallback(async () => {
+  try {
+    const res = await fetch(`${apiUrl}/caja/recibos/?estado=borrador`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      cache: 'no-store',          // ← ← ← CRÍTICO: Evita caché de Next.js
+      next: { revalidate: 0 }     // ← ← ← CRÍTICO: Fuerza fetch fresh
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setRecibos(Array.isArray(data) ? data : (data.results || []));
+    }
+  } catch (err) {
+    console.error('Error cargando recibos:', err);
+  }
+}, [apiUrl, token]);
+
+// ← Cargar datos principales
+const cargarDatosCaja = async (cacheBuster?: number) => {
+    setLoading(true);
+    try {
+        const session = await cargarSessionActiva();
+        await Promise.all([
+            cargarRecibosRecientes(session?.id || null, !!session, cacheBuster),  // ← ← ← Ya debe tener este parámetro
+            cargarVales(),
+            cargarCategorias(),
+            cargarProfesionalesParaVales()
+        ]);
+    } catch (err) {
+        console.error('❌ Error cargando datos de caja:', err);
+    } finally {
+        setLoading(false);
+    }
+};
+
+// ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+// ← ← ← NUEVO: Escuchar eventos de recibo actualizado/creado ← ← ←
+// ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+// ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+// ← ← ← ESCUCHAR EVENTOS DEL MODAL (CORREGIDO) ← ← ←
+// ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+useEffect(() => {
+  // Handler para recibo actualizado/creado
+  const handleReciboActualizadoOCreado = (event: CustomEvent, tipo: 'actualizado' | 'creado') => {
+    const { id, codigo_recibo } = event.detail;
+    console.log(`🔄 [page.tsx] Evento recibido: ${tipo === 'actualizado' ? 'cajaReciboActualizado' : 'reciboCreado'}`, codigo_recibo);
+    
+    // Forzar recarga EXPLÍCITA con cache-buster
+    const cacheBuster = Date.now();
+    cargarDatosCaja(cacheBuster);
+    
+    // ← ← ← CLAVE: Si el recibo expandido es el que se actualizó, recargar su detalle ← ← ←
+    if (reciboExpandido === id) {
+      console.log(`🔄 [page.tsx] Recibo expandido ${id} actualizado, recargando detalle...`);
+      // Pequeño delay para asegurar que cargarDatosCaja terminó
+      setTimeout(() => {
+        cargarDetalleRecibo(id);
+      }, 300);
+    }
+  };
+  
+  const handleReciboActualizado = (event: CustomEvent) => {
+    handleReciboActualizadoOCreado(event, 'actualizado');
+  };
+  
+  const handleReciboCreado = (event: CustomEvent) => {
+    handleReciboActualizadoOCreado(event, 'creado');
+  };
+  
+  // Registrar listeners
+  window.addEventListener('cajaReciboActualizado', handleReciboActualizado as EventListener);
+  window.addEventListener('reciboCreado', handleReciboCreado as EventListener);
+  
+  // Cleanup
+  return () => {
+    window.removeEventListener('cajaReciboActualizado', handleReciboActualizado as EventListener);
+    window.removeEventListener('reciboCreado', handleReciboCreado as EventListener);
+  };
+}, [reciboExpandido, cargarDatosCaja]);  // ← ← ← AGREGAR cargarDatosCaja como dependencia
+
+
 
   // ← Formulario abrir caja
   const [formDataAbrir, setFormDataAbrir] = useState({
@@ -986,9 +1077,7 @@ const crearRecibosParaHuerfanas = async () => {
     }
   };
   
-  // ← API config
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
-  const token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
+ 
 
   // ← ← ← AGREGAR: Escuchar evento para abrir recibo borrador ← ← ←
     useEffect(() => {
@@ -1017,24 +1106,7 @@ const crearRecibosParaHuerfanas = async () => {
     cargarDatosCaja();
   }, []);
 
-// ← Cargar datos principales
-const cargarDatosCaja = async (cacheBuster?: number) => {
-  setLoading(true);
-  try {
-    const session = await cargarSessionActiva();
-    
-    await Promise.all([
-      cargarRecibosRecientes(session?.id || null, !!session, cacheBuster),  // ← ← ← Pasar cacheBuster
-      cargarVales(),
-      cargarCategorias(),
-      cargarProfesionalesParaVales()
-    ]);
-  } catch (err) {
-    console.error('❌ Error cargando datos de caja:', err);
-  } finally {
-    setLoading(false);
-  }
-};
+
 // ← ← ← EFECTO: Recargar vales cuando cambia sesión activa o seleccionada ← ← ←
 useEffect(() => {
   // Usar un flag para evitar ejecutar en el primer render

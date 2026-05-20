@@ -1247,15 +1247,15 @@ useEffect(() => {
 
         // ← ← ← DISTRIBUIR PROPINA: USAR useMemo DIRECTAMENTE ← ← ←
         if (propinaTotal > 0 && distribucionActual.length > 0) {
-          const payloadPropina = {
-            monto_propina: propinaTotal,
-            metodo: propinaMetodo,
-            distribucion: distribucionActual.map(d => ({
-              profesional: d.profesionalId,
-              monto: d.monto,
-              porcentaje: d.porcentaje
-            }))
-          };
+          const payloadPropina = sanitizeForJSON({
+              monto_propina: Math.round(propinaTotal * 100) / 100,
+              metodo: propinaMetodo,
+              distribucion: distribucionActual.map(d => ({
+                  profesional: Number(d.profesionalId),  // ← ← ← FORZAR A NUMBER
+                  monto: Math.round(d.monto * 100) / 100,
+                  porcentaje: Math.round(d.porcentaje)
+              }))
+          });
           
           console.log('💰 [CajaReciboModal] Payload para distribuir-propina:', payloadPropina);
           
@@ -1523,9 +1523,17 @@ if (metodoPago === 'pendiente') {
         });
       }
 
-      alert(`✅ Recibo ${reciboCreado.codigo_recibo} ${estadoRecibo === 'publicado' ? 'publicado' : 'guardado como borrador'}`);
-      
+            // 🔍 EN handleGuardar (al final, antes de handleClose):
+      alert(`✅ Recibo ${reciboCreado.codigo_recibo} guardado como borrador`);
       onReciboCreado?.(reciboCreado);
+
+      // ← ← ← NUEVO: Forzar refresco en el padre con caché deshabilitado
+      window.dispatchEvent(new CustomEvent('reciboCreado', { 
+        detail: { id: reciboCreado.id, codigo_recibo: reciboCreado.codigo_recibo } 
+      }));
+
+      
+     
       handleClose();
       
     } catch (err: any) {
@@ -1634,215 +1642,117 @@ const sanitizeForJSON = (value: any): any => {
   return value;
 };
 
+// ... dentro de CajaReciboModal.tsx
+
 const handleActualizarReciboConPayload = async (payloadBase: any) => {
-  if (!reciboId) return;
-  setLoading(true);
-  
-  try {   
-    // ← ← ← 1. CONSTRUIR items_data CON VALIDACIÓN ESTRICTA ← ← ←
-    const itemsData = items.map(item => {
-      // ← ← ← SOLO incluir id si: NO es nuevo Y es numérico válido de BD
-      const shouldIncludeId = !item.esNuevo && 
-                              item.id && 
-                              /^\d+$/.test(String(item.id)) &&  // ← Solo dígitos
-                              Number(item.id) > 0;
-      
-      const itemData: any = {
-        tipo_item: item.tipo || 'servicio',
-        descripcion: String(item.descripcion || '').trim() || 'Sin descripción',
-        cantidad: Math.max(1, parseInt(String(item.cantidad)) || 1),
-        precio_unitario: Math.round((parseFloat(String(item.precioUnitario)) || 0) * 100) / 100,
-        propina_item: Math.round((parseFloat(String(item.propinaItem)) || 0) * 100) / 100,
-        // ← ← ← NO enviar subtotal (el backend lo calcula)
-      };
-      
-      // ← ← ← SOLO agregar id si cumple las condiciones
-      if (shouldIncludeId) {
-        itemData.id = Number(item.id);
-      }
-      
-      // Campos específicos por tipo
-      if (item.tipo === 'servicio') {
-        if (item.citaId && /^\d+$/.test(String(item.citaId))) {
-          itemData.cita = Number(item.citaId);
-        }
-        if (item.profesionalId && /^\d+$/.test(String(item.profesionalId))) {
-          itemData.profesional = Number(item.profesionalId);
-        }
-      } else if (item.tipo === 'producto') {
-        if (item.productoId && /^\d+$/.test(String(item.productoId))) {
-          itemData.producto = Number(item.productoId);
-        }
-      }
-      
-      return itemData;
-    });
-
-    // ← ← ← 2. CONSTRUIR PAYLOAD BASE ← ← ←
-    const payloadBaseSanitized = {
-      tipo: payloadBase.tipo,
-      estado: payloadBase.estado,
-      subtotal: Math.round(subtotal * 100) / 100,
-      descuento: Math.round(descuento * 100) / 100,
-      total: Math.round(total * 100) / 100,
-      propina_total: Math.round(propinaTotal * 100) / 100,
-      propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
-      metodo_pago: payloadBase.metodo_pago,
-      session_caja: sessionCajaId,
-      cliente_nombre: tipoRecibo === 'venta'
-        ? (clienteNombre?.trim() || 'No proporcionado')
-        : '',
-      cliente_telefono: tipoRecibo === 'venta'
-        ? (clienteTelefono?.trim() || 'No proporcionado')
-        : '',
-      cliente_email: tipoRecibo === 'venta'
-        ? (clienteEmail?.trim() || 'No@proporcionado.com')
-        : '',
-      notas: notas?.trim() || '',
-      items_data: itemsData,
-      ...(modoEdicion && itemsQuitados.length > 0 && {
-        items_a_eliminar: itemsQuitados
-          .map(id => Number(id))
-          .filter(id => !isNaN(id) && id > 0)
-      })
-    };
-
-    // ← ← ← 3. SANITIZAR PAYLOAD COMPLETO PARA EVITAR JSON INVÁLIDO ← ← ←
-    console.log('🔍 [DEBUG] itemsQuitados para enviar:', itemsQuitados);
-    console.log('🔍 [DEBUG] itemsQuitados filtrados (numéricos):', 
-      itemsQuitados.map(id => Number(id)).filter(id => !isNaN(id) && id > 0)
-    );
-
-    const payloadSanitized = sanitizeForJSON(payloadBaseSanitized);
-
-    // ← ← ← LOG DEL PAYLOAD FINAL ← ← ←
-    console.log('📦 [DEBUG] Payload final PATCH:', JSON.stringify({
-      ...payloadSanitized,
-      items_a_eliminar: payloadSanitized.items_a_eliminar
-    }, null, 2));
-
-    // ← ← ← 4. VERIFICAR JSON VÁLIDO ANTES DE ENVIAR ← ← ←
+    if (!reciboId) return;
+    setLoading(true);
+    
     try {
-      const jsonString = JSON.stringify(payloadSanitized);
-      console.log('✅ Payload JSON válido, longitud:', jsonString.length);
-      if (process.env.NODE_ENV === 'development') {
-        console.log('📦 [DEBUG] Payload PATCH completo:', JSON.stringify(payloadSanitized, null, 2));
-      }
-    } catch (e) {
-      console.error('❌ Payload NO es JSON válido:', e);
-      alert('⚠️ Error interno: datos inválidos para enviar');
-      setLoading(false);
-      return;
-    }
+        // 1. CONSTRUIR items_data CON VALIDACIÓN ESTRICTA
+        const itemsData = items.map(item => {
+            const shouldIncludeId = !item.esNuevo && item.id && /^\d+$/.test(String(item.id)) && Number(item.id) > 0;
+            
+            const itemData: any = {
+                tipo_item: item.tipo || 'servicio',
+                 descripcion: String(item.descripcion || '').trim() || 'Sin descripción',
+                cantidad: Math.max(1, parseInt(String(item.cantidad)) || 1),
+                precio_unitario: Math.round((parseFloat(String(item.precioUnitario)) || 0) * 100) / 100,
+                propina_item: Math.round((parseFloat(String(item.propinaItem)) || 0) * 100) / 100,
+            };
 
-    console.log('🔍 [DIAGNÓSTICO] Payload completo enviado:', JSON.stringify(payloadSanitized, null, 2));
-    console.log('🔍 [DIAGNÓSTICO] Recibo ID:', reciboId);
-    console.log('🔍 [DIAGNÓSTICO] modoEdicion:', modoEdicion);
-    console.log('🔍 [DIAGNÓSTICO] itemsQuitados:', itemsQuitados);
+            if (item.tipo === 'servicio') {
+                if (item.citaId && /^\d+$/.test(String(item.citaId))) itemData.cita = Number(item.citaId);
+                if (item.profesionalId && /^\d+$/.test(String(item.profesionalId))) itemData.profesional = Number(item.profesionalId);
+            } else if (item.tipo === 'producto') {
+                if (item.productoId && /^\d+$/.test(String(item.productoId))) itemData.producto = Number(item.productoId);
+            }
 
-    // ← ← ← 5. ENVIAR PETICIÓN PATCH ← ← ←
-    const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/`, {
-      method: 'PATCH',
-      headers: { 
-        'Content-Type': 'application/json', 
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}) 
-      },
-      body: JSON.stringify(payloadSanitized)
-    });
-
-    // ← ← ← 6. LOGGING DE RESPUESTA ← ← ←
-    const responseText = await res.clone().text();
-    console.log('📦 [DEBUG] Response status:', res.status);
-    console.log('📦 [DEBUG] Response body:', responseText);
-
-    if (!res.ok) {
-      let errorData;
-      try {
-        errorData = JSON.parse(responseText);
-      } catch {
-        errorData = { detail: responseText };
-      }
-      const mensajeError = errorData.detail || errorData.error || 'Error desconocido';
-      const traceback = errorData.traceback || '';
-      alert(`❌ Error al actualizar recibo:\n${mensajeError}${traceback ? '\n\nTraceback:\n' + traceback : ''}`);
-      throw new Error(mensajeError);
-    }
-
-    const reciboActualizado = await res.json();
-    
-    // ← ← ← FORZAR RECARGA EXPLÍCITA DEL RECIBO ACTUALIZADO ← ← ←
-    let datosParaNotificar = reciboActualizado;
-
-    try {
-      const reciboRefrescado = await fetch(`${apiUrl}/caja/recibos/${reciboId}/`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        cache: 'no-store'
-      });
-      
-      if (reciboRefrescado.ok) {
-        const datosFrescos = await reciboRefrescado.json();
-        console.log('✅ [DEBUG] Recibo refrescado con totales actualizados:', datosFrescos.total);
-        datosParaNotificar = datosFrescos;
-      }
-    } catch (refreshErr) {
-      console.warn('⚠️ No se pudo refrescar recibo, usando respuesta original del PATCH:', refreshErr);
-    }
-
-    // ← ← ← 8. DISTRIBUIR PROPINA SI APLICA ← ← ←
-    if (propinaTotal > 0 && reciboActualizado?.propina_distribuida === false) {
-      const distribucionActual = calcularDistribucionPropina;
-      if (distribucionActual.length > 0) {
-        const payloadPropina = sanitizeForJSON({
-          monto_propina: propinaTotal,
-          metodo: propinaMetodo,
-          distribucion: distribucionActual.map(d => ({
-            profesional: d.profesionalId,
-            monto: d.monto,
-            porcentaje: d.porcentaje
-          }))
+            if (shouldIncludeId) itemData.id = Number(item.id);
+            return itemData;
         });
-        
-        await fetch(`${apiUrl}/caja/recibos/${reciboId}/distribuir_propina/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
-          body: JSON.stringify(payloadPropina)
+
+        // 2. PAYLOAD BASE
+        const payloadToSanitize = {
+            tipo: payloadBase.tipo,
+            estado: payloadBase.estado,
+            subtotal: Math.round(subtotal * 100) / 100,
+            descuento: Math.round(descuento * 100) / 100,
+            total: Math.round(total * 100) / 100,
+            propina_total: Math.round(propinaTotal * 100) / 100,
+            propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
+            metodo_pago: payloadBase.metodo_pago,
+            session_caja: sessionCajaId,
+            cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : '',
+            cliente_telefono: tipoRecibo === 'venta' ? (clienteTelefono?.trim() || 'No proporcionado') : '',
+            cliente_email: tipoRecibo === 'venta' ? (clienteEmail?.trim() || 'No@proporcionado.com') : '',
+            notas: notas?.trim() || '',
+            items_data: itemsData,
+            ...(modoEdicion && itemsQuitados.length > 0 && {
+                items_a_eliminar: itemsQuitados.map(id => Number(id)).filter(id => !isNaN(id) && id > 0)
+            })
+        };
+
+        // 3. SANITIZACIÓN INLINE (Evita ReferenceError con funciones externas)
+        const sanitize = (val: any): any => {
+            if (val === null || val === undefined) return null;
+            if (typeof val === 'number') return isNaN(val) || !isFinite(val) ? 0 : Math.round(val * 100) / 100;
+            if (typeof val === 'string') return String(val).trim().replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
+            if (Array.isArray(val)) return val.map(sanitize);
+            if (typeof val === 'object') {
+                const clean: any = {};
+                for (const [k, v] of Object.entries(val)) clean[k] = sanitize(v);
+                return clean;
+            }
+            return val;
+        };
+
+        const payloadSanitized = sanitize(payloadToSanitize);
+        console.log('📦 Payload sanitizado listo:', payloadSanitized);
+
+        // 4. ENVIAR PATCH
+        const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify(payloadSanitized)
         });
-      }
-    }
 
-    // ← ← ← 9. ÉXITO: NOTIFICAR AL PADRE CON DATOS GARANTIZADOS ← ← ←
-    alert(`✅ Recibo ${datosParaNotificar.codigo_recibo} actualizado`);
+        const responseText = await res.text();
+        console.log('📡 Response status:', res.status);
+        console.log('📡 Response body:', responseText);
 
-    if (onReciboActualizado) {
-      onReciboActualizado(datosParaNotificar);
-      
-      window.dispatchEvent(new CustomEvent('reciboActualizado', {
-        detail: {
-          id: datosParaNotificar.id,
-          metodo_pago: datosParaNotificar.metodo_pago,
-          subtotal: datosParaNotificar.subtotal,
-          total: datosParaNotificar.total,
-          propina_total: datosParaNotificar.propina_total,
-          items: datosParaNotificar.items,
-          distribuciones_propina: datosParaNotificar.distribuciones_propina,
-          ...datosParaNotificar
+        if (!res.ok) {
+            let errorData;
+            try { errorData = JSON.parse(responseText); } catch { errorData = { detail: responseText }; }
+            throw new Error(errorData.detail || errorData.error || 'Error desconocido del servidor');
         }
-      }));
-      
-      console.log(`📡 [CajaReciboModal] Evento reciboActualizado disparado`);
+
+        // 5. ÉXITO
+        const reciboActualizado = JSON.parse(responseText);
+        console.log('✅ Recibo actualizado exitosamente:', reciboActualizado.codigo_recibo);
+
+        // ← ← ← CORREGIDO: Usar reciboActualizado (NO datosParaNotificar)
+          alert(`✅ Recibo ${reciboActualizado.codigo_recibo} actualizado`);
+
+          if (onReciboActualizado) {
+            onReciboActualizado(reciboActualizado);  // ← ← ← CORREGIDO
+          }
+
+          // ← ← ← CORREGIDO: Disparar evento con la variable correcta
+          window.dispatchEvent(new CustomEvent('cajaReciboActualizado', { 
+            detail: reciboActualizado  // ← ← ← CORREGIDO
+          }));
+
+
+    } catch (err: any) {
+        console.error('❌ Error actualizando recibo:', err);
+        alert(`❌ Error: ${err.message}`);
+    } finally {
+        setLoading(false);
     }
-    
-    alert(`✅ Recibo ${reciboActualizado.codigo_recibo} actualizado`);
-    if (onReciboActualizado) {
-      onReciboActualizado(reciboActualizado);
-    }
-    
-  } catch (err: any) {
-    console.error('❌ Error actualizando:', err);
-    alert(`❌ Error: ${err.message}`);
-  } finally {
-    setLoading(false);
-  }
 };
 
   const handleClose = () => {

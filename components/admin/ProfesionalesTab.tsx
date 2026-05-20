@@ -25,6 +25,8 @@ interface Cita {
   estado: string;
   pago_estado: string;
   total_productos?: number;  // ← NUEVO: Total de productos de la cita
+  monto_propina?: number;
+  base_para_impuesto?: number;
 }
 
 interface Profesional {
@@ -158,8 +160,8 @@ export default function ProfesionalesTab() {
     try {
       const token = localStorage.getItem('admin_token');
       
-      // Cargar citas con total_productos
-      const citasUrl = `${apiUrl}/citas/?fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}&ordering=fecha,hora_inicio`;
+      // ← ← ← POR ESTA (nuevo endpoint específico):
+      const citasUrl = `${apiUrl}/citas/para-profesionales-tab/?fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}`;
       
       const citasRes = await fetch(citasUrl, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
@@ -235,24 +237,30 @@ export default function ProfesionalesTab() {
   };
 
   // ← ← ← ACTUALIZADO: Calcular detalles de ganancias para cada cita ← ← ←
-  // ← ← ← ACTUALIZADO: Calcular detalles de ganancias para cada cita ← ← ←
   const calcularDetallesCitas = (citasList: Cita[], spList: ServicioProfesional[], configData: Configuracion): DetalleCita[] => {
     const porcentajeBold = parseFloat(String(configData.porcentaje_bold || 3.5));
     
     return citasList.map(cita => {
       const precioTotal = parseFloat(cita.precio_total) || 0;
       const totalProductos = cita.total_productos || 0;
-      // ← ← ← NUEVO: Obtener propina del backend (si está disponible en la cita) ← ← ←
-     // ← ← ← NUEVO: Obtener propina del backend (si está disponible en la cita) ← ← ←
-const montoPropina = (cita as any).monto_propina ?? (cita as any).montoPropina ?? 0;
-const baseParaImpuesto = (cita as any).base_para_impuesto ?? (cita as any).baseParaImpuesto ?? precioTotal;
-
-// ← ← ← DEBUG: Verificar en consola ← ← ←
-console.log(`🔍 Cita ${cita.id}: monto_propina=${montoPropina}, base_para_impuesto=${baseParaImpuesto}`);
-    // ← ← ← IMPUESTO: Se cobra el % configurado sobre (servicio + propina) ← ← ←
-// Si el backend ya calculó base_para_impuesto, úsalo; si no, calcúlalo aquí
-const baseCalculoImpuesto = baseParaImpuesto > 0 ? baseParaImpuesto : (precioTotal + montoPropina);
-const comisionBold = baseCalculoImpuesto * (porcentajeBold / 100);
+      
+      // ← ← ← ACCESO SEGURO A PROPINA ← ← ←
+      const montoPropina = typeof cita.monto_propina === 'number' ? cita.monto_propina : 0;
+      const baseParaImpuesto = typeof cita.base_para_impuesto === 'number' ? cita.base_para_impuesto : (precioTotal + montoPropina);
+      
+      // ← ← ← DEBUG LOG (solo en desarrollo) ← ← ←
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`🔍 Cita ${cita.id}:`, {
+          precio_total: precioTotal,
+          monto_propina: montoPropina,
+          base_para_impuesto: baseParaImpuesto,
+          profesional_id: cita.profesional
+        });
+      }
+     
+     
+      const comisionBold = baseParaImpuesto * (porcentajeBold / 100);
+   
       
       // Calcular porcentaje del profesional
       let porcentajeProf = 0;
@@ -928,24 +936,31 @@ const handleOpenProductosModal = async (cita: Cita) => {
                         <p className="text-lg font-bold text-green-400">
                           ${parseInt(cita.precio_total).toLocaleString()}
                         </p>
-                        {detalle && (
-                          <div className="mt-2 space-y-1">
-                            <p className="text-xs text-purple-400">
-                              💵 Ganancia: ${detalle.gananciaProfesional.toLocaleString()} ({detalle.porcentajeProfesional}%)
+                       {detalle && (
+                        <div className="mt-2 space-y-1">
+                          {/* ← ← ← NUEVO: Propina (solo si > 0) ← ← ← */}
+                          {detalle.montoPropina > 0 && (
+                            <p className="text-xs text-pink-400 font-medium">
+                              💝 Propina: ${detalle.montoPropina.toLocaleString()}
                             </p>
+                          )}
+                          
+                          <p className="text-xs text-purple-400">
+                            💵 Ganancia: ${detalle.gananciaProfesional.toLocaleString()} ({detalle.porcentajeProfesional}%)
+                          </p>
+                          <p className="text-xs text-orange-400">
+                            🧾 Impuesto (${porcentajeBold}%): ${detalle.comisionBold.toLocaleString()}
+                          </p>
+                          {detalle.totalProductos > 0 && (
                             <p className="text-xs text-orange-400">
-                              🧾 Impuesto (${porcentajeBold}%): ${detalle.comisionBold.toLocaleString()}
+                              📦 Productos: ${detalle.totalProductos.toLocaleString()}
                             </p>
-                            {detalle.totalProductos > 0 && (
-                              <p className="text-xs text-orange-400">
-                                📦 Productos: ${detalle.totalProductos.toLocaleString()}
-                              </p>
-                            )}
-                            <p className="text-xs text-green-400">
-                              💰 Saldo: ${detalle.saldo.toLocaleString()}
-                            </p>
-                          </div>
-                        )}
+                          )}
+                          <p className="text-xs text-green-400">
+                            💰 Saldo: ${detalle.saldo.toLocaleString()}
+                          </p>
+                        </div>
+                      )}
                       </div>
 
                       {/* Footer */}
@@ -1053,6 +1068,7 @@ const handleOpenProductosModal = async (cita: Cita) => {
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-300">Cliente</th>
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-300">Profesional</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-gray-300">Valor Servicio</th>
+                    <th className="px-3 py-3 text-right text-xs font-semibold text-pink-300">💝 Propina</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-orange-300"> Productos</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-orange-300">🧾 Impuesto</th>
                     <th className="px-3 py-3 text-right text-xs font-semibold text-purple-300">Ganancia Prof.</th>
