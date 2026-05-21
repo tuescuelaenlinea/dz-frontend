@@ -1043,21 +1043,30 @@ const verificarBorradoresEnSesion = async (sessionId: number): Promise<boolean> 
 };
 
 // ← ← ← EFECTO: Recargar recibos cuando sessionActiva cambie ← ← ←
+// ← ← ← CORREGIDO: Recargar recibos cuando cambia sessionActiva O sesionSeleccionada ← ← ←
 useEffect(() => {
-  if (sessionActiva?.id) {
-    console.log('🔄 Session activa cambiada a ID:', sessionActiva.id);
-    // ← ← ← PASAR esSesionActiva=true para incluir borradores
-    cargarRecibosRecientes(sessionActiva.id, true);
-    verificarBorradoresEnSesion(sessionActiva.id).then((tieneBorradores) => {
-      setHayBorradoresPendientes(tieneBorradores);
-    });
-  } else {
-    console.log('🔄 No hay sesión activa, cargando solo borradores');
-    // ← ← ← Sin sesión: solo borradores
-    cargarRecibosRecientes(null, false);
-    setHayBorradoresPendientes(false);
-  }
-}, [sessionActiva?.id]);
+// ← ← ← PRIORIDAD: Si hay sesión histórica seleccionada, usarla
+if (sesionSeleccionada?.id) {
+console.log('🔄 [Recibos] Modo histórico: cargando sesión', sesionSeleccionada.id);
+// esSesionActiva=false para NO incluir borradores en modo histórico
+cargarRecibosRecientes(sesionSeleccionada.id, false);
+setHayBorradoresPendientes(false); // No mostrar badge de borradores en modo histórico
+}
+// ← ← ← Si NO hay histórica pero SÍ hay activa, usar activa
+else if (sessionActiva?.id) {
+console.log('🔄 [Recibos] Sesión activa:', sessionActiva.id);
+cargarRecibosRecientes(sessionActiva.id, true); // true para incluir borradores
+verificarBorradoresEnSesion(sessionActiva.id).then((tieneBorradores) => {
+setHayBorradoresPendientes(tieneBorradores);
+});
+}
+// ← ← ← Sin ninguna sesión: solo borradores
+else {
+console.log('🔄 [Recibos] Sin sesión, cargando solo borradores');
+cargarRecibosRecientes(null, false);
+setHayBorradoresPendientes(false);
+}
+}, [sessionActiva?.id, sesionSeleccionada?.id]);  // ← ← ← AGREGAR sesionSeleccionada como dependencia
 
  // ← ← ← CREAR RECIBOS PARA CITAS HUÉRFANAS - VERSIÓN SECUENCIAL ← ← ←
 // ← ← ← EN page.tsx - función crearRecibosParaHuerfanas ← ← ←
@@ -2045,7 +2054,8 @@ const formatDate = (dateStr: string): string => {
       </div>
     );
   }
-
+  // ← ← ← CLAVE: Determinar qué sesión mostrar (priorizar histórica)
+  const sesionActual = sesionSeleccionada || sessionActiva;
   return (
     <div className="p-4 lg:p-8 space-y-6">
       
@@ -2053,24 +2063,30 @@ const formatDate = (dateStr: string): string => {
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
 
         {/* ← ← ← BADGE: Identificación de sesión actual (ACTIVA o HISTÓRICA) ← ← ← */}
-        {(sessionActiva || sesionSeleccionada) && (
+        {/* ← ← ← CORREGIDO: Priorizar sesionSeleccionada sobre sessionActiva ← ← ← */}
+          {(sesionSeleccionada || sessionActiva) && (
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Badge principal con ID, fecha y turno */}
-            <span className={`px-3 py-1 text-xs rounded-full border flex items-center gap-1.5 font-mono ${
-              sessionActiva 
-                ? 'bg-green-500/20 text-green-400 border-green-500/50' 
-                : 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50'
-            }`}>
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-              TURNO
-              <span className="font-bold">#{(sessionActiva || sesionSeleccionada)?.id}</span>
-              <span className="text-gray-400">•</span>
-              <span>{formatDate((sessionActiva || sesionSeleccionada)?.fecha || '')}</span>
-              <span className="text-gray-400">•</span>
-              <span className="capitalize">{(sessionActiva || sesionSeleccionada)?.turno}</span>
-            </span>
+          <span className={`px-3 py-1 text-xs rounded-full border flex items-center gap-1.5 font-mono ${
+          sesionSeleccionada  // ← ← ← CLAVE: Priorizar sesión histórica
+          ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50'
+          : 'bg-green-500/20 text-green-400 border-green-500/50'
+          }`}>
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+          TURNO
+          <span className="font-bold">#{(sesionSeleccionada || sessionActiva)?.id}</span>
+          <span className="text-gray-400">•</span>
+          <span>{formatDate((sesionSeleccionada || sessionActiva)?.fecha || '')}</span>
+          <span className="text-gray-400">•</span>
+          <span className="capitalize">{(sesionSeleccionada || sessionActiva)?.turno}</span>
+          {/* ← ← ← NUEVO: Badge de modo solo lectura ← ← ← */}
+          {sesionSeleccionada && (
+          <span className="ml-2 px-2 py-0.5 bg-cyan-900/50 text-cyan-300 text-[10px] rounded border border-cyan-700">
+          👁️ Solo lectura
+          </span>
+          )}
+          </span>
             
             {/* Badge de estado */}
             <span className={`px-2 py-0.5 text-xs rounded border ${
@@ -2084,23 +2100,28 @@ const formatDate = (dateStr: string): string => {
                (sessionActiva || sesionSeleccionada)?.estado === 'cerrada' ? '🔵 Cerrada' : '🔴 Cancelada'}
             </span>
             
-            {/* Botón cerrar solo para modo lectura histórica */}
-            {sesionSeleccionada && !sessionActiva && (
+            {/* ← ← ← BOTÓN CERRAR VISTA HISTÓRICA ← ← ← */}
+              {/* ← ← ← CORREGIDO: Mostrar cuando hay sesión histórica (independiente de sessionActiva) ← ← ← */}
+              {sesionSeleccionada && (
               <button
-                onClick={() => {
-                  setSesionSeleccionada(null);
-                  setRecibosVentas([]);
-                  setRecibosComisiones([]);
-                  setRecibosRecientes([]);
-                }}
-                className="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs rounded transition-colors flex items-center gap-1"
-                title="Cerrar vista de sesión histórica"
+              onClick={(e) => {
+              e.stopPropagation(); // Evitar cerrar acordeón si está dentro
+              console.log('🔒 Cerrando vista histórica, volviendo a sesión activa');
+              setSesionSeleccionada(null);
+              if (sessionActiva?.id) {
+              cargarRecibosRecientes(sessionActiva.id, true);
+              cargarVales();
+              }
+              }}
+              className="ml-2 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs rounded border border-gray-600 transition-colors flex items-center gap-1"
+              title="Cerrar vista de sesión histórica y volver a la sesión activa"
               >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              Cerrar vista
               </button>
-            )}
+              )}
           </div>
         )}
         {/* ← ← ← BADGE DE ADVERTENCIA EN HEADER ← ← ← */}
@@ -2125,70 +2146,78 @@ const formatDate = (dateStr: string): string => {
               {hayBorradoresPendientes ? '1 borrador pendiente' : ''}
             </span>
           )}         
-          {!sessionActiva ? (
+          {/* ← ← ← CORREGIDO: Solo mostrar botones de caja si NO hay sesión histórica seleccionada ← ← ← */}
+            {!sesionSeleccionada && (
+            !sessionActiva ? (
             <button
-              onClick={() => setModalAbrirCajaOpen(true)}
-              className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
+            onClick={() => setModalAbrirCajaOpen(true)}
+            className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Abrir Caja
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Abrir Caja
             </button>
-          ) : (
+            ) : (
             <button
-              onClick={() => setModalCerrarCajaOpen(true)}
-              className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
+            onClick={() => setModalCerrarCajaOpen(true)}
+            className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-              Cerrar Caja              
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            Cerrar Caja
             </button>
-
-          )} 
+            )
+            )}
 
         </div>
  
 
       </div>
 
-      {/* ← Cards de Resumen */}
+      
+      {/* ← Cards de Resumen ← ← ← CORREGIDO: Usar sesionActual ← ← ← */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        
-        {/* Sesión Activa */}
+        {/* Estado de Caja */}
         <div className={`rounded-xl p-4 border ${
-          sessionActiva 
-            ? 'bg-green-900/30 border-green-700' 
-            : 'bg-gray-800 border-gray-700'
+          sesionActual
+          ? (sesionActual.estado === 'abierta' ? 'bg-green-900/30 border-green-700' : 'bg-blue-900/30 border-blue-700')
+          : 'bg-gray-800 border-gray-700'
         }`}>
           <p className="text-sm text-gray-400">Estado de Caja</p>
-          <p className={`text-lg font-bold ${sessionActiva ? 'text-green-400' : 'text-gray-500'}`}>
-            {sessionActiva ? '🟢 Abierta' : '🔴 Cerrada'}
+          <p className={`text-lg font-bold ${
+            sesionActual 
+            ? (sesionActual.estado === 'abierta' ? 'text-green-400' : 'text-blue-400')
+            : 'text-gray-500'
+          }`}>
+            {sesionActual 
+            ? (sesionActual.estado === 'abierta' ? '🟢 Abierta' : sesionActual.estado === 'cerrada' ? '🔵 Cerrada' : '🔴 Cancelada')
+            : '🔴 Cerrada'}
           </p>
-          {sessionActiva && (
+          {sesionActual && (
             <p className="text-xs text-gray-400 mt-1">
-              Turno: {sessionActiva.turno}
+              Turno: {sesionActual.turno}
             </p>
           )}
         </div>
-
-        {/* Saldo Actual */}
+        
+        {/* Saldo Esperado */}
         <div className="bg-blue-900/30 rounded-xl p-4 border border-blue-700">
           <p className="text-sm text-blue-300">Saldo Esperado</p>
           <p className="text-lg font-bold text-blue-400">
-            {sessionActiva ? formatMoney(sessionActiva.saldo_esperado) : '$0'}
+            {sesionActual ? formatMoney(sesionActual.saldo_esperado || 0) : '$0'}
           </p>
         </div>
-
+        
         {/* Ventas del Turno */}
         <div className="bg-purple-900/30 rounded-xl p-4 border border-purple-700">
           <p className="text-sm text-purple-300">Ventas Hoy</p>
           <p className="text-lg font-bold text-purple-400">
-            {sessionActiva ? formatMoney(sessionActiva.total_ventas) : '$0'}
+            {sesionActual ? formatMoney(sesionActual.total_ventas || 0) : '$0'}
           </p>
         </div>
-
+        
         {/* Vales Pendientes */}
         <div className="bg-orange-900/30 rounded-xl p-4 border border-orange-700">
           <p className="text-sm text-orange-300">Vales Pendientes</p>
@@ -2386,6 +2415,7 @@ const formatDate = (dateStr: string): string => {
                         isExpanded={reciboExpandido === recibo.id}
                         onEditar={handleEditarRecibo}
                         onPublicar={handlePublicarRecibo}
+                         onImprimir={handleVerReciboImpresion}
                         formatMoney={formatMoney}
                         formatDate={formatDate}
                         getReciboColor={getReciboColor}
@@ -2441,6 +2471,7 @@ const formatDate = (dateStr: string): string => {
                         isExpanded={reciboExpandido === recibo.id}
                         onEditar={handleEditarRecibo}
                         onPublicar={handlePublicarRecibo}
+                        onImprimir={handleVerReciboImpresion}
                         formatMoney={formatMoney}
                         formatDate={formatDate}
                         getReciboColor={getReciboColor}
@@ -2505,7 +2536,10 @@ const formatDate = (dateStr: string): string => {
                     <div>
                       <h4 className="text-xs font-semibold text-cyan-400 uppercase tracking-wider mb-2 flex items-center gap-1">
                         <span className="w-2 h-2 bg-cyan-400 rounded-full"></span>
-                        De esta sesión ({valesSesion.length})
+                        {sesionSeleccionada 
+                        ? `De sesión #${sesionSeleccionada.id}`  // ← ← ← Dinámico para histórica
+                        : 'De esta sesión'
+                        } ({valesSesion.length})
                       </h4>
                       <div className="space-y-2">
                         {valesSesion.map((vale) => (
@@ -2554,109 +2588,86 @@ const formatDate = (dateStr: string): string => {
         <div className="lg:col-span-2">
           
           {/* ← ← ← Session Info: Mostrar para sesión ACTIVA O sesión del HISTORIAL ← ← ← */}
-          {(sessionActiva || sesionSeleccionada) && (
-            <div className="bg-gray-800 rounded-xl border border-gray-700 p-4">
-              
-              {/* ← ← ← ENCABEZADO CON IDENTIFICACIÓN DE SESIÓN ← ← ← */}
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-700">
-                <div className="flex items-center gap-3">
-                  {/*<div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                    sessionActiva ? 'bg-green-600/20' : 'bg-cyan-600/20'
-                  }`}>
-                    <span className="text-lg">
-                      {sessionActiva ? '🟢' : '👁️'}
-                    </span>
-                  </div>*/}
-                  <div>
-                    <h3 className="font-semibold text-white flex items-center gap-2">
-                      📊 Resumen del Turno #{(sessionActiva || sesionSeleccionada)?.id}
-                      
-                    </h3>
-                    <p className="text-xs text-gray-400">
-                      {formatDate((sessionActiva || sesionSeleccionada)?.fecha || '')} • {(sessionActiva || sesionSeleccionada)?.turno}
-                      {sesionSeleccionada && !sessionActiva && ( <span className="text-cyan-400 ml-1">• Solo lectura</span>)}
-                    </p>
-                     {/* Usuario que abrió la sesión */}
-                <span className="text-xs text-gray-400">
-                  👤 {(sessionActiva || sesionSeleccionada)?.usuario_username}
-                </span>
-                  </div>
-                </div>
-                
-               
-              </div>
-              
-              <div className="space-y-3 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Apertura:</span>
-                  <span className="text-white">
-                    {formatDate(sessionActiva?.hora_apertura || sesionSeleccionada?.hora_apertura || '')}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Saldo Inicial:</span>
-                  <span className="text-white">
-                    {formatMoney(sessionActiva?.saldo_inicial || sesionSeleccionada?.saldo_inicial || 0)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Entradas:</span>
-                  <span className="text-green-400">
-                    +{formatMoney(sessionActiva?.total_entradas || sesionSeleccionada?.total_entradas || 0)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Salidas:</span>
-                  <span className="text-orange-400">
-                    -{formatMoney(sessionActiva?.total_salidas || sesionSeleccionada?.total_salidas || 0)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Ventas:</span>
-                  <span className="text-blue-400">
-                    +{formatMoney(sessionActiva?.total_ventas || sesionSeleccionada?.total_ventas || 0)}
-                  </span>
-                </div>
-                <div className="border-t border-gray-700 pt-3 mt-3">
-                  <div className="flex justify-between font-bold">
-                    <span className="text-gray-300">Saldo Esperado:</span>
-                    <span className="text-blue-400">
-                      {formatMoney(sessionActiva?.saldo_esperado || sesionSeleccionada?.saldo_esperado || 0)}
-                    </span>
-                  </div>
-                </div>
-                
-                {/* ← ← ← SOLO PARA SESIONES CERRADAS: Mostrar Saldo Final ← ← ← */}
-                {(sessionActiva?.estado === 'cerrada' || sesionSeleccionada?.estado === 'cerrada') && (
-                  <div className="border-t border-gray-700 pt-3 mt-3">
-                    <div className="flex justify-between font-bold">
-                      <span className="text-gray-300">Saldo Final:</span>
-                      <span className="text-green-400">
-                        {formatMoney(sessionActiva?.saldo_final || sesionSeleccionada?.saldo_final || 0)}
-                      </span>
-                    </div>
-                    
-                    {/* ← ← ← CORREGIDO: Cálculo de diferencia seguro ← ← ← */}
-                    <div className="flex justify-between text-xs mt-2">
-                      <span className="text-gray-400">Diferencia:</span>
-                      {(() => {
-                        const sesionActual = sessionActiva || sesionSeleccionada;
-                        const final = parseFloat(sesionActual?.saldo_final || '0');
-                        const esperado = parseFloat(sesionActual?.saldo_esperado || '0');
-                        const diferencia = final - esperado;
-                        
-                        return (
-                          <span className={diferencia >= 0 ? 'text-green-400' : 'text-red-400'}>
-                            {formatMoney(diferencia)}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}         
+         {/* ← ← ← CORREGIDO: Usar variable única para sesión actual ← ← ← */}
+          {(() => {
+          const sesionActual = sesionSeleccionada || sessionActiva;  // ← ← ← PRIORIZAR HISTÓRICA
+          if (!sesionActual) return null;
+
+          return (
+          <div className="bg-gray-800 rounded-xl border border-gray-700 p-4">
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-700">
+          <div className="flex items-center gap-3">
+          <div>
+          <h3 className="font-semibold text-white flex items-center gap-2">
+          📊 Resumen del Turno #{sesionActual.id}
+          </h3>
+          <p className="text-xs text-gray-400">
+          {formatDate(sesionActual.fecha || '')} • {sesionActual.turno}
+          {sesionSeleccionada && !sessionActiva && (
+          <span className="text-cyan-400 ml-1">• 👁️ Solo lectura</span>
+          )}
+          </p>
+          <span className="text-xs text-gray-400">
+          👤 {sesionActual.usuario_username}
+          </span>
+          </div>
+          </div>
+          </div>
+          <div className="space-y-3 text-sm">
+          <div className="flex justify-between">
+          <span className="text-gray-400">Apertura:</span>
+          <span className="text-white">{formatDate(sesionActual.hora_apertura || '')}</span>
+          </div>
+          <div className="flex justify-between">
+          <span className="text-gray-400">Saldo Inicial:</span>
+          <span className="text-white">{formatMoney(sesionActual.saldo_inicial || 0)}</span>
+          </div>
+          <div className="flex justify-between">
+          <span className="text-gray-400">Entradas:</span>
+          <span className="text-green-400">+{formatMoney(sesionActual.total_entradas || 0)}</span>
+          </div>
+          <div className="flex justify-between">
+          <span className="text-gray-400">Salidas:</span>
+          <span className="text-orange-400">-{formatMoney(sesionActual.total_salidas || 0)}</span>
+          </div>
+          <div className="flex justify-between">
+          <span className="text-gray-400">Ventas:</span>
+          <span className="text-blue-400">+{formatMoney(sesionActual.total_ventas || 0)}</span>
+          </div>
+          <div className="border-t border-gray-700 pt-3 mt-3">
+          <div className="flex justify-between font-bold">
+          <span className="text-gray-300">Saldo Esperado:</span>
+          <span className="text-blue-400">{formatMoney(sesionActual.saldo_esperado || 0)}</span>
+          </div>
+          </div>
+          {/* ← ← ← SOLO PARA SESIONES CERRADAS: Mostrar Saldo Final ← ← ← */}
+          {sesionActual.estado === 'cerrada' && (
+          <div className="border-t border-gray-700 pt-3 mt-3">
+          <div className="flex justify-between font-bold">
+          <span className="text-gray-300">Saldo Final:</span>
+          <span className="text-green-400">{formatMoney(sesionActual.saldo_final || 0)}</span>
+          </div>
+          <div className="flex justify-between text-xs mt-2">
+          <span className="text-gray-400">Diferencia:</span>
+          {(() => {
+          const final = parseFloat(sesionActual.saldo_final || '0');
+          const esperado = parseFloat(sesionActual.saldo_esperado || '0');
+          const diferencia = final - esperado;
+          return (
+          <span className={diferencia >= 0 ? 'text-green-400' : 'text-red-400'}>
+          {formatMoney(diferencia)}
+          </span>
+          );
+          })()}
+          </div>
+          </div>
+          )}
+          </div>
+          </div>
+          );
+          })()}        
+        
+
         </div>
 
 
@@ -3712,6 +3723,7 @@ function ReciboCard({
   isExpanded,
   onEditar,
   onPublicar,
+  onImprimir,
   formatMoney,
   formatDate,
   getReciboColor,
@@ -3729,6 +3741,7 @@ function ReciboCard({
   isExpanded: boolean;
   onEditar: (recibo: any) => void;
   onPublicar: (id: number) => void;
+  onImprimir: (recibo: ReciboCaja) => void;  
   formatMoney: (value: string | number) => string;
   formatDate: (dateStr: string) => string;
   getReciboColor: (tipo: string, estado: string) => string;
@@ -4055,11 +4068,27 @@ function ReciboCard({
 
               
               
+             
               {/* ← ← ← ACCIONES PARA PUBLICADO ← ← ← */}
               {detalleRecibo.estado === 'publicado' && (
-                <div className="mt-4 pt-3 border-t border-gray-700">
-                  <p className="text-center text-sm text-green-400 font-medium">
-                    ✅ Recibo publicado - No se pueden editar items
+                <div className="mt-4 pt-3 border-t border-gray-700 flex gap-2">
+                  {/* ← ← ← BOTÓN IMPRIMIR ← ← ← */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();  // Evitar cerrar acordeón
+                      onImprimir(detalleRecibo);  // ← ← ← LLAMAR FUNCIÓN DEL PADRE
+                    }}
+                    className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                    title="Ver/Imprimir recibo"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                    </svg>
+                    Imprimir
+                  </button>
+                  
+                  <p className="flex-1 text-center text-sm text-green-400 font-medium flex items-center justify-center">
+                    ✅ Publicado
                   </p>
                 </div>
               )}
