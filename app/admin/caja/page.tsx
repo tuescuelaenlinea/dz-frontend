@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import CajaReciboModal from '@/components/admin/CajaReciboModal';
 import CalcularComisionesModal from '@/components/admin/CalcularComisionesModal';
-
+import ReciboImpresionModal from '@/components/admin/ReciboImpresionModal';
 // ← ← ← INTERFACES ← ← ←
 
 interface CajaSession {
@@ -33,21 +33,46 @@ interface ReciboCaja {
   codigo_recibo: string;
   tipo: 'entrada' | 'salida' | 'venta';
   estado: 'borrador' | 'publicado' | 'anulado';
+  
+  // ← ← ← TOTALES ← ← ←
   subtotal: string;
   descuento: string;
   total: string;
   propina_total: string;
+  
+  // ← ← ← MÉTODO Y SESIÓN ← ← ←
   metodo_pago: string;
-  cliente_nombre: string;
-  fecha: string;
   session_caja_turno: string;
+  
+  // ← ← ← CAMPOS DE CLIENTE ← ← ←
+  cliente_nombre: string;
+  cliente_telefono: string;
+  cliente_email: string;
+  
+  // ← ← ← FECHAS Y NOTAS ← ← ←
+  fecha: string;
+  notas?: string;
+  
+  // ← ← ← ITEMS ANIDADOS (DEFINICIÓN COMPLETA) ← ← ←
   items?: Array<{
     id: number;
     tipo_item: string;
-    profesional: number | null;
     descripcion: string;
     cantidad: number;
+    precio_unitario: string;  // ← ← ← AGREGAR (FALTABA - CRÍTICO)
     subtotal: string;
+    profesional?: number | null;
+    profesional_nombre?: string | null;
+    cita?: number | null;
+    producto?: number | null;
+  }>;
+  
+  // ← ← ← DISTRIBUCIONES DE PROPINA ← ← ←
+  distribuciones_propina?: Array<{
+    id: number;
+    profesional: number;
+    profesional_nombre: string;
+    monto_propina: string;
   }>;
 }
 
@@ -101,7 +126,17 @@ interface CitaHuerfana {
   fecha?: string;       // ← NUEVO: Fecha de la cita
   hora_inicio?: string; // ← NUEVO: Hora de la cita
 }
-
+// ← ← ← AGREGAR ESTA INTERFAZ ← ← ←
+interface AbonoRecibo {
+  id: number;
+  recibo: number;
+  monto: number;
+  metodo_pago: 'nequi' | 'transferencia' | 'efectivo' | 'daviplata' | 'bold' | 'tarjeta';
+  fecha_abono: string;
+  referencia_externa?: string;
+  metodo_pago_display: string;
+}
+// ← ← ← FIN AGREGADO ← ← ←
 
 // ← ← ← COMPONENTE PRINCIPAL ← ← ←
 
@@ -126,6 +161,13 @@ export default function CajaPage() {
   const [modalNuevoValeOpen, setModalNuevoValeOpen] = useState(false);
   const [modalEditarReciboOpen, setModalEditarReciboOpen] = useState(false);
   const [reciboEditarId, setReciboEditarId] = useState<number | null>(null);
+
+  // ← ← ← AGREGAR: Para almacenar el ID del recibo borrador recién creado
+  const [nuevoReciboDraftId, setNuevoReciboDraftId] = useState<number | null>(null);
+
+  // ← ← ← NUEVO: Estado para modal de impresión de recibo
+  const [modalReciboImpresionOpen, setModalReciboImpresionOpen] = useState(false);
+  const [reciboParaImprimir, setReciboParaImprimir] = useState<ReciboCaja | null>(null);
 
   // ← ← ← NUEVO: Estado para modal de comisiones ← ← ←
   const [modalComisionesOpen, setModalComisionesOpen] = useState(false);
@@ -172,6 +214,9 @@ export default function CajaPage() {
   const [citasSeleccionadas, setCitasSeleccionadas] = useState<Set<number>>(new Set());
   const [citasParaCancelar, setCitasParaCancelar] = useState<Set<number>>(new Set());
 
+  const [abonos, setAbonos] = useState<any[]>([]);
+  // ← ← ← NUEVO ESTADO para abonos del modal de impresión ← ← ←
+const [abonosParaImpresion, setAbonosParaImpresion] = useState<AbonoRecibo[]>([]);
 
   // ... dentro del componente:
   const [recibos, setRecibos] = useState<any[]>([]);
@@ -241,6 +286,61 @@ const handleGuardarMetodo = async (reciboId: number, nuevoMetodo: string) => {
     setMetodoTemporal(detalleRecibo?.metodo_pago || '');
   } finally {
     setEditandoMetodo(false);
+  }
+};
+const cargarAbonosRecibo = async (reciboId: number) => {
+  try {
+    const res = await fetch(`${apiUrl}/caja/abonos/resumen/${reciboId}/`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setAbonos(data.abonos || []);
+    }
+  } catch (err) {
+    console.error('Error cargando abonos:', err);
+    setAbonos([]);
+  }
+};
+
+const handleVerReciboImpresion = async (recibo: ReciboCaja) => {
+  if (recibo.estado !== 'publicado') {
+    alert('ℹ️ Solo se pueden ver/imprimir recibos publicados');
+    return;
+  }
+  
+  try {
+    // ← ← ← CARGAR ABONOS DEL RECIBO ← ← ←
+    let abonosCargados: AbonoRecibo[] = [];
+    const resAbonos = await fetch(`${apiUrl}/caja/abonos/?recibo=${recibo.id}`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    if (resAbonos.ok) {
+      const data = await resAbonos.json();
+      abonosCargados = Array.isArray(data) ? data : (data.results || []);
+    }
+    
+    // Cargar detalle completo si es necesario
+    if (!recibo.items || recibo.items.length === 0) {
+      const res = await fetch(`${apiUrl}/caja/recibos/${recibo.id}/`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      if (res.ok) {
+        const detalle = await res.json();
+        setReciboParaImprimir(detalle);
+      } else {
+        setReciboParaImprimir(recibo);
+      }
+    } else {
+      setReciboParaImprimir(recibo);
+    }
+    
+    // ← ← ← PASAR ABONOS AL MODAL ← ← ←
+    setAbonosParaImpresion(abonosCargados);  // ← Nuevo estado (ver paso 2)
+    setModalReciboImpresionOpen(true);
+  } catch (err) {
+    console.error('❌ Error cargando recibo para impresión:', err);
+    alert('⚠️ No se pudo cargar el detalle del recibo');
   }
 };
 
@@ -706,19 +806,24 @@ useEffect(() => {
 useEffect(() => {
   if (!sessionActiva || sessionActiva.estado !== 'abierta') return;
 
+  
   const verificarCitasHuerfanas = async () => {
-    // Evitar interrumpir al usuario si ya tiene otro modal abierto
-    if (
-      modalNuevoReciboOpen || 
-      modalCerrarCajaOpen || 
-      modalHistorialOpen || 
-      modalHuerfanasOpen || 
-      modalEditarReciboOpen ||  // ← ← ← NUEVO: modal de edición
-      modalAsignarSueltosOpen   // ← ← ← NUEVO: modal de asignación
-    ) {
-      console.log('⏭️ [Sondeo] Saltando: hay modales abiertos');
-      return;
-    }
+  // ← ← ← CONDICIÓN SIMPLIFICADA: Solo modales que realmente existen ← ← ←
+  if (
+    modalNuevoReciboOpen ||           // ← CajaReciboModal: nuevo
+    modalEditarReciboOpen ||          // ← CajaReciboModal: edición
+    modalReciboImpresionOpen ||       // ← ReciboImpresionModal
+    modalCerrarCajaOpen ||
+    modalHistorialOpen ||
+    modalHuerfanasOpen ||             // ← Ya está mostrando esta alerta
+    modalAsignarSueltosOpen ||
+    modalComisionesOpen
+  ) {
+    console.log('⏭️ [Sondeo] Saltando: modal activo');
+    return;
+  }
+  
+  // ... continuar con el sondeo normal ...
     try {
       const res = await fetch(`${apiUrl}/citas/sin-recibo-para-caja/`, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
@@ -776,6 +881,7 @@ const cargarDetalleRecibo = async (reciboId: number) => {
     return;
   }
   
+
   setLoadingDetalle(true);
   try {
     const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/`, {
@@ -804,6 +910,29 @@ const cargarDetalleRecibo = async (reciboId: number) => {
   } finally {
     setLoadingDetalle(false);
   }
+};
+
+
+// ← ← ← FUNCIÓN CORREGIDA: Abrir modal según estado del recibo ← ← ←
+const handleClicRecibo = (recibo: ReciboCaja) => {
+console.log('📦 [CajaPage] Click en recibo:', recibo.codigo_recibo, '| Estado:', recibo.estado);
+
+if (recibo.estado === 'borrador') {
+// ← ← ← BORRADOR: Abrir modal de edición
+console.log('✏️ Abriendo CajaReciboModal para editar');
+setReciboEditarId(recibo.id);
+setModalEditarReciboOpen(true);
+} 
+else if (recibo.estado === 'publicado') {
+// ← ← ← PUBLICADO: Abrir modal de impresión
+console.log('🖨️ Abriendo ReciboImpresionModal para imprimir');
+setReciboParaImprimir(recibo);
+setModalReciboImpresionOpen(true);
+} 
+else {
+// ← ← ← OTROS ESTADOS: Mostrar mensaje informativo
+alert(`ℹ️ El recibo ${recibo.codigo_recibo} está en estado "${recibo.estado}" y no se puede modificar.`);
+}
 };
 // ← ← ← FUNCIÓN: Cargar historial de sesiones de caja ← ← ←
 const cargarHistorialSesiones = async (fecha?: string) => {
@@ -1000,6 +1129,48 @@ const crearRecibosParaHuerfanas = async () => {
     setCitasSeleccionadas(new Set());
   }
 };
+
+// ← ← ← NUEVA FUNCIÓN: Crea borrador en BD y abre modal en modo edición
+const handleCrearYAbrirRecibo = async () => {
+  if (!sessionActiva) {
+    alert('⚠️ Debes tener una sesión de caja abierta para crear un recibo');
+    return;
+  }
+  try {
+    const res = await fetch(`${apiUrl}/caja/recibos/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        tipo: 'venta',
+        estado: 'borrador',
+        session_caja: sessionActiva.id,
+        cliente_nombre: 'Cliente',
+        cliente_telefono: 'No proporcionado',
+        cliente_email: 'no@proporcionado.com',
+        notas: '',        
+        metodo_pago: 'bold',  // ← ← ← REQUERIDO para tipo='venta'
+        subtotal: 0,
+        descuento: 0,
+        total: 0,
+        propina_total: 0,
+        items_data: [] // ← Se crea vacío, los items se agregan luego
+      })     
+ 
+    });
+    if (!res.ok) throw new Error('Error creando recibo borrador');
+    const data = await res.json();
+    setNuevoReciboDraftId(data.id);
+    setModalNuevoReciboOpen(true);
+    console.log(`✅ Recibo borrador creado: ${data.codigo_recibo} (ID: ${data.id})`);
+  } catch (err: any) {
+    console.error('❌ Error creando recibo borrador:', err);
+    alert(`⚠️ No se pudo crear el recibo: ${err.message}`);
+  }
+};
+
 
   // ← ← ← NUEVA FUNCIÓN: Publicar recibo con validaciones ← ← ←
   const handlePublicarRecibo = async (reciboId: number) => {
@@ -2244,7 +2415,7 @@ const formatDate = (dateStr: string): string => {
                 </span>
               </h3>
               <button
-                onClick={() => setModalNuevoReciboOpen(true)}
+                onClick={handleCrearYAbrirRecibo}
                 disabled={!sessionActiva}
                 className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50 flex items-center gap-1"
               >
@@ -2265,7 +2436,8 @@ const formatDate = (dateStr: string): string => {
                     <ReciboCard
                         key={recibo.id}
                         recibo={recibo}
-                        onExpand={cargarDetalleRecibo}
+                        //onExpand={cargarDetalleRecibo}
+                        onExpand={() => handleClicRecibo(recibo)}
                         isExpanded={reciboExpandido === recibo.id}
                         onEditar={handleEditarRecibo}
                         onPublicar={handlePublicarRecibo}
@@ -3230,29 +3402,44 @@ const formatDate = (dateStr: string): string => {
   </div>
 )}
 
-      {/* ← ← ← MODAL: Nuevo Recibo Compuesto ← ← ← CORREGIDO ← ← ← */}
       {modalNuevoReciboOpen && sessionActiva && (
-        <CajaReciboModal
-        isOpen={modalNuevoReciboOpen}
-        onClose={() => {
-        setModalNuevoReciboOpen(false);
-        }}
-        sessionCajaId={sessionActiva?.id}
-        reciboParaEditarId={null}
-        apiUrl={apiUrl}
-        token={token}
-        onReciboCreado={(recibo) => {
-        cargarDatosCaja();
-        setModalNuevoReciboOpen(false);
-        }}
-        // ← ← ← AGREGAR ESTE CALLBACK:
-        onComisionesPagadas={() => {
-        console.log('💰 Comisiones pagadas, actualizando caja...');
-        cargarDatosCaja(); // Recargar sesión, recibos, vales
-        setModalNuevoReciboOpen(false); // Cerrar modal de recibo también
-        }}
-        />
-        )}
+  <CajaReciboModal
+    isOpen={modalNuevoReciboOpen}
+    onClose={() => {
+      setModalNuevoReciboOpen(false);
+      setNuevoReciboDraftId(null); // ← ← ← LIMPIAR ID AL CERRAR
+    }}
+    sessionCajaId={sessionActiva?.id}
+    reciboParaEditarId={nuevoReciboDraftId}  // ← ← ← USAR ID REAL DEL BORRADOR
+    apiUrl={apiUrl}
+    token={token}
+    onReciboCreado={(recibo) => {
+      cargarDatosCaja();
+      setModalNuevoReciboOpen(false);
+      setNuevoReciboDraftId(null); // ← ← ← LIMPIAR ID AL CREAR
+    }}
+    onReciboActualizado={(recibo) => {
+      console.log('🔄 [CajaPage] Recibo actualizado, recargando datos...', {
+        reciboId: recibo.id,
+        codigo: recibo.codigo_recibo,
+        total: recibo.total,
+        timestamp: Date.now()
+      });
+      const cacheBuster = Date.now();
+      cargarDatosCaja(cacheBuster);
+      setModalNuevoReciboOpen(false);
+      setNuevoReciboDraftId(null); // ← ← ← LIMPIAR ID AL ACTUALIZAR
+    }}
+    // ← ← ← AGREGAR ESTE CALLBACK SI NO LO TENÍAS:
+    onComisionesPagadas={() => {
+      console.log('💰 Comisiones pagadas, actualizando caja...');
+      cargarDatosCaja();
+      setModalNuevoReciboOpen(false);
+      setNuevoReciboDraftId(null);
+    }}
+  />
+)}
+      
 
       {/* ← ← ← MODAL: HISTORIAL DE SESIONES DE CAJA ← ← ← */}
                 {modalHistorialOpen && (
@@ -3499,7 +3686,19 @@ const formatDate = (dateStr: string): string => {
                   </div>
                 )}
 
-
+      {/* ← ← ← MODAL: Ver/Imprimir Recibo Publicado ← ← ← */}
+       <ReciboImpresionModal
+        isOpen={modalReciboImpresionOpen}
+        onClose={() => {
+          setModalReciboImpresionOpen(false);
+          setReciboParaImprimir(null);
+          setAbonosParaImpresion([]);  // ← Limpiar también este estado
+        }}
+        recibo={reciboParaImprimir}
+        formatMoney={formatMoney}
+        formatDate={formatDate}
+        abonos={abonosParaImpresion}  // ← ← ← AGREGAR ESTA LÍNEA
+      />
     </div>
   );
 }

@@ -70,7 +70,7 @@ interface AbonoRecibo {
   id: number;
   recibo: number;
   monto: number;
-  metodo_pago: 'efectivo' | 'transferencia' | 'nequi' | 'daviplata' | 'bold' | 'tarjeta';
+  metodo_pago: 'nequi' | 'transferencia' | 'efectivo' | 'daviplata' | 'bold' | 'tarjeta';
   fecha_abono: string;
   referencia_externa?: string;
   metodo_pago_display: string;
@@ -192,16 +192,72 @@ export default function CajaReciboModal({
   // ← ← ← NUEVOS ESTADOS PARA FLUJO DE ABONOS ← ← ←
   const [showAbonoModal, setShowAbonoModal] = useState(false);
   const [montoAbono, setMontoAbono] = useState('');
-  const [metodoPagoAbono, setMetodoPagoAbono] = useState('efectivo');
+  const [metodoPagoAbono, setMetodoPagoAbono] = useState('bold');
   const [referenciaExterna, setReferenciaExterna] = useState<string>('');
 
-  const [abonos, setAbonos] = useState<AbonoRecibo[]>([]);
-const [resumenAbonos, setResumenAbonos] = useState<{
-  total_abonado: number;
-  saldo_pendiente: number;
-  porcentaje_abonado: number;
-  puede_publicar: boolean;
-} | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<ReciboItem | null>(null);
+
+
+  // ← ← ← AGREGAR ESTO junto a tus otros useState ← ← ←
+const [abonos, setAbonos] = useState<AbonoRecibo[]>([]);
+// ← ← ← CALCULAR TOTALES ← ← ←
+const subtotal = useMemo(() => {
+  return items.reduce((sum, item) => sum + item.subtotal, 0);
+}, [items]);
+
+const total = useMemo(() => {
+  return subtotal - descuento + propinaTotal;
+}, [subtotal, descuento, propinaTotal]);
+
+// ← ← ← RESUMEN DE ABONOS (reactivo + detección de exceso de pago) ← ← ←
+const resumenAbonos = useMemo(() => {
+    const totalNumerico = Number(total) || 0;
+    const totalAbonado = abonos.reduce((sum, abono) => sum + (Number(abono.monto) || 0), 0);
+
+    if (!abonos.length || totalNumerico <= 0) {
+        return {
+            total_abonado: totalAbonado,
+            saldo_pendiente: totalNumerico <= 0 ? 0 : totalNumerico,
+            porcentaje_abonado: totalNumerico > 0 ? (totalAbonado / totalNumerico) * 100 : (totalAbonado > 0 ? 100 : 0),
+            puede_publicar: false,
+            excede_total: totalAbonado > 0 // Si hay abonos pero total <= 0, se considera exceso
+        };
+    }
+
+    const saldoPendiente = Math.max(0, totalNumerico - totalAbonado);
+    const porcentajeAbonado = (totalAbonado / totalNumerico) * 100;
+    const excedeTotal = totalAbonado > totalNumerico;
+
+    return {
+        total_abonado: totalAbonado,
+        saldo_pendiente: saldoPendiente,
+        porcentaje_abonado: porcentajeAbonado,
+        puede_publicar: !excedeTotal && porcentajeAbonado >= 99.99, // ← CLAVE: Solo publica si NO excede y está ~100%
+        excede_total: excedeTotal
+    };
+}, [abonos, total]);
+
+// ← ← ← NUEVO: Estado para advertencia visual ← ← ←
+const [advertenciaTotal, setAdvertenciaTotal] = useState(false);
+
+// Efecto para mostrar advertencia cuando el total cambia
+useEffect(() => {
+  if (resumenAbonos && !resumenAbonos.puede_publicar && abonos.length > 0) {
+    setAdvertenciaTotal(true);
+    const timer = setTimeout(() => setAdvertenciaTotal(false), 3000);
+    return () => clearTimeout(timer);
+  }
+}, [total, resumenAbonos?.puede_publicar]);
+
+
+
+// En el render, mostrar advertencia:
+{advertenciaTotal && (
+  <div className="text-xs text-orange-400 bg-orange-900/30 px-3 py-2 rounded mb-2">
+    ⚠️ El total cambió. Verifica que los abonos cubran el 100% para publicar.
+  </div>
+)}
+  
 
 // ← ← ← NUEVO: Estado para saber si estamos editando o creando un abono
 const [abonoEditandoId, setAbonoEditandoId] = useState<number | null>(null);
@@ -214,11 +270,13 @@ const cargarResumenAbonos = async (reciboId: number) => {
     });
     if (res.ok) {
       const data = await res.json();
-      setResumenAbonos(data);
-      setAbonos(data.abonos);
+      // ← ← ← SOLO actualizar la lista de abonos, NO el resumen calculado
+      setAbonos(data.abonos || []);
+      // ← ← ← El resumen se calculará automáticamente por el useMemo
     }
   } catch (err) {
     console.error('Error cargando abonos:', err);
+    setAbonos([]);  // Fallback: lista vacía
   }
 };
 
@@ -246,20 +304,6 @@ const getTimeForColombia = (date: Date): string => {
     timeZone: 'America/Bogota'
   });
 };
-
-
-
-  // ← ← ← CALCULAR TOTALES ← ← ←
-  const subtotal = useMemo(() => {
-    return items.reduce((sum, item) => sum + item.subtotal, 0);
-  }, [items]);
-
-  const total = useMemo(() => {
-    return subtotal - descuento + propinaTotal;
-  }, [subtotal, descuento, propinaTotal]);
-
-  // ... (tu código existente con const total = useMemo(...))
-
 
 
   // ← ← ← REEMPLAZAR el useEffect existente por este ← ← ←
@@ -401,64 +445,71 @@ const registrarAbonoEnCitas = async (montoAbono: number, metodoPago: string) => 
       
       // ← ← ← 4. CARGAR ITEMS CON ESTRUCTURA CORRECTA ← ← ←
       if (recibo.items && Array.isArray(recibo.items)) {
-        // Primero mapear items básicos
-        const itemsMapeados: ReciboItem[] = recibo.items.map((item: any) => {
-          // ← ← ← EXTRAER servicio_id: puede venir en diferentes lugares ← ← ←
+      const itemsMapeados: ReciboItem[] = recibo.items.map((item: any) => {
+          // ← ← ← 1. EXTRAER servicio_id CON VALIDACIÓN EXPLÍCITA ← ← ←
           let servicioId: number | undefined;
-          
           if (item.tipo_item === 'servicio') {
-            // Prioridad 1: servicio_id directo del serializer
-            if (item.servicio_id) {
-              servicioId = item.servicio_id;
-            }
-            // Prioridad 2: desde cita.servicio (objeto o ID)
-            else if (item.cita && typeof item.cita === 'object' && item.cita.servicio) {
-              servicioId = typeof item.cita.servicio === 'object' 
-                ? item.cita.servicio.id 
-                : item.cita.servicio;
-            }
-            // Prioridad 3: campo anidado servicio
-            else if (item.servicio && typeof item.servicio === 'object') {
-              servicioId = item.servicio.id;
-            }
+              if (item.servicio_id) {
+                  servicioId = item.servicio_id;
+              } else if (item.cita && typeof item.cita === 'object' && item.cita.servicio) {
+                  servicioId = typeof item.cita.servicio === 'object' && item.cita.servicio !== null
+                      ? item.cita.servicio.id 
+                      : item.cita.servicio;
+              } else if (item.servicio && typeof item.servicio === 'object' && item.servicio !== null) {
+                  servicioId = item.servicio.id;
+              }
           }
-          
-          // ← ← ← EXTRAER codigo_reserva: puede venir en diferentes lugares ← ← ←
+
+          // ← ← ← 2. EXTRAER codigo_reserva CON VALIDACIÓN ← ← ←
           let codigoReserva: string | undefined;
-          
           if (item.tipo_item === 'servicio' && item.cita) {
-            if (typeof item.cita === 'object' && item.cita.codigo_reserva) {
-              codigoReserva = item.cita.codigo_reserva;
-            } else if (item.codigo_reserva_cita) {
-              codigoReserva = item.codigo_reserva_cita;
-            }
+              if (typeof item.cita === 'object' && item.cita.codigo_reserva) {
+                  codigoReserva = item.cita.codigo_reserva;
+              } else if (item.codigo_reserva_cita) {
+                  codigoReserva = item.codigo_reserva_cita;
+              }
           }
-          
+
+          // ← ← ← 3. EXTRAER FKs CON CHEQUEO EXPLÍCITO DE NULL ← ← ←
+          // ✅ CORRECCIÓN: item.cita && antes de typeof para evitar el trap de null
+          const citaId = item.tipo_item === 'servicio' 
+              ? (item.cita && typeof item.cita === 'object' ? item.cita.id : (item.cita_id || item.cita || undefined))
+              : undefined;
+              
+          const profesionalId = item.profesional 
+              ? (typeof item.profesional === 'object' ? item.profesional.id : item.profesional) 
+              : undefined;
+
+          // ✅ CORRECCIÓN: Validación explícita contra null
+          const productoId = item.tipo_item === 'producto'
+              ? (item.producto && typeof item.producto === 'object' && item.producto !== null
+                  ? item.producto.id 
+                  : (item.producto_id || item.producto || undefined))
+              : undefined;
+
           return {
-            id: item.id.toString(),
-            tipo: item.tipo_item,
-            // ← ← ← CAMPOS CLAVE PARA SERVICIOS ← ← ←
-            servicioId: item.tipo_item === 'servicio' ? servicioId : undefined,
-            productoId: item.tipo_item === 'producto' ? item.producto : undefined,
-            descripcion: item.descripcion,
-            cantidad: item.cantidad,
-            precioUnitario: parseFloat(item.precio_unitario) || 0,
-            subtotal: parseFloat(item.subtotal) || 0,
-            // ← ← ← PROFESIONAL ← ← ←
-            profesionalId: item.profesional || undefined,
-            profesionalNombre: item.profesional_nombre || undefined,
-            // ← ← ← CITA VINCULADA ← ← ←
-            citaId: item.tipo_item === 'servicio' ? (item.cita || undefined) : undefined,
-            codigoReserva: codigoReserva,  // ← ← ← AHORA SE CARGA CORRECTAMENTE
-            // ← ← ← MARCAR COMO ITEM EXISTENTE (NO NUEVO) ← ← ←
-            esNuevo: false
+              id: String(item.id || ''),
+              tipo: item.tipo_item,
+              servicioId,
+              productoId,
+              descripcion: item.descripcion || 'Sin descripción',
+              cantidad: item.cantidad || 1,
+              precioUnitario: parseFloat(item.precio_unitario) || 0,
+              subtotal: parseFloat(item.subtotal) || 0,
+              profesionalId,
+              profesionalNombre: item.profesional_nombre || undefined,
+              citaId,
+              codigoReserva,
+              esNuevo: false,
+              imagenUrl: item.imagen_url || null,
+              propinaItem: parseFloat(item.propina_item) || 0,
           };
-        });
-        
-        // ← ← ← 5. CARGAR CÓDIGOS DE RESERVA PARA CITAS QUE NO LOS TENGAN ← ← ←
-        const itemsSinCodigo = itemsMapeados.filter(
+      });
+
+      // ← ← ← 5. CARGAR CÓDIGOS DE RESERVA PARA CITAS QUE NO LOS TENGAN ← ← ←
+      const itemsSinCodigo = itemsMapeados.filter(
           item => item.tipo === 'servicio' && item.citaId && !item.codigoReserva
-        );
+      );
         
         if (itemsSinCodigo.length > 0) {
           const citaIds = Array.from(
@@ -805,7 +856,7 @@ const registrarAbonoEnCitas = async (montoAbono: number, metodoPago: string) => 
           profesionalNombre: undefined,
           imagenUrl: servicio.imagen_url,
           productosAsociados: [],
-          esNuevo: true,  // ← ← ← MARCAR COMO NUEVO SI ESTÁ EN MODO EDICIÓN
+          esNuevo: !reciboId,  // ← ← ← MARCAR COMO NUEVO SI ESTÁ EN MODO EDICIÓN
         };
 
         setItems(prev => [...prev, nuevoItem]);
@@ -848,37 +899,85 @@ const registrarAbonoEnCitas = async (montoAbono: number, metodoPago: string) => 
     }
   };
 
-  // ← Actualizar cantidad de item
-  const actualizarCantidad = (itemId: string, nuevaCantidad: number) => {
-    if (nuevaCantidad < 1) return;
-    
-    setItems(prev => prev.map(item => {
-      if (item.id === itemId) {
-        return {
-          ...item,
-          cantidad: nuevaCantidad,
-          subtotal: nuevaCantidad * item.precioUnitario
-        };
-      }
-      return item;
-    }));
-  };
+// ← ← ← ACTUALIZAR CANTIDAD + SINCRONIZAR CON BACKEND ← ← ←
+const actualizarCantidadItem = async (itemId: string, nuevaCantidad: number) => {
+  if (nuevaCantidad < 1) return;
+  
+  // 1. Buscar item actual para obtener precioUnitario
+  const currentItem = items.find(i => i.id === itemId);
+  if (!currentItem) return;
 
-  // ← Actualizar precio unitario
-  const actualizarPrecio = (itemId: string, nuevoPrecio: number) => {
-    if (nuevoPrecio < 0) return;
-    
-    setItems(prev => prev.map(item => {
-      if (item.id === itemId) {
-        return {
-          ...item,
-          precioUnitario: nuevoPrecio,
-          subtotal: item.cantidad * nuevoPrecio
-        };
-      }
-      return item;
-    }));
-  };
+  const nuevoTotal = nuevaCantidad * currentItem.precioUnitario;
+
+  // 2. Actualizar estado local inmediatamente
+  setItems(prev => prev.map(item => {
+    if (item.id === itemId) {
+      return {
+        ...item,
+        cantidad: nuevaCantidad,
+        subtotal: nuevoTotal
+      };
+    }
+    return item;
+  }));
+
+  // 3. Sincronizar con BD si el item está vinculado a una cita
+  if (currentItem.citaId) {
+    try {
+      await fetch(`${apiUrl}/citas/${currentItem.citaId}/`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ precio_total: nuevoTotal })
+      });
+      console.log(`✅ Cita ${currentItem.citaId} actualizada: precio_total = $${nuevoTotal}`);
+    } catch (err) {
+      console.error('❌ Error actualizando precio de cita:', err);
+    }
+  }
+};
+
+// ← ← ← ACTUALIZAR PRECIO + SINCRONIZAR CON BACKEND ← ← ←
+const actualizarPrecioItem = async (itemId: string, nuevoPrecio: number, esServicioConCita: boolean) => {
+  if (nuevoPrecio < 0) return;
+
+  // 1. Buscar item actual para obtener cantidad
+  const currentItem = items.find(i => i.id === itemId);
+  if (!currentItem) return;
+
+  const nuevoTotal = currentItem.cantidad * nuevoPrecio;
+
+  // 2. Actualizar estado local inmediatamente
+  setItems(prev => prev.map(item => {
+    if (item.id === itemId) {
+      return {
+        ...item,
+        precioUnitario: nuevoPrecio,
+        subtotal: nuevoTotal
+      };
+    }
+    return item;
+  }));
+
+  // 3. Sincronizar con BD si es servicio vinculado a cita
+  if (esServicioConCita && currentItem.citaId) {
+    try {
+      await fetch(`${apiUrl}/citas/${currentItem.citaId}/`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ precio_total: nuevoTotal })
+      });
+      console.log(`✅ Cita ${currentItem.citaId} actualizada: precio_total = $${nuevoTotal}`);
+    } catch (err) {
+      console.error('❌ Error actualizando precio de cita:', err);
+    }
+  }
+};
 
 // ← ← ← FUNCIÓN REMOVER ITEM CORREGIDA ← ← ←
 const removerItem = async (itemId: string) => {
@@ -1350,27 +1449,83 @@ useEffect(() => {
       setLoading(false);
     }
   };
-
+// ← ← ← NUEVA FUNCIÓN: Eliminar abono existente ← ← ←
+const handleEliminarAbono = async (abonoId: number) => {
+  // Confirmación antes de eliminar
+  const confirmar = window.confirm(
+    '⚠️ ¿Estás seguro de eliminar este abono?\n\n' +
+    'Esta acción no se puede deshacer y el saldo pendiente del recibo aumentará.'
+  );
+  
+  if (!confirmar) return;
+  
+  setLoading(true);
+  try {
+    const res = await fetch(`${apiUrl}/caja/abonos/${abonoId}/`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      }
+    });
+    
+    if (res.ok) {
+      alert('✅ Abono eliminado exitosamente');
+      // ← ← ← Recargar resumen de abonos para actualizar saldos ← ← ←
+      if (reciboId) {
+        await cargarResumenAbonos(reciboId);
+      }
+    } else {
+      const error = await res.json();
+      alert(`❌ Error: ${error.detail || error.error || 'No se pudo eliminar el abono'}`);
+    }
+  } catch (err: any) {
+    console.error('❌ Error eliminando abono:', err);
+    alert(`❌ Error de conexión: ${err.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
 const handleRegistrarAbono = async () => {
   if (!reciboId || !montoAbono) return;
   
   const montoNum = parseFloat(montoAbono);
-  const maxAbono = total - (resumenAbonos?.total_abonado || 0) + (abonoEditandoId ? parseFloat(abonos.find(a => a.id === abonoEditandoId)?.monto.toString() || '0') : 0);
   
-  // Validación extra de seguridad (permitir guardar el mismo monto en edición)
-  if (montoNum > maxAbono && !abonoEditandoId) {
-    alert(`⚠️ El monto excede el saldo pendiente (${formatMoney(maxAbono)})`);
+  // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+  // ← ← ← CORRECCIÓN: Calcular saldo disponible excluyendo abono en edición ← ← ←
+  // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+  
+  const totalAbonado = resumenAbonos?.total_abonado || 0;
+  
+  // Buscar el abono que se está editando (con comparación flexible de tipos)
+  const abonoEditando = abonoEditandoId 
+    ? abonos.find(a => String(a.id) === String(abonoEditandoId)) 
+    : null;
+  
+  const montoAbonoEditando = abonoEditando ? parseFloat(abonoEditando.monto.toString()) : 0;
+  
+  // Calcular total de OTROS abonos (excluyendo el que se está editando)
+  const otrosAbonos = totalAbonado - montoAbonoEditando;
+  
+  // Calcular máximo permitido: total recibo - otros abonos
+  const maxAbono = total - otrosAbonos;
+  
+  // ← ← ← VALIDACIÓN UNIFICADA (funciona para creación y edición) ← ← ←
+  if (montoNum + otrosAbonos > total) {
+    const disponible = total - otrosAbonos;
+    alert(`⚠️ El monto excede el saldo pendiente. Disponible: ${formatMoney(disponible)}`);
     return;
   }
-
+  
+  // ← ← ← RESTO DE LA FUNCIÓN (sin cambios) ← ← ←
   setLoading(true);
   try {
     const isEditing = abonoEditandoId !== null;
     const method = isEditing ? 'PATCH' : 'POST';
-    const url = isEditing 
-      ? `${apiUrl}/caja/abonos/${abonoEditandoId}/` 
+    const url = isEditing
+      ? `${apiUrl}/caja/abonos/${abonoEditandoId}/`
       : `${apiUrl}/caja/abonos/`;
-
+    
     const res = await fetch(url, {
       method,
       headers: {
@@ -1404,7 +1559,6 @@ const handleRegistrarAbono = async () => {
     setLoading(false);
   }
 };
-
   const handleGuardar = async () => {
     if (items.length === 0 && tipoRecibo !== 'entrada') {
       alert('⚠️ Agrega al menos un item al recibo');
@@ -1458,13 +1612,14 @@ if (metodoPago === 'pendiente') {
         items_data: items.map(item => {
           // ← ← ← VALIDACIÓN MEJORADA DE ID ← ← ←
           const itemIdNum = item.id && !isNaN(Number(item.id)) ? Number(item.id) : null;
-          
           return {
             // Solo incluir id si es válido
             ...(itemIdNum && { id: itemIdNum }),
             tipo_item: item.tipo,
-            ...(item.servicioId && { cita: item.citaId, profesional: item.profesionalId }),
-            ...(item.productoId && { producto: item.productoId }),
+            // ← ← ← CORREGIDO: Usar sufijo _id para FKs (coincidir con backend) ← ← ←
+            ...(item.servicioId && item.citaId && /^\d+$/.test(String(item.citaId)) && { cita_id: Number(item.citaId) }),
+            ...(item.servicioId && item.profesionalId && /^\d+$/.test(String(item.profesionalId)) && { profesional_id: Number(item.profesionalId) }),
+            ...(item.productoId && /^\d+$/.test(String(item.productoId)) && { producto_id: Number(item.productoId) }),
             descripcion: item.descripcion,
             cantidad: item.cantidad,
             precio_unitario: item.precioUnitario,
@@ -1489,6 +1644,10 @@ if (metodoPago === 'pendiente') {
       }
 
       const reciboCreado = await res.json();
+      // ← ← ← PEGA AQUÍ ESTE LOG ← ← ←
+        console.log('🔍 [handleGuardar] Items EN MEMORIA después de POST:', items.map(i => ({
+            id: i.id, desc: i.descripcion, esNuevo: i.esNuevo, citaId: i.citaId
+        })));
 
       if (propinaTotal > 0) {
         const distribucionActual = calcularDistribucionPropina;  // ← Usar useMemo
@@ -1645,32 +1804,66 @@ const sanitizeForJSON = (value: any): any => {
 // ... dentro de CajaReciboModal.tsx
 
 const handleActualizarReciboConPayload = async (payloadBase: any) => {
+    
+      // ← ← ← PREVENIR EJECUCIÓN DUPLICADA EN STRICT MODE ← ← ←
+    if (loading) {
+        console.log('⏭️ [handleActualizarReciboConPayload] Ya hay una operación en curso, saltando');
+        return;
+    }
+
     if (!reciboId) return;
     setLoading(true);
     
     try {
         // 1. CONSTRUIR items_data CON VALIDACIÓN ESTRICTA
         const itemsData = items.map(item => {
-            const shouldIncludeId = !item.esNuevo && item.id && /^\d+$/.test(String(item.id)) && Number(item.id) > 0;
+            const idRaw = item.id;
+            const idEsNumerico = typeof idRaw === 'number' || (typeof idRaw === 'string' && /^\d+$/.test(idRaw.trim()));
             
             const itemData: any = {
                 tipo_item: item.tipo || 'servicio',
-                 descripcion: String(item.descripcion || '').trim() || 'Sin descripción',
-                cantidad: Math.max(1, parseInt(String(item.cantidad)) || 1),
-                precio_unitario: Math.round((parseFloat(String(item.precioUnitario)) || 0) * 100) / 100,
-                propina_item: Math.round((parseFloat(String(item.propinaItem)) || 0) * 100) / 100,
+                descripcion: (item.descripcion || '').trim() || 'Sin descripción',
+                cantidad: Math.max(1, Number(item.cantidad) || 1),
+                precio_unitario: Math.round((Number(item.precioUnitario) || 0) * 100) / 100,
+                subtotal: Math.round((Number(item.subtotal) || 0) * 100) / 100,
+                propina_item: Math.round((Number(item.propinaItem) || 0) * 100) / 100,
             };
 
-            if (item.tipo === 'servicio') {
-                if (item.citaId && /^\d+$/.test(String(item.citaId))) itemData.cita = Number(item.citaId);
-                if (item.profesionalId && /^\d+$/.test(String(item.profesionalId))) itemData.profesional = Number(item.profesionalId);
-            } else if (item.tipo === 'producto') {
-                if (item.productoId && /^\d+$/.test(String(item.productoId))) itemData.producto = Number(item.productoId);
+            // ← ← ← SOLO incluir ID si es numérico (item existente en BD)
+            if (idEsNumerico) {
+                itemData.id = Number(idRaw);
             }
 
-            if (shouldIncludeId) itemData.id = Number(item.id);
+            if (item.tipo === 'servicio') {
+                // ← ← ← CLAVE: Incluir cita_id SIEMPRE que exista, incluso en actualización
+                if (item.citaId && /^\d+$/.test(String(item.citaId))) {
+                    itemData.cita_id = Number(item.citaId);
+                    console.debug(`🔗 [payload] cita_id=${itemData.cita_id} para item ${item.id}`);
+
+                }
+                if (item.profesionalId && /^\d+$/.test(String(item.profesionalId))) {
+                    itemData.profesional_id = Number(item.profesionalId);
+                }
+            
+            // ← ← ← AGREGAR ESTE BLOQUE ← ← ←
+            } else if (item.tipo === 'producto') {
+                if (item.productoId && /^\d+$/.test(String(item.productoId))) {
+                    itemData.producto_id = Number(item.productoId);
+                    console.debug(`🔗 [payload] producto_id=${itemData.producto_id} para item ${item.id}`);
+                }
+            }
             return itemData;
         });
+        // ← ← ← LOGGING PARA DEBUG: Ver qué se envía al backend ← ← ←
+          console.log('🔍 [handleActualizar] itemsData enviado al backend:', itemsData.map(i => ({
+              id: i.id, 
+              desc: i.descripcion, 
+              tipo: i.tipo_item, 
+              cita_id: i.cita_id, 
+              profesional_id: i.profesional_id, 
+              producto_id: i.producto_id
+          })));
+
 
         // 2. PAYLOAD BASE
         const payloadToSanitize = {
@@ -1706,6 +1899,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
             }
             return val;
         };
+        console.log('📦 [DEBUG PAYLOAD] items_data enviados:', JSON.stringify(itemsData, null, 2));
 
         const payloadSanitized = sanitize(payloadToSanitize);
         console.log('📦 Payload sanitizado listo:', payloadSanitized);
@@ -1732,8 +1926,43 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
 
         // 5. ÉXITO
         const reciboActualizado = JSON.parse(responseText);
-        console.log('✅ Recibo actualizado exitosamente:', reciboActualizado.codigo_recibo);
+                 
+          if (reciboActualizado.items && Array.isArray(reciboActualizado.items)) {
+              const itemsConIdsReales = reciboActualizado.items.map((item: any) => ({
+                  id: String(item.id),  // ID real del backend como string
+                  tipo: item.tipo_item,
+                  servicioId: item.tipo_item === 'servicio' ? (item.servicio_id || item.cita?.servicio) : undefined,
+                  // ← ← ← CORREGIDO: Validar explícitamente contra null antes de acceder a .id
+                  productoId: item.tipo_item === 'producto'
+                      ? (item.producto_id || (item.producto && typeof item.producto === 'object' && item.producto !== null ? item.producto.id : item.producto) || undefined)
+                      : undefined,
+                  descripcion: item.descripcion,
+                  cantidad: item.cantidad,
+                  precioUnitario: parseFloat(item.precio_unitario) || 0,
+                  subtotal: parseFloat(item.subtotal) || 0,                 
+                  profesionalNombre: item.profesional_nombre || undefined,
+                  // ← ← ← CORREGIDO: Manejar ambos formatos de respuesta del backend ← ← ←
+                  citaId: item.tipo_item === 'servicio'
+                      ? (item.cita_id || (item.cita && typeof item.cita === 'object' && item.cita !== null ? item.cita.id : item.cita) || undefined)
+                      : undefined,
 
+                  profesionalId: item.profesional_id || (item.profesional && typeof item.profesional === 'object' && item.profesional !== null ? item.profesional.id : item.profesional) || undefined,
+                  codigoReserva: item.tipo_item === 'servicio' 
+                      ? (item.codigo_reserva_cita || item.codigo_reserva || (item.cita?.codigo_reserva) || undefined) 
+                      : undefined,
+                  esNuevo: false,  // ← ← ← CLAVE: marcar como existente
+                  imagenUrl: item.imagen_url || null,
+                  propinaItem: parseFloat(item.propina_item) || 0,
+              }));
+              setItems(itemsConIdsReales);  // ← ← ← ACTUALIZAR ESTADO LOCAL
+              
+          }
+          console.log('✅ Recibo actualizado exitosamente:', reciboActualizado.codigo_recibo);
+
+          // ← ← ← PEGA AQUÍ ESTE LOG ← ← ←
+          console.log('🔍 [handleActualizar] Items EN MEMORIA después de PATCH:', items.map(i => ({
+              id: i.id, desc: i.descripcion, esNuevo: i.esNuevo, citaId: i.citaId
+          })));
         // ← ← ← CORREGIDO: Usar reciboActualizado (NO datosParaNotificar)
           alert(`✅ Recibo ${reciboActualizado.codigo_recibo} actualizado`);
 
@@ -1838,11 +2067,42 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
         )}
         
         {/* Cantidad × Precio = Subtotal */}
-        <div className="flex items-center gap-1 text-right shrink-0">
-          <span className="text-gray-400">{item.cantidad}×{formatMoney(item.precioUnitario)}</span>
-          <span className="text-gray-500">=</span>
-          <span className="font-semibold text-green-400">{formatMoney(item.subtotal)}</span>
-        </div>
+          <div className="flex items-center gap-2 text-right shrink-0" onClick={(e) => e.stopPropagation()}>
+            {/* Input Cantidad */}
+            <input
+              type="number"
+              min="1"
+              max="99"
+              value={item.cantidad}
+              onChange={(e) => {
+                const val = Math.max(1, parseInt(e.target.value) || 1);
+                actualizarCantidadItem(item.id, val);
+              }}
+              className="w-12 px-1 py-0.5 bg-gray-900 border border-gray-700 rounded text-white text-xs text-center focus:border-blue-500 focus:outline-none"
+              title="Cantidad"
+            />
+            
+            <span className="text-gray-500">×</span>
+            
+            {/* Input Precio Unitario */}
+            <input
+              type="number"
+              min="0"
+              step="100"
+              value={item.precioUnitario}
+              onChange={(e) => {
+                const val = Math.max(0, parseFloat(e.target.value) || 0);                
+                actualizarPrecioItem(item.id, val, !!(item.tipo === 'servicio' && item.citaId));
+              }}
+              className="w-20 px-1 py-0.5 bg-gray-900 border border-gray-700 rounded text-white text-xs text-right focus:border-green-500 focus:outline-none"
+              title="Precio Unitario"
+            />
+            
+            <span className="text-gray-500">=</span>
+            <span className="font-semibold text-green-400 text-xs">
+              {formatMoney(item.subtotal)}
+            </span>
+          </div>
         
         {/* ← ← ← BOTÓN ELIMINAR (PARA SERVICIOS Y PRODUCTOS) ← ← ← 
         <button
@@ -1870,7 +2130,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
       <div className="flex items-center gap-1 shrink-0">
         
         {/* ← ← ← BOTÓN X ROJA: Quitar del recibo SIN borrar cita ← ← ← */}
-        <button
+       {/* <button
           onClick={(e) => {
             e.stopPropagation();  // Evitar que se abra el modal de profesional
             quitarItemDelRecibo(item.id);
@@ -1881,10 +2141,10 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
-        </button>
+        </button>*/}
         
         {/* ← ← ← BOTÓN BASURA: Eliminar item Y cita del sistema ← ← ← */}
-        <button
+        {/*<button
           onClick={(e) => {
             e.stopPropagation();
             if (tieneCita) {
@@ -1897,6 +2157,19 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
           }}
           className="text-gray-500 hover:text-gray-300 p-1 transition-colors"
           title={tieneCita ? "Eliminar item y cita del sistema" : "Remover item"}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+        </button>*/}
+        {/* ← ← ← BOTÓN ÚNICO DE ELIMINACIÓN ← ← ← */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setItemToDelete(item);
+          }}
+          className="text-red-500 hover:text-red-300 p-1 transition-colors"
+          title={item.tipo === 'servicio' && item.citaId ? "Eliminar item y/o cita" : "Eliminar item"}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1961,7 +2234,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
             {/* ← Columna Izquierda: Configuración y Búsqueda */}
             <div className="lg:col-span-1 space-y-5">
               
-              {/* Tipo de Recibo */}
+              {/* Tipo de Recibo 
               <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
                 <label className="block text-sm font-semibold text-gray-300 mb-3">
                   📋 Tipo de Recibo
@@ -1984,7 +2257,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
                     </button>
                   ))}
                 </div>
-              </div>
+              </div>*/}
 
                {/* ← ← ← DATOS DEL CLIENTE: GRID COMPACTO EN UNA FILA ← ← ← */}
               {tipoRecibo === 'venta' && (
@@ -2138,15 +2411,24 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
             {/* ← ← ← MOSTRAR RESUMEN DE ABONOS ← ← ← */}
             {resumenAbonos ? (
               <div className="space-y-3 mb-4">
-                {/* Barra de progreso */}
-                <div className="w-full bg-gray-700 rounded-full h-3">
-                  <div 
-                    className={`h-3 rounded-full transition-all duration-300 ${
-                      resumenAbonos.puede_publicar ? 'bg-green-500' : 'bg-orange-500'
-                    }`}
-                    style={{ width: `${Math.min(100, resumenAbonos.porcentaje_abonado)}%` }}
-                  />
-                </div>
+               {/* ← ← ← BARRA DE PROGRESO (cambia a rojo si excede) ← ← ← */}
+    <div className="w-full bg-gray-700 rounded-full h-3">
+        <div
+            className={`h-3 rounded-full transition-all duration-300 ${
+                resumenAbonos.excede_total ? 'bg-red-500 animate-pulse' :
+                resumenAbonos.puede_publicar ? 'bg-green-500' : 'bg-orange-500'
+            }`}
+            style={{ width: `${Math.min(100, resumenAbonos.porcentaje_abonado)}%` }}
+        />
+    </div>
+
+    {/* ← ← ← ALERTA ROJA: Exceso de pago ← ← ← */}
+    {resumenAbonos.excede_total && (
+        <div className="text-xs text-red-300 bg-red-900/40 px-3 py-2 rounded border border-red-700">
+            ⚠️ <strong>Abonos exceden el total:</strong> Has abonado {formatMoney(resumenAbonos.total_abonado)} pero el recibo es {formatMoney(total)}.
+            <br/>Elimina o ajusta abonos para habilitar la publicación.
+        </div>
+    )}
                 
                 {/* Stats */}
                 <div className="grid grid-cols-2 gap-2 text-sm">
@@ -2199,46 +2481,62 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
               </p>
             )}
             
-            {/* ← ← ← LISTA DE ABONOS REGISTRADOS ← ← ← */}
-            {abonos.length > 0 && (
-              <div className="mb-4">
-                <p className="text-xs text-gray-500 mb-2 font-medium">Historial de abonos (clic para editar):</p>
-                <div className="max-h-32 overflow-y-auto space-y-1">
-                  {abonos.map(abono => (
-                    <div 
-                      key={abono.id} 
-                      onClick={() => {
-                        // ← ← ← Cargar datos en el formulario y abrir modal
-                        setAbonoEditandoId(abono.id);
-                        setMontoAbono(abono.monto.toString());
-                        setMetodoPagoAbono(abono.metodo_pago);
-                        setReferenciaExterna(abono.referencia_externa || '');
-                        setShowAbonoModal(true);
-                      }}
-                      className="flex justify-between items-center text-xs py-1.5 px-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-700 transition-colors border border-transparent hover:border-blue-500/50"
-                      title="Clic para editar este abono"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-400">{abono.metodo_pago_display}</span>
-                        {abono.referencia_externa && (
-                          <span className="text-gray-600 text-[10px]" title={abono.referencia_externa}>
-                            • {abono.referencia_externa.substring(0, 10)}...
+            {/* ← ← ← LISTA DE ABONOS REGISTRADOS (CON BOTÓN ELIMINAR) ← ← ← */}
+              {abonos.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-xs text-gray-500 mb-2 font-medium">
+                    Historial de abonos (clic en 💰 para editar, 🗑️ para eliminar):
+                  </p>
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {abonos.map(abono => (
+                      <div
+                        key={abono.id}
+                        className="flex justify-between items-center text-xs py-1.5 px-2 bg-gray-800 rounded border border-gray-700 hover:border-gray-600 transition-colors"
+                      >
+                        {/* ← ← ← INFO DEL ABONO (clickable para editar) ← ← ← */}
+                        <div 
+                          className="flex items-center gap-2 flex-1 cursor-pointer"
+                          onClick={() => {
+                            setAbonoEditandoId(abono.id);
+                            setMontoAbono(abono.monto.toString());
+                            setMetodoPagoAbono(abono.metodo_pago);
+                            setReferenciaExterna(abono.referencia_externa || '');
+                            setShowAbonoModal(true);
+                          }}
+                          title="Clic para editar este abono"
+                        >
+                          <span className="text-gray-400">{abono.metodo_pago_display}</span>
+                          {abono.referencia_externa && (
+                            <span className="text-gray-600 text-[10px]" title={abono.referencia_externa}>
+                              • {abono.referencia_externa.substring(0, 12)}...
+                            </span>
+                          )}
+                          <span className="text-green-400 font-medium ml-auto">
+                            {formatMoney(abono.monto)}
                           </span>
-                        )}
+                        </div>
+                        
+                        {/* ← ← ← BOTÓN ELIMINAR (🗑️) ← ← ← */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation(); // Evitar que se abra el modal de edición
+                            handleEliminarAbono(abono.id);
+                          }}
+                          className="ml-2 p-1 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded transition-colors"
+                          title="Eliminar este abono"
+                          disabled={loading}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" 
+                            />
+                          </svg>
+                        </button>
                       </div>
-                      <div className="text-right">
-                        <span className="text-green-400 font-medium">{formatMoney(abono.monto)}</span>
-                        <p className="text-[10px] text-gray-600">
-                          {new Date(abono.fecha_abono).toLocaleDateString('es-CO', {
-                            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-                          })}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
             
             {/* ← ← ← BOTÓN PARA REGISTRAR NUEVO ABONO ← ← ← */}
             <button
@@ -2619,6 +2917,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
 
       {/* ← ← ← NUEVO: Modal interno para registrar abono ← ← ← */}
       {/* ← ← ← MODAL DE ABONO: CORREGIDO ← ← ← */}
+
       {showAbonoModal && reciboId && (
         <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
           <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-green-700 max-h-[90vh] flex flex-col">
@@ -2744,11 +3043,11 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
                   onChange={(e) => setMetodoPagoAbono(e.target.value)}
                   className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-green-500 focus:outline-none"
                 >
+                  <option value="bold">💳 Bold</option>
                   <option value="efectivo">💵 Efectivo</option>
                   <option value="transferencia">🏦 Transferencia</option>
                   <option value="nequi">📱 Nequi</option>
-                  <option value="daviplata">📱 Daviplata</option>
-                  <option value="bold">💳 Bold</option>
+                  <option value="daviplata">📱 Daviplata</option>                  
                   <option value="tarjeta">💳 Tarjeta en sitio</option>
                 </select>
               </div>
@@ -2787,64 +3086,87 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
               </button>
               
               {/* ← ← ← BOTÓN REGISTRAR: SOLO registra abono, NO publica ← ← ← */}
-              <button
-                onClick={async () => {
-                  const montoNum = parseFloat(montoAbono);
-                  const maxAbono = total - (resumenAbonos?.total_abonado || 0);
-                  
-                  // Validaciones
-                  if (isNaN(montoNum) || montoNum <= 0) {
-                    alert('⚠️ Ingresa un monto válido mayor a 0');
-                    return;
-                  }
-                  if (montoNum < 1000) {
-                    alert('⚠️ El monto mínimo es $1.000');
-                    return;
-                  }
-                  if (montoNum > maxAbono) {
-                    alert(`⚠️ El monto excede el saldo pendiente (${formatMoney(maxAbono)})`);
-                    return;
-                  }
-                  
-                  setLoading(true);
-                  try {
-                    // ← ← ← SOLO REGISTRAR ABONO ← ← ←
-                    await handleRegistrarAbono();
-                    
-                    // ← ← ← El modal ya se cierra en handleRegistrarAbono ← ← ←
-                    // ← ← ← El frontend se actualiza al recargar resumen ← ← ←
-                    // ← ← ← La publicación se hace SOLO desde el footer principal ← ← ←
-                    
-                  } catch (err: any) {
-                    console.error('❌ Error registrando abono:', err);
-                    alert(`❌ Error: ${err.message}`);
-                  } finally {
-                    setLoading(false);
-                  }
-                }}
-                disabled={
-                  loading || 
-                  !montoAbono || 
-                  parseFloat(montoAbono) < 1000 || 
-                  parseFloat(montoAbono) > (total - (resumenAbonos?.total_abonado || 0))
-                }
-                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {loading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Procesando...
-                  </>
-                ) : (
-                  '✅ Registrar Abono'  // ← ← ← TEXTO CORREGIDO: Sin "y Publicar"
-                )}
-              </button>
+           <button
+  onClick={async () => {
+    const montoNum = parseFloat(montoAbono);
+    
+    // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+    // ← ← ← CORRECCIÓN: Calcular saldo disponible excluyendo abono en edición ← ← ←
+    // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+    
+    const totalAbonado = resumenAbonos?.total_abonado || 0;
+    
+    // Buscar el abono que se está editando
+    const abonoEditando = abonoEditandoId 
+      ? abonos.find(a => String(a.id) === String(abonoEditandoId)) 
+      : null;
+    
+    const montoAbonoEditando = abonoEditando ? parseFloat(abonoEditando.monto.toString()) : 0;
+    
+    // Calcular total de OTROS abonos (excluyendo el que se está editando)
+    const otrosAbonos = totalAbonado - montoAbonoEditando;
+    
+    // Calcular máximo permitido: total recibo - otros abonos
+    const maxAbono = total - otrosAbonos;
+    
+    // Validaciones
+    if (isNaN(montoNum) || montoNum <= 0) {
+      alert('⚠️ Ingresa un monto válido mayor a 0');
+      return;
+    }
+    if (montoNum < 1000) {
+      alert('⚠️ El monto mínimo es $1.000');
+      return;
+    }
+    // ← ← ← VALIDACIÓN CORREGIDA: Usar maxAbono calculado correctamente ← ← ←
+    if (montoNum > maxAbono) {
+      alert(`⚠️ El monto excede el saldo pendiente (${formatMoney(maxAbono)})`);
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      // ← ← ← SOLO REGISTRAR ABONO ← ← ←
+      await handleRegistrarAbono();
+      
+    } catch (err: any) {
+      console.error('❌ Error registrando abono:', err);
+      alert(`❌ Error: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }}
+  disabled={
+    loading ||
+    !montoAbono ||
+    parseFloat(montoAbono) < 1000 ||
+    // ← ← ← CORRECCIÓN: Calcular límite correcto en disabled ← ← ←
+    parseFloat(montoAbono) > (() => {
+      const totalAbonado = resumenAbonos?.total_abonado || 0;
+      const abonoEditando = abonoEditandoId 
+        ? abonos.find(a => String(a.id) === String(abonoEditandoId)) 
+        : null;
+      const montoAbonoEditando = abonoEditando ? parseFloat(abonoEditando.monto.toString()) : 0;
+      const otrosAbonos = totalAbonado - montoAbonoEditando;
+      return total - otrosAbonos;
+    })()
+  }
+  className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+>
+  {loading ? (
+    <>
+      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+      Procesando...
+    </>
+  ) : (
+    abonoEditandoId ? '✅ Actualizar Abono' : '✅ Registrar Abono'
+  )}
+</button>
             </div>
             
           </div>
         </div>
       )}
-
       {/* ← ← ← MODAL DE PROPINA ← ← ← */}
       {showPropinaModal && tipoRecibo === 'venta' && (
         <div className="fixed inset-0 z-[95] bg-black/80 flex items-center justify-center p-4">
@@ -3044,6 +3366,72 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
           token={token}
         />
       )}
+      {/* ← ← ← MODAL DE CONFIRMACIÓN DE ELIMINACIÓN (UNIFICADO) ← ← ← */}
+{itemToDelete && (
+  <div className="fixed inset-0 z-[110] bg-black/70 flex items-center justify-center p-4">
+    <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-red-700/50 p-6">
+      {/* Icono y título */}
+      <div className="text-center mb-4">
+        <div className="w-12 h-12 bg-red-900/50 rounded-full flex items-center justify-center mx-auto mb-3">
+          <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <h3 className="text-lg font-bold text-white">¿Cómo deseas eliminar este item?</h3>
+        <p className="text-sm text-gray-400 mt-1">
+          <span className="text-white font-medium">{itemToDelete.descripcion}</span>
+        </p>
+      </div>
+
+      {/* Opciones */}
+      <div className="space-y-3 mb-6">
+        {itemToDelete.tipo === 'servicio' && itemToDelete.citaId ? (
+          <>
+            <button
+              onClick={() => {
+                quitarItemDelRecibo(itemToDelete.id);
+                setItemToDelete(null);
+              }}
+              className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              📋 Solo quitar del recibo
+              <span className="text-xs text-blue-200">(La cita se mantiene)</span>
+            </button>
+            <button
+              onClick={() => {
+                removerItem(itemToDelete.id);
+                setItemToDelete(null);
+              }}
+              className="w-full py-3 px-4 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              🗑️ Eliminar item + cita
+              <span className="text-xs text-red-200">(Acción irreversible)</span>
+            </button>
+          </>
+        ) : (
+          // Si es producto o servicio sin cita, solo una opción clara
+          <button
+            onClick={() => {
+              quitarItemDelRecibo(itemToDelete.id);
+              setItemToDelete(null);
+            }}
+            className="w-full py-3 px-4 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
+          >
+            ✅ Confirmar eliminación
+          </button>
+        )}
+      </div>
+
+      {/* Cancelar */}
+      <button
+        onClick={() => setItemToDelete(null)}
+        className="w-full py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm font-medium transition-colors"
+      >
+        Cancelar
+      </button>
+    </div>
+  </div>
+)}
       
       {/* ← ← ← MODAL DE PROFESIONAL ← ← ← NUEVO ← ← ← */}
       {showProfessionalModal && itemParaProfesional && (
