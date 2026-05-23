@@ -330,6 +330,31 @@ export default function TareasModule({
           ))}
         </div>
       </div>
+
+      {/* ← ← ← INPUT PARA AGREGAR TAREA ← ← ← */}
+      <div className="mb-4">
+        <div className="relative">
+          <input
+            ref={inputRef}
+            type="text"
+            value={nuevaTarea}
+            onChange={(e) => setNuevaTarea(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Escribe una tarea y presiona Enter..."
+            className="w-full pl-4 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-shadow"
+          />
+          <button
+            onClick={handleAgregarTarea}
+            disabled={!nuevaTarea.trim()}
+            className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-sm font-medium rounded-md transition-colors"
+          >
+            Agregar
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mt-1 ml-1">
+          💡 Tip: Presiona <kbd className="px-1.5 py-0.5 bg-gray-100 rounded border">Enter</kbd> para guardar
+        </p>
+      </div>
       
       {/* ← ← ← LISTA DE TAREAS ← ← ← */}
       <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
