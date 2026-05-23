@@ -1,3 +1,4 @@
+// aap/admin/layout.tsx
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
@@ -58,7 +59,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { href: '/admin/horarios', label: ' Horarios', icon: '🕐' },
     { href: '/admin/profesionales', label: ' Profesionales', icon: '👨‍⚕️' },
     { href: '/admin/galeria', label: 'Galería', icon: '📸' },
+    { href: '/admin/tareas', label: 'Tareas', icon: '✅' },  // ← ← ← NUEVO: Módulo de Tareas
     { href: '/admin/configuracion', label: 'Configuración', icon: '⚙️' },
+    //{ href: 'componets/admin/tareasModule/index.tsx', label: 'Tareas', icon: '⚙️' },
     
     
   ];
