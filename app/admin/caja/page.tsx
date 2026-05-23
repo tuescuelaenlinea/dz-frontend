@@ -135,6 +135,7 @@ interface AbonoRecibo {
   fecha_abono: string;
   referencia_externa?: string;
   metodo_pago_display: string;
+  notas?: string;
 }
 // ← ← ← FIN AGREGADO ← ← ←
 
@@ -802,28 +803,30 @@ useEffect(() => {
   return () => { audioNotifRef.current = null; };
 }, []);
 
+  
 // ← ← ← SONDEO AUTOMÁTICO: CITAS SIN RECIBO ← ← ←
 useEffect(() => {
+  // Solo ejecutar si hay sesión activa y abierta
   if (!sessionActiva || sessionActiva.estado !== 'abierta') return;
 
-  
   const verificarCitasHuerfanas = async () => {
-  // ← ← ← CONDICIÓN SIMPLIFICADA: Solo modales que realmente existen ← ← ←
-  if (
-    modalNuevoReciboOpen ||           // ← CajaReciboModal: nuevo
-    modalEditarReciboOpen ||          // ← CajaReciboModal: edición
-    modalReciboImpresionOpen ||       // ← ReciboImpresionModal
-    modalCerrarCajaOpen ||
-    modalHistorialOpen ||
-    modalHuerfanasOpen ||             // ← Ya está mostrando esta alerta
-    modalAsignarSueltosOpen ||
-    modalComisionesOpen
-  ) {
-    console.log('⏭️ [Sondeo] Saltando: modal activo');
-    return;
-  }
-  
-  // ... continuar con el sondeo normal ...
+    // ← ← ← CONDICIÓN ROBUSTA: Saltar si CUALQUIER modal está activo ← ← ←
+    const hayModalActivo = 
+      modalNuevoReciboOpen ||           // ← CajaReciboModal: crear nuevo recibo
+      modalEditarReciboOpen ||          // ← CajaReciboModal: editar recibo existente
+      modalReciboImpresionOpen ||       // ← ReciboImpresionModal
+      modalCerrarCajaOpen ||
+      modalHistorialOpen ||
+      modalHuerfanasOpen ||             // ← Ya está mostrando esta alerta
+      modalAsignarSueltosOpen ||
+      modalComisionesOpen ||
+      modalNuevoValeOpen;               // ← ← ← AGREGADO: Modal de vales
+
+    if (hayModalActivo) {
+      console.log('⏭️ [Sondeo] Saltando: modal activo detectado');
+      return;
+    }
+
     try {
       const res = await fetch(`${apiUrl}/citas/sin-recibo-para-caja/`, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
@@ -832,20 +835,36 @@ useEffect(() => {
       if (res.ok) {
         const data = await res.json();
         const citas: CitaHuerfana[] = Array.isArray(data) ? data : [];
+
+        // ← ← ← NUEVO: Filtrar citas ya procesadas desde caja (localStorage)
+      let processedIds = new Set<number>();
+      try {
+        processedIds = new Set(
+          JSON.parse(localStorage.getItem('citas_procesadas_caja') || '[]')
+        );
+      } catch (e) {
+        // Ignorar errores de localStorage
+      }
         
-        // Filtrar solo las que NO hemos mostrado ya en este ciclo de sesión
-        const nuevas = citas.filter(c => !citasProcesadasRef.current.has(c.id));
+        
+        // ← ← ← FILTRAR: Solo mostrar citas que NO están procesadas
+      const nuevas = citas.filter(c => 
+        !citasProcesadasRef.current.has(c.id) &&  // Filtro existente
+        !processedIds.has(c.id)                    // ← ← ← NUEVO FILTRO
+      );
         
         if (nuevas.length > 0) {
           console.log(`🚨 [Sondeo] ${nuevas.length} cita(s) huérfana(s) detectadas`);
           setCitasHuerfanas(nuevas);
           setModalHuerfanasOpen(true);
 
-           // 🔊 REPRODUCIR SONIDO
-            if (audioNotifRef.current) {
-              audioNotifRef.current.currentTime = 0; // Reiniciar si ya sonó
-              audioNotifRef.current.play().catch(() => console.log('🔇 Audio bloqueado por política del navegador'));
-            }
+          // 🔊 REPRODUCIR SONIDO
+          if (audioNotifRef.current) {
+            audioNotifRef.current.currentTime = 0;
+            audioNotifRef.current.play().catch(() => 
+              console.log('🔇 Audio bloqueado por política del navegador')
+            );
+          }
           
           // Marcar como procesadas para no volver a mostrarlas inmediatamente
           nuevas.forEach(c => citasProcesadasRef.current.add(c.id));
@@ -856,12 +875,35 @@ useEffect(() => {
     }
   };
 
-  verificarCitasHuerfanas(); // Ejecutar inmediatamente al montar/cambiar sesión
-  const interval = setInterval(verificarCitasHuerfanas, 45000); // Cada 45 segundos
-
+  // Ejecutar inmediatamente al montar/cambiar sesión
+  verificarCitasHuerfanas();
+  
+  // Intervalo cada 45 segundos
+  const interval = setInterval(verificarCitasHuerfanas, 45000);
+  
+  // Cleanup al desmontar
   return () => clearInterval(interval);
-}, [sessionActiva?.id, sessionActiva?.estado]);
+  
+  // ← ← ← CLAVE: AGREGAR TODAS LAS DEPENDENCIAS DE MODALES ← ← ←
+}, [
+  sessionActiva?.id, 
+  sessionActiva?.estado,
+  // ← ← ← MODALES (CRÍTICO para que se re-evalúe cuando cambian)
+  modalNuevoReciboOpen,
+  modalEditarReciboOpen,
+  modalReciboImpresionOpen,
+  modalCerrarCajaOpen,
+  modalHistorialOpen,
+  modalHuerfanasOpen,
+  modalAsignarSueltosOpen,
+  modalComisionesOpen,
+  modalNuevoValeOpen,
+  // ← ← ← OTROS
+  apiUrl,
+  token
+]);
 
+  
   // ← ← ← AGREGAR ESTE EFECTO para verificar borradores cuando cambia la sesión ← ← ←
 useEffect(() => {
   if (sessionActiva?.id) {
@@ -2143,7 +2185,7 @@ const formatDate = (dateStr: string): string => {
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
-              {hayBorradoresPendientes ? '1 borrador pendiente' : ''}
+              {hayBorradoresPendientes ? 'Borradores pendiente' : ''}
             </span>
           )}         
           {/* ← ← ← CORREGIDO: Solo mostrar botones de caja si NO hay sesión histórica seleccionada ← ← ← */}

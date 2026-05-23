@@ -74,6 +74,7 @@ interface AbonoRecibo {
   fecha_abono: string;
   referencia_externa?: string;
   metodo_pago_display: string;
+  notas?: string;
 }
 
 // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
@@ -236,6 +237,25 @@ const resumenAbonos = useMemo(() => {
         excede_total: excedeTotal
     };
 }, [abonos, total]);
+
+// ← ← ← AGREGAR ESTE useMemo PARA VALIDAR ITEMS SINCRONIZADOS ← ← ←
+const hayItemsNoSincronizados = useMemo(() => {
+  // Verificar si hay items con ID temporal (no numérico) o marcados como nuevos
+  return items.some(item => {
+    // ID temporal: empieza con "new-", "cita-", "producto-", o no es numérico válido
+    const idEsTemporal = 
+      item.id.startsWith('new-') || 
+      item.id.startsWith('cita-') || 
+      item.id.startsWith('producto-') ||
+      !/^\d+$/.test(item.id);
+    
+    // O está marcado explícitamente como nuevo en modo edición
+    const esNuevoEnEdicion = modoEdicion && item.esNuevo === true;
+    
+    return idEsTemporal || esNuevoEnEdicion;
+  });
+}, [items, modoEdicion]);
+
 
 // ← ← ← NUEVO: Estado para advertencia visual ← ← ←
 const [advertenciaTotal, setAdvertenciaTotal] = useState(false);
@@ -838,6 +858,31 @@ const registrarAbonoEnCitas = async (montoAbono: number, metodoPago: string) => 
         }
 
         const { cita_id, codigo_reserva } = await resCita.json();
+
+        // ← ← ← NUEVO: Marcar cita como "procesada desde caja" para evitar sondeo ← ← ←
+        if (typeof window !== 'undefined' && cita_id) {
+          try {
+            const key = 'citas_procesadas_caja';
+            const processed = new Set(
+              JSON.parse(localStorage.getItem(key) || '[]')
+            );
+            
+            processed.add(cita_id);
+            
+            // Mantener solo últimas 200 para no llenar localStorage
+            if (processed.size > 200) {
+              const arr = Array.from(processed).slice(-200);
+              localStorage.setItem(key, JSON.stringify(arr));
+            } else {
+              localStorage.setItem(key, JSON.stringify(Array.from(processed)));
+            }
+            
+            console.log(`🔖 Cita ${cita_id} marcada como procesada (evitar sondeo)`);
+          } catch (e) {
+            console.warn('⚠️ No se pudo guardar cita procesada en localStorage:', e);
+          }
+        }
+
         
         // 2. Agregar item CON cita ya creada
         const nuevoItem: ReciboItem = {
@@ -1224,7 +1269,46 @@ useEffect(() => {
   }
 }, [isOpen, reciboId, modoEdicion]);
 
+// ← ← ← NUEVA FUNCIÓN: Auto-Guardado + Abrir Modal de Abono ← ← ←
+// ← ← ← FUNCIÓN NUEVA: Auto-Guardado + Abrir Modal ← ← ←
+const handleAbrirModalAbono = async () => {
+    // 1. Verifica si hay cambios pendientes usando TU useMemo existente
+    // Reemplaza 'hayItemsNoSincronizados' por el nombre de tu variable real
+    const hayCambios = typeof hayItemsNoSincronizados !== 'undefined' ? hayItemsNoSincronizados : true; 
 
+    if (hayCambios) {
+        console.log("🔄 [Auto-Save] Detectados cambios, guardando borrador silenciosamente...");
+        try {
+            // Preparar payload base (igual que en el botón de Actualizar)
+            const payloadBase = {
+                tipo: tipoRecibo,
+                estado: 'borrador',
+                subtotal: subtotal,
+                descuento: descuento,
+                total: total,
+                propina_total: propinaTotal,
+                propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
+                metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
+                session_caja: sessionCajaId,
+                cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : '',
+                cliente_telefono: tipoRecibo === 'venta' ? (clienteTelefono?.trim() || 'No proporcionado') : '',
+                cliente_email: tipoRecibo === 'venta' ? (clienteEmail?.trim() || 'No@proporcionado.com') : '',
+                notas: notas || '',
+            };
+
+            // Guardar en MODO SILENCIOSO (true)
+            await handleActualizarReciboConPayload(payloadBase, true);
+            console.log("✅ [Auto-Save] Guardado exitoso, abriendo modal de abono...");
+        } catch (error) {
+            console.error("❌ [Auto-Save] Falló el guardado automático:", error);
+            alert("⚠️ No se pudieron guardar los cambios automáticamente. Por favor guarda manualmente antes de abonar.");
+            return; // Detener si falla
+        }
+    }
+
+    // 2. Abrir el modal de abono
+    setShowAbonoModal(true);
+};
 
   const handleActualizarRecibo = async () => {
       if (!reciboId) return;
@@ -1703,6 +1787,8 @@ if (metodoPago === 'pendiente') {
     }
   };
 
+
+
   // ← ← ← AGREGAR ESTAS FUNCIONES AUXILIARES ← ← ←
 
 const handleGuardarConPayload = async (payloadBase: any) => {
@@ -1803,7 +1889,8 @@ const sanitizeForJSON = (value: any): any => {
 
 // ... dentro de CajaReciboModal.tsx
 
-const handleActualizarReciboConPayload = async (payloadBase: any) => {
+// ← ← ← AGREGAR 'silentMode' como segundo parámetro opcional
+const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: boolean = false) => {
     
       // ← ← ← PREVENIR EJECUCIÓN DUPLICADA EN STRICT MODE ← ← ←
     if (loading) {
@@ -1905,24 +1992,19 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
         console.log('📦 Payload sanitizado listo:', payloadSanitized);
 
         // 4. ENVIAR PATCH
-        const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/`, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-            },
-            body: JSON.stringify(payloadSanitized)
-        });
-
+          const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/`, {
+              method: 'PATCH',
+              headers: {
+                  'Content-Type': 'application/json',
+                  ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+              },
+              body: JSON.stringify(payloadSanitized)
+          });
+          // ← ← ← CRÍTICO: Esta línea DEBE existir aquí ← ← ←
         const responseText = await res.text();
+
         console.log('📡 Response status:', res.status);
         console.log('📡 Response body:', responseText);
-
-        if (!res.ok) {
-            let errorData;
-            try { errorData = JSON.parse(responseText); } catch { errorData = { detail: responseText }; }
-            throw new Error(errorData.detail || errorData.error || 'Error desconocido del servidor');
-        }
 
         // 5. ÉXITO
         const reciboActualizado = JSON.parse(responseText);
@@ -1957,32 +2039,32 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
               setItems(itemsConIdsReales);  // ← ← ← ACTUALIZAR ESTADO LOCAL
               
           }
+         
           console.log('✅ Recibo actualizado exitosamente:', reciboActualizado.codigo_recibo);
+          // ... código de setItems(itemsConIdsReales) ...
 
-          // ← ← ← PEGA AQUÍ ESTE LOG ← ← ←
-          console.log('🔍 [handleActualizar] Items EN MEMORIA después de PATCH:', items.map(i => ({
-              id: i.id, desc: i.descripcion, esNuevo: i.esNuevo, citaId: i.citaId
-          })));
-        // ← ← ← CORREGIDO: Usar reciboActualizado (NO datosParaNotificar)
-          alert(`✅ Recibo ${reciboActualizado.codigo_recibo} actualizado`);
-
-          if (onReciboActualizado) {
-            onReciboActualizado(reciboActualizado);  // ← ← ← CORREGIDO
-          }
-
-          // ← ← ← CORREGIDO: Disparar evento con la variable correcta
-          window.dispatchEvent(new CustomEvent('cajaReciboActualizado', { 
-            detail: reciboActualizado  // ← ← ← CORREGIDO
-          }));
-
-
-    } catch (err: any) {
-        console.error('❌ Error actualizando recibo:', err);
-        alert(`❌ Error: ${err.message}`);
-    } finally {
-        setLoading(false);
-    }
-};
+           // ← ← ← NUEVO: Solo mostrar alertas y disparar eventos si NO es modo silencioso
+            if (!silentMode) {
+                alert(`✅ Recibo ${reciboActualizado.codigo_recibo} actualizado`);
+                if (onReciboActualizado) {
+                    onReciboActualizado(reciboActualizado);
+                }
+                window.dispatchEvent(new CustomEvent('cajaReciboActualizado', {
+                    detail: reciboActualizado
+                }));
+            }
+        } catch (err: any) {
+            console.error('❌ Error actualizando recibo:', err);
+            // ← ← ← NUEVO: Si es modo silencioso y falla, lanzamos el error para que lo capture quien llamó
+            if (silentMode) {
+                throw err; 
+            } else {
+                alert(`❌ Error: ${err.message}`);
+            }
+        } finally {
+            setLoading(false);
+        }
+        };
 
   const handleClose = () => {
     setItems([]);
@@ -2438,22 +2520,34 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
                   </div>
                   
                   {/* ← ← ← MODIFICAR ESTE BLOQUE: Agregar onClick y estilos de interacción ← ← ← */}
-                  <div 
-                    onClick={() => {
-                      if (resumenAbonos.saldo_pendiente > 0) {
-                        // Precargar monto pendiente
-                        setMontoAbono(resumenAbonos.saldo_pendiente.toString());
-                        // Resetear estado de edición
-                        setAbonoEditandoId(null);
-                        // Abrir modal
-                        setShowAbonoModal(true);
+                  <div
+                      onClick={() => {
+                        // ← ← ← VALIDAR: No abrir modal si hay items no sincronizados
+                        if (hayItemsNoSincronizados) {
+                          alert('⚠️ Primero guarda los cambios del recibo antes de registrar abonos.');
+                          return;
+                        }
+                        if (resumenAbonos.saldo_pendiente > 0) {
+                          setMontoAbono(resumenAbonos.saldo_pendiente.toString());
+                          setAbonoEditandoId(null);
+                          handleAbrirModalAbono();
+                        }
+                      }}
+                      className={`bg-gray-800 rounded p-2 text-center transition-all ${
+                        hayItemsNoSincronizados
+                          ? 'opacity-50 cursor-not-allowed'  // ← Desactivado visualmente
+                          : resumenAbonos.saldo_pendiente > 0 
+                            ? 'cursor-pointer hover:bg-gray-700 hover:scale-[1.02] hover:shadow-lg hover:shadow-orange-500/20' 
+                            : 'opacity-50 cursor-default'
+                      }`}
+                      title={
+                        hayItemsNoSincronizados 
+                          ? 'Guarda los cambios del recibo primero' 
+                          : resumenAbonos.saldo_pendiente > 0 
+                            ? "Clic para abonar el saldo pendiente" 
+                            : "Saldo saldado"
                       }
-                    }}
-                    className={`bg-gray-800 rounded p-2 text-center cursor-pointer transition-all hover:bg-gray-700 hover:scale-[1.02] ${
-                      resumenAbonos.saldo_pendiente > 0 ? 'hover:shadow-lg hover:shadow-orange-500/20' : 'opacity-50 cursor-default'
-                    }`}
-                    title={resumenAbonos.saldo_pendiente > 0 ? "Clic para abonar el saldo pendiente" : "Saldo saldado"}
-                  >
+                    >
                     <p className="text-gray-500 text-xs">Pendiente</p>
                     <p className={`font-bold flex items-center justify-center gap-1 ${
                       resumenAbonos.saldo_pendiente > 0 ? 'text-orange-400' : 'text-green-400'
@@ -2482,72 +2576,144 @@ const handleActualizarReciboConPayload = async (payloadBase: any) => {
             )}
             
             {/* ← ← ← LISTA DE ABONOS REGISTRADOS (CON BOTÓN ELIMINAR) ← ← ← */}
-              {abonos.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-xs text-gray-500 mb-2 font-medium">
-                    Historial de abonos (clic en 💰 para editar, 🗑️ para eliminar):
-                  </p>
-                  <div className="max-h-32 overflow-y-auto space-y-1">
-                    {abonos.map(abono => (
-                      <div
-                        key={abono.id}
-                        className="flex justify-between items-center text-xs py-1.5 px-2 bg-gray-800 rounded border border-gray-700 hover:border-gray-600 transition-colors"
-                      >
-                        {/* ← ← ← INFO DEL ABONO (clickable para editar) ← ← ← */}
-                        <div 
-                          className="flex items-center gap-2 flex-1 cursor-pointer"
-                          onClick={() => {
-                            setAbonoEditandoId(abono.id);
-                            setMontoAbono(abono.monto.toString());
-                            setMetodoPagoAbono(abono.metodo_pago);
-                            setReferenciaExterna(abono.referencia_externa || '');
-                            setShowAbonoModal(true);
-                          }}
-                          title="Clic para editar este abono"
-                        >
-                          <span className="text-gray-400">{abono.metodo_pago_display}</span>
-                          {abono.referencia_externa && (
-                            <span className="text-gray-600 text-[10px]" title={abono.referencia_externa}>
-                              • {abono.referencia_externa.substring(0, 12)}...
-                            </span>
-                          )}
-                          <span className="text-green-400 font-medium ml-auto">
-                            {formatMoney(abono.monto)}
-                          </span>
-                        </div>
-                        
-                        {/* ← ← ← BOTÓN ELIMINAR (🗑️) ← ← ← */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation(); // Evitar que se abra el modal de edición
-                            handleEliminarAbono(abono.id);
-                          }}
-                          className="ml-2 p-1 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded transition-colors"
-                          title="Eliminar este abono"
-                          disabled={loading}
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" 
-                            />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+              {/* ← ← ← LISTA DE ABONOS REGISTRADOS (CON BADGE DE ORIGEN WEB) ← ← ← */}
+{abonos.length > 0 && (
+  <div className="mb-4">
+    <p className="text-xs text-gray-500 mb-2 font-medium">
+      Historial de abonos (clic en 💰 para editar, 🗑️ para eliminar):
+    </p>
+    <div className="max-h-32 overflow-y-auto space-y-1">
+      {abonos.map(abono => {
+        // ← ← ← DETECTAR SI ES ABONO MIGRADO DESDE PAGO WEB ← ← ←
+        const esMigradoWeb = abono.notas?.includes('pago_web') || 
+                            abono.referencia_externa?.toLowerCase().includes('bold');
+        
+        return (
+          <div
+            key={abono.id}
+            className="flex justify-between items-center text-xs py-1.5 px-2 bg-gray-800 rounded border border-gray-700 hover:border-gray-600 transition-colors"
+          >
+            {/* ← ← ← INFO DEL ABONO (clickable para editar) ← ← ← */}
+            <div
+              className="flex items-center gap-2 flex-1 cursor-pointer"
+              onClick={() => {
+                setAbonoEditandoId(abono.id);
+                setMontoAbono(abono.monto.toString());
+                setMetodoPagoAbono(abono.metodo_pago);
+                setReferenciaExterna(abono.referencia_externa || '');
+                setShowAbonoModal(true);
+              }}
+              title={esMigradoWeb ? "Abono migrado desde pago web" : "Clic para editar este abono"}
+            >
+              {/* ← ← ← BADGE DE ORIGEN WEB ← ← ← */}
+              {esMigradoWeb && (
+                <span 
+                  className="px-1.5 py-0.5 bg-blue-900/40 text-blue-300 text-[10px] rounded border border-blue-700/50 flex items-center gap-1"
+                  title="Migrado desde pago web"
+                >
+                  🌐 Web
+                </span>
               )}
+              
+              <span className="text-gray-400">{abono.metodo_pago_display}</span>
+              
+              {/* ← ← ← MOSTRAR REFERENCIA EXTERNA CON TRUNCADO ← ← ← */}
+              {abono.referencia_externa && (
+                <span 
+                  className="text-gray-600 text-[10px] max-w-24 truncate" 
+                  title={abono.referencia_externa}
+                >
+                  • {abono.referencia_externa.substring(0, 15)}...
+                </span>
+              )}
+              
+              {/* ← ← ← MOSTRAR ID DEL PAGO ORIGINAL SI ESTÁ EN NOTAS ← ← ← */}
+              {esMigradoWeb && abono.notas?.match(/pago_id:(\d+)/) && (
+                <span 
+                  className="text-gray-500 text-[9px] font-mono"
+                  title={`Pago original ID: ${abono.notas.match(/pago_id:(\d+)/)?.[1]}`}
+                >
+                  #{abono.notas.match(/pago_id:(\d+)/)?.[1]}
+                </span>
+              )}
+              
+              <span className="text-green-400 font-medium ml-auto">
+                {formatMoney(abono.monto)}
+              </span>
+            </div>
             
-            {/* ← ← ← BOTÓN PARA REGISTRAR NUEVO ABONO ← ← ← */}
+            {/* ← ← ← BOTÓN ELIMINAR (🗑️) ← ← ← */}
             <button
-              onClick={() => setShowAbonoModal(true)}
-              className="w-full px-4 py-3 bg-green-700 hover:bg-green-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEliminarAbono(abono.id);
+              }}
+              className="ml-2 p-1 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded transition-colors"
+              title="Eliminar este abono"
+              disabled={loading}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                />
               </svg>
-              💰 Registrar Pago(s)
             </button>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+)}
+            
+            
+            {/* ← ← ← BOTÓN PARA REGISTRAR NUEVO ABONO (CON VALIDACIÓN) ← ← ← */}
+            {/* Antes: onClick={() => setShowAbonoModal(true)} */}
+            {/* Ahora: */}
+            <button
+                onClick={handleAbrirModalAbono}
+                className="w-full px-4 py-3 bg-green-700 hover:bg-green-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+            >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                💰 Registrar Pago(s)
+            </button>
+            {/* ← ← ← MENSAJE INFORMATIVO CUANDO ESTÁ DESACTIVADO ← ← ← 
+              {hayItemsNoSincronizados && (
+                <p className="text-xs text-yellow-400 bg-yellow-900/20 px-3 py-2 rounded mt-2 border border-yellow-700/50 flex items-start gap-2">
+                  <span>⚠️</span>
+                  <span>
+                    Hay <strong>{items.filter(i => 
+                      i.id.startsWith('new-') || i.id.startsWith('cita-') || i.id.startsWith('producto-') || (modoEdicion && i.esNuevo)
+                    ).length} item(s) nuevo(s)</strong> que deben guardarse primero.
+                    <br />
+                    <button 
+                      onClick={() => {
+                        // Si está en modo edición, guardar; si no, publicar
+                        if (modoEdicion && reciboId) {
+                          handleActualizarReciboConPayload({
+                            tipo: tipoRecibo,
+                            estado: 'borrador',
+                            subtotal, descuento, total, propina_total: propinaTotal,
+                            propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
+                            metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
+                            session_caja: sessionCajaId,
+                            cliente_nombre: clienteNombre?.trim() || 'No proporcionado',
+                            cliente_telefono: clienteTelefono?.trim() || 'No proporcionado',
+                            cliente_email: clienteEmail?.trim() || 'No@proporcionado.com',
+                            notas: notas || '',
+                          });
+                        } else {
+                          handleGuardar();
+                        }
+                      }}
+                      className="text-yellow-300 hover:text-yellow-200 underline mt-1"
+                    >
+                      Guardar cambios ahora →
+                    </button>
+                  </span>
+                </p>
+              )}*/}
           </div>
         )}
 
