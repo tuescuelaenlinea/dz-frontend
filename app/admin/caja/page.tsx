@@ -215,6 +215,9 @@ export default function CajaPage() {
   const [citasSeleccionadas, setCitasSeleccionadas] = useState<Set<number>>(new Set());
   const [citasParaCancelar, setCitasParaCancelar] = useState<Set<number>>(new Set());
 
+  const [resumen, setResumen] = useState<any>(null);
+  const [loadingResumen, setLoadingResumen] = useState(false);
+
   const [abonos, setAbonos] = useState<any[]>([]);
   // ← ← ← NUEVO ESTADO para abonos del modal de impresión ← ← ←
 const [abonosParaImpresion, setAbonosParaImpresion] = useState<AbonoRecibo[]>([]);
@@ -363,21 +366,54 @@ const cargarRecibos = useCallback(async () => {
 }, [apiUrl, token]);
 
 // ← Cargar datos principales
+// Modificar cargarDatosCaja para que también cargue el resumen
+// 🔁 REEMPLAZAR esta función completa:
 const cargarDatosCaja = async (cacheBuster?: number) => {
-    setLoading(true);
-    try {
-        const session = await cargarSessionActiva();
-        await Promise.all([
-            cargarRecibosRecientes(session?.id || null, !!session, cacheBuster),  // ← ← ← Ya debe tener este parámetro
-            cargarVales(),
-            cargarCategorias(),
-            cargarProfesionalesParaVales()
-        ]);
-    } catch (err) {
-        console.error('❌ Error cargando datos de caja:', err);
-    } finally {
-        setLoading(false);
+  setLoading(true);
+  try {
+    // ← ← ← CARGAR SESIÓN PRIMERO Y GUARDAR EL ID
+    const session = await cargarSessionActiva();
+    const sessionId = session?.id || null;  // ← ← ← CLAVE: guardar ID localmente
+    
+    // ← ← ← CARGAR RESUMEN SI HAY SESIÓN
+    if (sessionId) {
+      await cargarResumenSesion(sessionId);
     }
+    
+    // ← ← ← PASAR sessionId EXPLÍCITO a todas las funciones
+    await Promise.all([
+      cargarRecibosRecientes(sessionId, !!session, cacheBuster),
+      cargarVales(sessionId),  // ← ← ← PASAR ID EXPLÍCITO
+      cargarCategorias(),
+      cargarProfesionalesParaVales()
+    ]);
+  } catch (err) {
+    console.error('❌ Error cargando datos de caja:', err);
+  } finally {
+    setLoading(false);
+  }
+};
+
+// Agregar esta función para cargar el resumen (después de cargarDatosCaja)
+const cargarResumenSesion = async (sessionId: number) => {
+  if (!sessionId) return;
+  
+  setLoadingResumen(true);
+  try {
+    const res = await fetch(`${apiUrl}/caja/sesiones/${sessionId}/resumen/`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    
+    if (res.ok) {
+      const data = await res.json();
+      setResumen(data);
+      console.log('✅ Resumen cargado:', data);
+    }
+  } catch (err) {
+    console.error('❌ Error cargando resumen:', err);
+  } finally {
+    setLoadingResumen(false);
+  }
 };
 
 // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
@@ -1327,7 +1363,15 @@ const handleCrearYAbrirRecibo = async () => {
   useEffect(() => {
     cargarDatosCaja();
   }, []);
-
+// Agregar este useEffect (después del useEffect que carga citas count)
+useEffect(() => {
+  const sessionId = sesionSeleccionada?.id || sessionActiva?.id;
+  if (sessionId) {
+    cargarResumenSesion(sessionId);
+  } else {
+    setResumen(null);
+  }
+}, [sesionSeleccionada?.id, sessionActiva?.id]);
 
 // ← ← ← EFECTO: Recargar vales cuando cambia sesión activa o seleccionada ← ← ←
 useEffect(() => {
@@ -1470,22 +1514,18 @@ const cargarRecibosRecientes = async (
 };
 // ← ← ← FUNCIÓN: Cargar vales (sesión + pendientes) ← ← ←
 // ← ← ← FUNCIÓN: Cargar vales (sesión + pendientes) ← ← ←
-const cargarVales = async () => {
-  console.log('🔄 [cargarVales] Estado actual:', {
-    sessionActiva: sessionActiva?.id,
-    sesionSeleccionada: sesionSeleccionada?.id,
-    valesSesion: valesSesion.length,
-    valesPendientes: valesPendientes.length
-  });
+// 🔁 Cambiar la función para aceptar sessionId explícito:
+const cargarVales = async (sessionIdExplicito?: number | null) => {
+  console.log('🔄 [cargarVales] Recibido sessionIdExplicito:', sessionIdExplicito);
   
   setLoadingVales(true);
   try {
-    // Determinar ID de sesión a usar (prioridad: seleccionada > activa)
-    const sessionId = sesionSeleccionada?.id || sessionActiva?.id;
+    // ← ← ← PRIORIDAD: Usar ID explícito si se proporciona
+    const sessionId = sessionIdExplicito ?? sesionSeleccionada?.id ?? sessionActiva?.id;
     
-    console.log('🔍 [cargarVales] sessionId:', sessionId, '| sessionActiva:', sessionActiva?.id, '| sesionSeleccionada:', sesionSeleccionada?.id);
+    console.log('🔍 [cargarVales] sessionId final:', sessionId, '| sessionActiva:', sessionActiva?.id);
     
-    // ← ← ← CARGAR VALES DE LA SESIÓN (si hay sesión) ← ← ←
+    // ← ← ← CARGAR VALES DE LA SESIÓN (si hay sessionId)
     if (sessionId) {
       const url = `${apiUrl}/caja/vales/?session_caja=${sessionId}&ordering=-fecha&limit=50`;
       console.log('📡 Fetch vales de sesión:', url);
@@ -1497,8 +1537,16 @@ const cargarVales = async () => {
       if (resSesion.ok) {
         const data = await resSesion.json();
         const valesDeSesion = Array.isArray(data) ? data : (data.results || []);
-        console.log('✅ Vales de sesión cargados:', valesDeSesion.length, 'para sessionId:', sessionId);
-        console.log('📋 Vales de sesión:', valesDeSesion); // ← ← ← AGREGAR ESTO
+        
+        // ← ← ← LOG CRÍTICO: Verificar si vienen los campos de método de pago
+        console.log('📋 [DEBUG] Primer vale de sesión:', valesDeSesion[0] ? {
+          id: valesDeSesion[0].id,
+          codigo_vale: valesDeSesion[0].codigo_vale,
+          metodo_pago: valesDeSesion[0].metodo_pago,
+          metodo_pago_display: valesDeSesion[0].metodo_pago_display,
+          session_caja: valesDeSesion[0].session_caja
+        } : 'Sin vales');
+        
         setValesSesion(valesDeSesion);
       } else {
         const errorText = await resSesion.text().catch(() => 'N/A');
@@ -1510,33 +1558,7 @@ const cargarVales = async () => {
       setValesSesion([]);
     }
     
-    // ← ← ← CARGAR VALES PENDIENTES GLOBALES (sin sesión) ← ← ←
-    // ← ← ← CAMBIO: Usar un enfoque diferente ← ← ←
-    const urlPendientes = `${apiUrl}/caja/vales/?estado=registrado&ordering=-fecha&limit=50`;
-    console.log('📡 Fetch vales pendientes:', urlPendientes);
-    
-    const resPendientes = await fetch(urlPendientes, {
-      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-    });
-    
-    if (resPendientes.ok) {
-      const data = await resPendientes.json();
-      const todosVales = Array.isArray(data) ? data : (data.results || []);
-      console.log('📥 Todos los vales registrados:', todosVales.length);
-      console.log('📋 Vales recibidos:', todosVales); // ← ← ← AGREGAR ESTO
-      
-      /// ← ← ← FILTRAR EN FRONTEND: Solo vales sin sesión ← ← ←
-      // ← ← ← CORRECCIÓN: Manejar null explícitamente ← ← ←
-      const valesGlobales = todosVales.filter((v: ValeEmpleado) => 
-          v.session_caja === null || v.session_caja === undefined || v.session_caja === 0
-      );
-      console.log('✅ Vales pendientes globales (filtrados):', valesGlobales.length);
-      setValesPendientes(valesGlobales);
-    } else {
-      const errorText = await resPendientes.text().catch(() => 'N/A');
-      console.error('❌ Error cargando vales pendientes:', resPendientes.status, errorText);
-      setValesPendientes([]);
-    }
+    // ... resto de la función igual para vales pendientes ...
     
   } catch (err) {
     console.error('❌ Error cargando vales:', err);
@@ -2707,7 +2729,66 @@ const formatDate = (dateStr: string): string => {
           </div>
           </div>
           );
-          })()}        
+          })()}  
+
+                    {/* ← ← ← DESGLOSE POR MÉTODO DE PAGO (ENTRADAS Y SALIDAS) ← ← ← */}
+          {(resumen?.desglose_entradas || resumen?.desglose_salidas) && (
+            <div className="mt-4 pt-4 border-t border-gray-700 space-y-4">
+              <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+                💳 Desglose por Método de Pago
+              </h4>
+
+              {/* ENTRADAS / ABONOS */}
+              {resumen?.desglose_entradas && Object.keys(resumen.desglose_entradas).length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-green-400 mb-2 flex items-center gap-1">
+                    <span className="w-2 h-2 bg-green-400 rounded-full"></span> Ingresos (Ventas/Abonos)
+                  </p>
+                  <div className="space-y-2">
+                    {Object.entries(resumen.desglose_entradas).map(([metodo, datos]: [string, any]) => (
+                      <div key={`ing-${metodo}`} className="flex justify-between items-center py-2 px-3 bg-green-900/20 rounded-lg border border-green-800/50">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">{datos.label?.includes('💵') ? '💵' : datos.label?.includes('💳') ? '💳' : datos.label?.includes('🏦') ? '🏦' : datos.label?.includes('📱') ? '📱' : '💰'}</span>
+                          <span className="text-sm text-gray-300 capitalize">{datos.label || metodo}</span>
+                          <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">{datos.count} trans.</span>
+                        </div>
+                        <span className="font-semibold text-green-400">{formatMoney(datos.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* SALIDAS / EGRESOS */}
+              {resumen?.desglose_salidas && Object.keys(resumen.desglose_salidas).length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-orange-400 mb-2 flex items-center gap-1">
+                    <span className="w-2 h-2 bg-orange-400 rounded-full"></span> Salidas (Comisiones/Gastos)
+                  </p>
+                  <div className="space-y-2">
+                    {Object.entries(resumen.desglose_salidas).map(([metodo, datos]: [string, any]) => (
+                      <div key={`sal-${metodo}`} className="flex justify-between items-center py-2 px-3 bg-orange-900/20 rounded-lg border border-orange-800/50">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">{datos.label?.includes('💵') ? '💵' : datos.label?.includes('💳') ? '💳' : datos.label?.includes('🏦') ? '🏦' : datos.label?.includes('📱') ? '📱' : '💰'}</span>
+                          <span className="text-sm text-gray-300 capitalize">{datos.label || metodo}</span>
+                          <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">{datos.count} trans.</span>
+                        </div>
+                        <span className="font-semibold text-orange-400">-{formatMoney(datos.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Validación residual (mantenida por compatibilidad) */}
+              {resumen.total_ventas_validacion && (
+                <div className="mt-2 pt-2 border-t border-gray-700 flex justify-between text-xs">
+                  <span className="text-gray-500">Validación sistema:</span>
+                  <span className="text-green-400">{formatMoney(parseFloat(resumen.total_ventas_validacion))}</span>
+                </div>
+              )}
+            </div>
+          )}
         
 
         </div>
