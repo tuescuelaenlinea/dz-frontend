@@ -2726,12 +2726,7 @@ const formatDate = (dateStr: string): string => {
           </div>
           </div>
           )}
-          </div>
-          </div>
-          );
-          })()}  
-
-                    {/* ← ← ← DESGLOSE POR MÉTODO DE PAGO (ENTRADAS Y SALIDAS) ← ← ← */}
+           {/* ← ← ← DESGLOSE POR MÉTODO DE PAGO (ENTRADAS Y SALIDAS) ← ← ← */}
           {(resumen?.desglose_entradas || resumen?.desglose_salidas) && (
             <div className="mt-4 pt-4 border-t border-gray-700 space-y-4">
               <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
@@ -2789,6 +2784,12 @@ const formatDate = (dateStr: string): string => {
               )}
             </div>
           )}
+          </div>
+          </div>
+          );
+          })()}  
+
+                   
         
 
         </div>
