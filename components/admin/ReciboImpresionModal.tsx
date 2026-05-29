@@ -4,6 +4,25 @@
 import { useState, useEffect } from 'react';
 //import { ReciboCaja } from '@/app/admin/caja/page';
 
+
+// Agrega esta interfaz al inicio del archivo, junto a las otras interfaces
+interface PagoRelacionado {
+  id: number;
+  tipo: 'abono' | 'pago';
+  monto: number;
+  metodo_pago: string;
+  metodo_pago_display: string;
+  fecha: string;
+  referencia: string;
+  notas?: string;
+  creado_por?: string | null;
+  // Campos específicos para abonos
+  recibo?: number;
+  // Campos específicos para pagos
+  origen_tipo?: string;
+  origen_tipo_display?: string;
+  descripcion_item?: string;
+}
 // ← ← ← INTERFAZ PARA ABONOS ← ← ←
 export interface AbonoRecibo {
   id: number;
@@ -99,8 +118,85 @@ export default function ReciboImpresionModal({
   const [loadingAbonos, setLoadingAbonos] = useState(false);
   const [errorAbonos, setErrorAbonos] = useState<string | null>(null);
 
+  const [pagosRelacionados, setPagosRelacionados] = useState<PagoRelacionado[]>([]);
+  const [loadingPagos, setLoadingPagos] = useState(false);
+
+    // ← ← ← ESTADOS PARA EDITAR MÉTODO DE PAGO DE ABONOS ← ← ←
+  const [abonoEditandoId, setAbonoEditandoId] = useState<number | null>(null);
+  const [metodoTemporalAbono, setMetodoTemporalAbono] = useState<string>('');
+
+  // ← ← ← ESTADOS PARA EDICIÓN DE MÉTODO (REGISTROS UNIFICADOS) ← ← ←
+  const [registroEditandoId, setRegistroEditandoId] = useState<string | null>(null);
+  const [metodoTemporalRegistro, setMetodoTemporalRegistro] = useState('');
   // ← ← ← DETERMINAR QUÉ ABONOS USAR ← ← ←
   const abonos = cargarAbonosInternamente ? abonosInternos : abonosExternos;
+
+  // Agrega esto junto a los otros estados del componente
+const [loadingRegistros, setLoadingRegistros] = useState(false);
+
+  // ← ← ← FUNCIÓN: Cargar pagos y abonos del recibo ← ← ←
+  const cargarPagosRelacionados = async (reciboId: number) => {
+    if (!reciboId) return;
+    
+    setLoadingPagos(true);
+    try {
+      const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/pagos-relacionados/`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        // ← ← ← UNIFICAR abonos y pagos, ordenar por fecha descendente ← ← ←
+        const todos = [...(data.abonos || []), ...(data.pagos || [])]
+          .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+        
+        setPagosRelacionados(todos);
+        console.log(`✅ Pagos/Abonos cargados: ${todos.length} registros`);
+      }
+    } catch (err) {
+      console.error('❌ Error cargando pagos relacionados:', err);
+      setPagosRelacionados([]);
+    } finally {
+      setLoadingPagos(false);
+    }
+  };
+
+  // ← ← ← EFECTO: Cargar pagos cuando cambie el recibo ← ← ←
+  useEffect(() => {
+    if (recibo?.id && isOpen) {
+      cargarPagosRelacionados(recibo.id);
+    } else {
+      setPagosRelacionados([]);
+    }
+  }, [recibo?.id, isOpen]);
+
+  // ← ← ← HELPER: Icono según método de pago ← ← ←
+  const getMetodoIcon = (metodo: string) => {
+    const icons: Record<string, string> = {
+      'efectivo': '💵',
+      'transferencia': '🏦',
+      'nequi': '📱',
+      'daviplata': '📱',
+      'bold': '💳',
+      'tarjeta': '💳',
+      'tarjeta_sitio': '💳',
+      'pendiente': '⏳',
+    };
+    return icons[metodo] || '💰';
+  };
+
+  // ← ← ← HELPER: Color según tipo de registro ← ← ←
+  const getTipoBadgeClass = (tipo: 'abono' | 'pago', origen_tipo?: string) => {
+    if (tipo === 'abono') return 'bg-blue-900/50 text-blue-300 border-blue-700';
+    
+    // Para pagos, diferenciar por origen_tipo
+    switch (origen_tipo) {
+      case 'ajuste': return 'bg-orange-900/50 text-orange-300 border-orange-700'; // Vales
+      case 'comision': return 'bg-emerald-900/50 text-emerald-300 border-emerald-700'; // Comisiones
+      case 'cita': return 'bg-purple-900/50 text-purple-300 border-purple-700'; // Ventas directas
+      default: return 'bg-gray-900/50 text-gray-300 border-gray-700';
+    }
+  };
 
   // ← ← ← EFECTO: Cargar abonos cuando el modal se abre y hay recibo ← ← ←
   useEffect(() => {
@@ -148,6 +244,37 @@ export default function ReciboImpresionModal({
     }
   }, [isOpen]);
 
+
+// INSERTAR ANTES:
+// ← ← ← OPCIONES DE MÉTODO DE PAGO ← ← ←
+const OPCIONES_METODO = [
+  { value: 'efectivo', label: '💵 Efectivo' },
+  { value: 'transferencia', label: '🏦 Transferencia' },
+  { value: 'nequi', label: '📱 Nequi' },
+  { value: 'daviplata', label: '📱 Daviplata' },
+  { value: 'bold', label: '💳 Bold' },
+  { value: 'tarjeta', label: '💳 Tarjeta' },  
+  { value: 'caja_menor', label: '📦 Caja menor' },  
+] as const;
+
+
+  // ← ← ← HELPER: Formatear hora ← ← ←
+  const formatTime = (dateStr: string): string => {
+    if (!dateStr) return '';
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleTimeString('es-CO', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+    } catch {
+      return '';
+    }
+  };
+
+  
+
   if (!isOpen || !recibo) return null;
 
   // ← ← ← HELPER: Formatear hora de abono ← ← ←
@@ -165,7 +292,7 @@ export default function ReciboImpresionModal({
 
   // ← ← ← HELPER: Label amigable para método de pago ← ← ←
   const getMetodoLabel = (metodo: string) => {
-    const labels: Record<string, string> = {
+      const opciones: Record<string, string> = {
       efectivo: '💵 Efectivo',
       transferencia: '🏦 Transferencia',
       nequi: '📱 Nequi',
@@ -174,13 +301,109 @@ export default function ReciboImpresionModal({
       tarjeta: '💳 Tarjeta',
       caja_menor: '📦 Caja menor',
     };
-    return labels[metodo] || metodo;
+    return opciones[metodo] || metodo;
   };
 
   // ← ← ← HELPER: Calcular total abonado ← ← ←
   const calcularTotalAbonado = () => {
     return abonos.reduce((sum, a) => sum + parseFloat(String(a.monto)), 0);
   };
+
+    // ← ← ← FUNCIÓN: Guardar método de pago de un abono ← ← ←
+  const handleGuardarMetodoAbono = async (abonoId: number, nuevoMetodo: string) => {
+    if (!nuevoMetodo) {
+      setAbonoEditandoId(null);
+      return;
+    }
+    
+    try {
+      const res = await fetch(`${apiUrl}/caja/abonos/${abonoId}/actualizar-metodo-pago/`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ metodo_pago: nuevoMetodo })
+      });
+      
+      if (res.ok) {
+        console.log(`✅ Método de abono actualizado: ${nuevoMetodo}`);
+        
+        
+        // ← ← ← ACTUALIZAR ESTADO LOCAL PARA REFLEJAR CAMBIO INMEDIATO ← ← ←
+        setAbonosInternos(prev => prev.map(a =>
+          a.id === abonoId 
+            ? { ...a, metodo_pago: nuevoMetodo as AbonoRecibo['metodo_pago'] } 
+            : a
+        ));
+                
+        // ← ← ← DISPARAR EVENTO PARA ACTUALIZAR PADRE SI ES NECESARIO ← ← ←
+        window.dispatchEvent(new CustomEvent('abonoActualizado', {
+          detail: { id: abonoId, metodo_pago: nuevoMetodo }
+        }));
+        
+        setAbonoEditandoId(null);
+      } else {
+        console.error('❌ Error actualizando método de abono');
+        setMetodoTemporalAbono('');
+      }
+    } catch (err) {
+      console.error('❌ Error de red:', err);
+      setMetodoTemporalAbono('');
+    } finally {
+      setAbonoEditandoId(null);
+    }
+  };
+
+  // ← ← ← FUNCIÓN: Manejar clic en método de pago de abono ← ← ←
+  const handleClicMetodoAbono = (abono: AbonoRecibo, e: React.MouseEvent) => {
+    e.stopPropagation(); // Evitar propagación
+    setAbonoEditandoId(abono.id);
+    setMetodoTemporalAbono(abono.metodo_pago);
+  };
+
+// ← ← ← FUNCIÓN: Manejar clic para editar método (registros unificados) ← ← ←
+const handleClicMetodoRegistro = (registro: any, e: React.MouseEvent) => {
+  e.stopPropagation();
+  setRegistroEditandoId(`${registro.tipo}-${registro.id}`);
+  setMetodoTemporalRegistro(registro.metodo_pago);
+};
+
+// ← ← ← FUNCIÓN: Guardar método de pago (ruta dinámica según tabla) ← ← ←
+const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos', nuevoMetodo: string) => {
+  if (!nuevoMetodo) {
+    setRegistroEditandoId(null);
+    return;
+  }
+  
+  try {
+    const endpoint = tabla === 'abonos' 
+      ? `${apiUrl}/caja/abonos/${id}/actualizar-metodo-pago/`
+      : `${apiUrl}/pagos/${id}/actualizar-metodo-pago/`;
+    
+    const res = await fetch(endpoint, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ metodo_pago: nuevoMetodo })
+    });
+    
+    if (res.ok) {
+      console.log(`✅ Método actualizado en ${tabla}: ${nuevoMetodo}`);
+      await cargarPagosRelacionados(recibo?.id || 0);
+    } else {
+      console.error(`❌ Error actualizando método en ${tabla}`);
+      setMetodoTemporalRegistro('');
+    }
+  } catch (err) {
+    console.error('❌ Error de red:', err);
+    setMetodoTemporalRegistro('');
+  } finally {
+    setRegistroEditandoId(null);
+  }
+};
 
   const handlePrint = () => {
     const printContent = document.getElementById('recibo-para-imprimir');
@@ -578,28 +801,64 @@ export default function ReciboImpresionModal({
                   <p className="text-xs font-semibold text-gray-400 mb-2 flex items-center gap-1">
                     💰 Pagos registrados:
                   </p>
-                  <div className="space-y-1.5">
+                                    <div className="space-y-1.5">
                     {abonos.map((abono) => (
                       <div 
                         key={abono.id}
-                        className="flex items-center justify-between text-xs text-gray-300"
+                        className="flex items-center justify-between text-xs text-gray-300 group"
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
                           <span className="text-gray-500">•</span>
-                          <span className="capitalize">{getMetodoLabel(abono.metodo_pago)}</span>
+                          
+                          {/* ← ← ← MÉTODO DE PAGO EDITABLE ← ← ← */}
+                          {abonoEditandoId === abono.id ? (
+                            // ← ← ← MODO EDICIÓN: Select desplegable
+                            <select
+                              value={metodoTemporalAbono}
+                              onChange={(e) => setMetodoTemporalAbono(e.target.value)}
+                              onBlur={() => handleGuardarMetodoAbono(abono.id, metodoTemporalAbono)}
+                              onClick={(e) => e.stopPropagation()}
+                              autoFocus
+                              className="bg-gray-700 border border-blue-500 text-blue-400 text-[10px] rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 capitalize min-w-[100px]"
+                            >
+                              {[
+                                { value: 'efectivo', label: '💵 Efectivo' },
+                                { value: 'transferencia', label: '🏦 Transferencia' },
+                                { value: 'nequi', label: '📱 Nequi' },
+                                { value: 'daviplata', label: '📱 Daviplata' },
+                                { value: 'bold', label: '💳 Bold' },
+                                { value: 'tarjeta', label: '💳 Tarjeta' },
+                                { value: 'caja_menor', label: '📦 Caja menor' },
+                              ].map((opcion) => (
+                                <option key={opcion.value} value={opcion.value}>
+                                  {opcion.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            // ← ← ← MODO LECTURA: Click para editar
+                            <button
+                              onClick={(e) => handleClicMetodoAbono(abono, e)}
+                              className="capitalize text-left hover:text-blue-300 hover:underline transition-colors truncate"
+                              title="Click para cambiar método de pago"
+                            >
+                              {getMetodoLabel(abono.metodo_pago)}
+                            </button>
+                          )}
+                          
                           {abono.referencia_externa && (
-                            <span className="text-gray-600 text-[10px]" title={abono.referencia_externa}>
-                              ({abono.referencia_externa.substring(0, 10)}{abono.referencia_externa.length > 10 ? '...' : ''})
+                            <span className="text-gray-600 text-[10px] truncate max-w-[80px]" title={abono.referencia_externa}>
+                              ({abono.referencia_externa.substring(0, 8)}{abono.referencia_externa.length > 8 ? '...' : ''})
                             </span>
                           )}
-                          <span className="text-gray-600 text-[10px]">
+                          <span className="text-gray-600 text-[10px] whitespace-nowrap">
                             {new Date(abono.fecha_abono).toLocaleDateString('es-CO', {
                               day: '2-digit',
                               month: '2-digit'
                             })} {formatAbonoTime(abono.fecha_abono)}
                           </span>
                         </div>
-                        <span className="font-semibold text-green-400">
+                        <span className="font-semibold text-green-400 whitespace-nowrap ml-2">
                           {formatMoney(abono.monto)}
                         </span>
                       </div>
@@ -621,48 +880,102 @@ export default function ReciboImpresionModal({
             </div>
           )}
 
-          {/* ← ← ← MODO EXTERNO: Mostrar abonos si se pasan como prop ← ← ← */}
-          {!cargarAbonosInternamente && abonosExternos.length > 0 && (
-            <div className="mt-4 pt-3 border-t border-dashed border-gray-600">
-              <p className="text-xs font-semibold text-gray-400 mb-2 flex items-center gap-1">
-                💰 Pagos registrados:
-              </p>
-              <div className="space-y-1.5">
-                {abonosExternos.map((abono) => (
-                  <div 
-                    key={abono.id}
-                    className="flex items-center justify-between text-xs text-gray-300"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-500">•</span>
-                      <span className="capitalize">{getMetodoLabel(abono.metodo_pago)}</span>
-                      {abono.referencia_externa && (
-                        <span className="text-gray-600 text-[10px]" title={abono.referencia_externa}>
-                          ({abono.referencia_externa.substring(0, 10)}{abono.referencia_externa.length > 10 ? '...' : ''})
-                        </span>
-                      )}
-                      <span className="text-gray-600 text-[10px]">
-                        {new Date(abono.fecha_abono).toLocaleDateString('es-CO', {
-                          day: '2-digit',
-                          month: '2-digit'
-                        })} {formatAbonoTime(abono.fecha_abono)}
-                      </span>
-                    </div>
-                    <span className="font-semibold text-green-400">
-                      {formatMoney(abono.monto)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-2 pt-2 border-t border-gray-700/50 flex justify-between text-[10px] text-gray-500">
-                <span>Total abonado:</span>
-                <span className="text-gray-400">
-                  {formatMoney(calcularTotalAbonado())}
+        
+{(pagosRelacionados?.length > 0 || loadingPagos) && (
+  <div className="mt-4 pt-3 border-t border-dashed border-gray-600">
+    <p className="text-xs font-semibold text-gray-400 mb-2 flex items-center gap-1">
+      💰 Pagos y Abonos registrados:
+    </p>
+    
+    {loadingRegistros ? (
+      <div className="flex items-center justify-center py-2">
+        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div>
+      </div>
+    ) : (
+      <div className="space-y-1.5">
+        {pagosRelacionados.map((registro) => (
+          <div 
+            key={`${registro.tipo}-${registro.id}`}
+            className="flex items-center justify-between text-xs text-gray-300 group"
+          >
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <span className="text-gray-500">•</span>
+              
+              {/* ← ← ← BADGE DE TIPO ← ← ← */}
+              <span className={`text-[10px] px-1 py-0.5 rounded border ${
+                registro.tipo === 'abono' 
+                  ? 'bg-blue-900/30 text-blue-400 border-blue-700'
+                  : 'bg-green-900/30 text-green-400 border-green-700'
+              }`}>
+                {registro.tipo === 'abono' ? 'Abono' : (registro.origen_tipo_display || 'Pago')}
+              </span>
+              
+              {/* ← ← ← MÉTODO DE PAGO EDITABLE ← ← ← */}
+              {registroEditandoId === `${registro.tipo}-${registro.id}` ? (
+                // ← ← ← MODO EDICIÓN: Select desplegable
+                <select
+                  value={metodoTemporalRegistro}
+                  onChange={(e) => setMetodoTemporalRegistro(e.target.value)}
+                  onBlur={() => {const tipoPlural = registro.tipo === 'abono' ? 'abonos' : 'pagos';
+                    handleGuardarMetodoRegistro(registro.id, tipoPlural, metodoTemporalRegistro);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  autoFocus
+                  className="bg-gray-700 border border-blue-500 text-blue-400 text-[10px] rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 capitalize min-w-[100px]"
+                >
+                  {OPCIONES_METODO.map((opcion) => (
+                    <option key={opcion.value} value={opcion.value}>
+                      {opcion.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                // ← ← ← MODO LECTURA: Click para editar
+                <button
+                  onClick={(e) => handleClicMetodoRegistro(registro, e)}
+                  className="capitalize text-left hover:text-blue-300 hover:underline transition-colors truncate"
+                  title="Click para cambiar método de pago"
+                >
+                  {getMetodoLabel(registro.metodo_pago)}
+                </button>
+              )}
+              
+              {/* Referencia externa si existe */}
+              {registro.referencia && (
+                <span className="text-gray-600 text-[10px] truncate max-w-[80px]" title={registro.referencia}>
+                  ({registro.referencia.substring(0, 8)}{registro.referencia.length > 8 ? '...' : ''})
                 </span>
-              </div>
+              )}
+              
+              {/* Fecha */}
+              <span className="text-gray-600 text-[10px] whitespace-nowrap">
+                {new Date(registro.fecha).toLocaleDateString('es-CO', {
+                  day: '2-digit',
+                  month: '2-digit'
+                })} {formatTime(registro.fecha)}
+              </span>
             </div>
-          )}
-
+            
+            {/* Monto */}
+            <span className="font-semibold text-green-400 whitespace-nowrap ml-2">
+              {formatMoney(registro.monto)}
+            </span>
+          </div>
+        ))}
+      </div>
+    )}
+    
+    {/* ← ← ← TOTAL ← ← ← */}
+    {pagosRelacionados?.length > 0 && (
+    <div className="mt-2 pt-2 border-t border-gray-700/50 flex justify-between text-[10px] text-gray-500">
+      <span>Total registrado:</span>
+      <span className="text-gray-400">
+        {formatMoney(pagosRelacionados.reduce((sum, r) => sum + parseFloat(String(r.monto)), 0))}
+      </span>
+    </div>
+  )}
+  </div>
+)}
           {/* ← Notas */}
           {recibo.notas && (
             <div className="mt-4 pt-3 border-t border-dashed border-gray-600">

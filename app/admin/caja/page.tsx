@@ -220,7 +220,7 @@ export default function CajaPage() {
 
   const [abonos, setAbonos] = useState<any[]>([]);
   // ← ← ← NUEVO ESTADO para abonos del modal de impresión ← ← ←
-const [abonosParaImpresion, setAbonosParaImpresion] = useState<AbonoRecibo[]>([]);
+  const [abonosParaImpresion, setAbonosParaImpresion] = useState<AbonoRecibo[]>([]);
 
   // ... dentro del componente:
   const [recibos, setRecibos] = useState<any[]>([]);
@@ -1176,6 +1176,7 @@ const crearRecibosParaHuerfanas = async () => {
           },
           body: JSON.stringify({ 
             session_caja_id: sessionActiva?.id || null,  // ← ← ← Pasar sesión si existe
+            metodo_pago: 'bold',
           })
         });
 
@@ -1703,6 +1704,11 @@ const cargarVales = async (sessionIdExplicito?: number | null) => {
       }
       
       alert(`✅ Vale ${valeCreado.codigo_vale} creado exitosamente`);
+
+      // Recargar recibos para mostrar el recibo de salida creado automáticamente
+if (sessionActiva?.id) {
+    await cargarRecibosRecientes(sessionActiva.id, true, Date.now());
+}
       setModalNuevoValeOpen(false);
       setNuevoVale({ 
         profesional: '', 
@@ -2614,6 +2620,18 @@ const formatDate = (dateStr: string): string => {
                             onCancelar={handleCancelarVale}
                             onNotificar={handleNotificarVale}
                             formatMoney={formatMoney}
+                            apiUrl={apiUrl}              // ← ← ← AGREGAR
+                            token={token}                // ← ← ← AGREGAR
+                            onValeActualizado={(valeActualizado) => {  // ← ← ← AGREGAR
+                              // Actualizar en valesSesion si existe
+                              setValesSesion(prev => prev.map(v => 
+                                v.id === valeActualizado.id ? { ...v, metodo_pago: valeActualizado.metodo_pago } : v
+                              ));
+                              // Actualizar en valesPendientes si existe
+                              setValesPendientes(prev => prev.map(v => 
+                                v.id === valeActualizado.id ? { ...v, metodo_pago: valeActualizado.metodo_pago } : v
+                              ));
+                            }}
                           />
                         ))}
                       </div>
@@ -2636,6 +2654,18 @@ const formatDate = (dateStr: string): string => {
                             onCancelar={handleCancelarVale}
                             onNotificar={handleNotificarVale}
                             formatMoney={formatMoney}
+                            apiUrl={apiUrl}              // ← ← ← AGREGAR
+                            token={token}                // ← ← ← AGREGAR
+                            onValeActualizado={(valeActualizado) => {  // ← ← ← AGREGAR
+                              // Actualizar en valesSesion si existe
+                              setValesSesion(prev => prev.map(v => 
+                                v.id === valeActualizado.id ? { ...v, metodo_pago: valeActualizado.metodo_pago } : v
+                              ));
+                              // Actualizar en valesPendientes si existe
+                              setValesPendientes(prev => prev.map(v => 
+                                v.id === valeActualizado.id ? { ...v, metodo_pago: valeActualizado.metodo_pago } : v
+                              ));
+                            }}
                           />
                         ))}
                       </div>
@@ -2651,144 +2681,200 @@ const formatDate = (dateStr: string): string => {
         {/* ← Columna 4 Derecha: Session Info */}
         <div className="lg:col-span-2">
           
-          {/* ← ← ← Session Info: Mostrar para sesión ACTIVA O sesión del HISTORIAL ← ← ← */}
-         {/* ← ← ← CORREGIDO: Usar variable única para sesión actual ← ← ← */}
+         {/* ← ← ← Session Info: Mostrar para sesión ACTIVA O sesión del HISTORIAL ← ← ← */}
           {(() => {
-          const sesionActual = sesionSeleccionada || sessionActiva;  // ← ← ← PRIORIZAR HISTÓRICA
-          if (!sesionActual) return null;
+            const sesionActual = sesionSeleccionada || sessionActiva;  // ← ← ← PRIORIZAR HISTÓRICA
+            if (!sesionActual) return null;
 
-          return (
-          <div className="bg-gray-800 rounded-xl border border-gray-700 p-4">
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-700">
-          <div className="flex items-center gap-3">
-          <div>
-          <h3 className="font-semibold text-white flex items-center gap-2">
-          📊 Resumen del Turno #{sesionActual.id}
-          </h3>
-          <p className="text-xs text-gray-400">
-          {formatDate(sesionActual.fecha || '')} • {sesionActual.turno}
-          {sesionSeleccionada && !sessionActiva && (
-          <span className="text-cyan-400 ml-1">• 👁️ Solo lectura</span>
-          )}
-          </p>
-          <span className="text-xs text-gray-400">
-          👤 {sesionActual.usuario_username}
-          </span>
-          </div>
-          </div>
-          </div>
-          <div className="space-y-3 text-sm">
-          <div className="flex justify-between">
-          <span className="text-gray-400">Apertura:</span>
-          <span className="text-white">{formatDate(sesionActual.hora_apertura || '')}</span>
-          </div>
-          <div className="flex justify-between">
-          <span className="text-gray-400">Saldo Inicial:</span>
-          <span className="text-white">{formatMoney(sesionActual.saldo_inicial || 0)}</span>
-          </div>
-          <div className="flex justify-between">
-          <span className="text-gray-400">Entradas:</span>
-          <span className="text-green-400">+{formatMoney(sesionActual.total_entradas || 0)}</span>
-          </div>
-          <div className="flex justify-between">
-          <span className="text-gray-400">Salidas:</span>
-          <span className="text-orange-400">-{formatMoney(sesionActual.total_salidas || 0)}</span>
-          </div>
-          <div className="flex justify-between">
-          <span className="text-gray-400">Ventas:</span>
-          <span className="text-blue-400">+{formatMoney(sesionActual.total_ventas || 0)}</span>
-          </div>
-          <div className="border-t border-gray-700 pt-3 mt-3">
-          <div className="flex justify-between font-bold">
-          <span className="text-gray-300">Saldo Esperado:</span>
-          <span className="text-blue-400">{formatMoney(sesionActual.saldo_esperado || 0)}</span>
-          </div>
-          </div>
-          {/* ← ← ← SOLO PARA SESIONES CERRADAS: Mostrar Saldo Final ← ← ← */}
-          {sesionActual.estado === 'cerrada' && (
-          <div className="border-t border-gray-700 pt-3 mt-3">
-          <div className="flex justify-between font-bold">
-          <span className="text-gray-300">Saldo Final:</span>
-          <span className="text-green-400">{formatMoney(sesionActual.saldo_final || 0)}</span>
-          </div>
-          <div className="flex justify-between text-xs mt-2">
-          <span className="text-gray-400">Diferencia:</span>
-          {(() => {
-          const final = parseFloat(sesionActual.saldo_final || '0');
-          const esperado = parseFloat(sesionActual.saldo_esperado || '0');
-          const diferencia = final - esperado;
-          return (
-          <span className={diferencia >= 0 ? 'text-green-400' : 'text-red-400'}>
-          {formatMoney(diferencia)}
-          </span>
-          );
+            // ← ← ← CÁLCULOS PARA RESUMEN SIMPLIFICADO ← ← ←
+            const totalEntradasEfectivo = resumen?.total_entradas_efectivo 
+              ? parseFloat(resumen.total_entradas_efectivo) 
+              : (resumen?.desglose_entradas?.['efectivo']?.total 
+                ? parseFloat(resumen.desglose_entradas['efectivo'].total) 
+                : 0);
+            
+            const totalSalidasEfectivo = resumen?.total_salidas_efectivo 
+              ? parseFloat(resumen.total_salidas_efectivo) 
+              : (resumen?.desglose_salidas?.['efectivo']?.total 
+                ? parseFloat(resumen.desglose_salidas['efectivo'].total) 
+                : 0);
+            
+            const totalVentas = resumen?.total_ventas 
+              ? parseFloat(resumen.total_ventas) 
+              : parseFloat(sesionActual.total_ventas || '0');
+            
+            const totalVentasOtros = Math.max(0, totalVentas - totalEntradasEfectivo);
+            
+            const saldoInicial = parseFloat(sesionActual.saldo_inicial || '0');
+            const saldoEfectivoEsperado = saldoInicial + totalEntradasEfectivo - totalSalidasEfectivo;
+
+            return (
+              <div className="bg-gray-800 rounded-xl border border-gray-700 p-4">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-700">
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <h3 className="font-semibold text-white flex items-center gap-2">
+                        📊 Resumen del Turno #{sesionActual.id}
+                      </h3>
+                      <p className="text-xs text-gray-400">
+                        {formatDate(sesionActual.fecha || '')} • {sesionActual.turno}
+                        {sesionSeleccionada && !sessionActiva && (
+                          <span className="text-cyan-400 ml-1">• 👁️ Solo lectura</span>
+                        )}
+                      </p>
+                      <span className="text-xs text-gray-400">
+                        👤 {sesionActual.usuario_username}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ← ← ← RESUMEN PRINCIPAL (7 LÍNEAS CLAVE) ← ← ← */}
+                <div className="space-y-2 text-sm">
+                  {/* 1. Apertura */}
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">🕐 Apertura:</span>
+                    <span className="text-white">{formatDate(sesionActual.hora_apertura || '')}</span>
+                  </div>
+
+                  {/* 2. Saldo Inicial */}
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">💰 Saldo Inicial:</span>
+                    <span className="text-white font-medium">{formatMoney(saldoInicial)}</span>
+                  </div>
+
+                  {/* 3. Entradas en Efectivo */}
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">💵 Entradas (Efectivo):</span>
+                    <span className="text-green-400 font-medium">+{formatMoney(totalEntradasEfectivo)}</span>
+                  </div>
+
+                  {/* 4. Salidas en Efectivo */}
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">💵 Salidas (Efectivo):</span>
+                    <span className="text-orange-400 font-medium">-{formatMoney(totalSalidasEfectivo)}</span>
+                  </div>
+
+                  
+
+                  {/* 6. Efectivo Esperado en Caja */}
+                  <div className="border-t border-gray-700 pt-2 mt-2">
+                    <div className="flex justify-between font-bold">
+                      <span className="text-gray-300">💵 Efectivo en Caja Esperado:</span>
+                      <span className="text-blue-400">{formatMoney(saldoEfectivoEsperado)}</span>
+                    </div>
+                  </div>
+
+                  {/* 7. Total Ventas (todos los métodos) */}
+                  <div className="border-t border-gray-700 pt-2 mt-2">
+                      {/* 5. Ventas en Otros Métodos */}
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">💳 Ventas (Otros métodos):</span>
+                      <span className="text-blue-400 font-medium">+{formatMoney(totalVentasOtros)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">🛍️ Total Ventas:</span>
+                      <span className="text-purple-400 font-medium">{formatMoney(totalVentas)}</span>
+                    </div>
+                  </div>
+                  </div>
+                {/* ← ← ← CUADRE DE CAJA EN EFECTIVO (Solo si hay resumen detallado) ← ← ← */}
+                {resumen?.validacion?.efectivo && sesionActual.estado === 'cerrada' && (
+                  <div className="mt-4 p-4 bg-gray-900/50 rounded-lg border border-green-700/50">
+                    <h4 className="text-xs font-semibold text-green-400 mb-3 flex items-center gap-2">
+                      ✅ Cuadre Final de Caja
+                    </h4>
+                    
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Saldo Final Real:</span>
+                        <span className="text-white">{formatMoney(sesionActual.saldo_final || 0)}</span>
+                      </div>
+                      <div className={`flex justify-between font-medium ${
+                        resumen.validacion.efectivo.coincide 
+                          ? 'text-green-400' 
+                          : resumen.validacion.efectivo.diferencia > 0 
+                            ? 'text-blue-400' 
+                            : 'text-red-400'
+                      }`}>
+                        <span>Diferencia:</span>
+                        <span>
+                          {resumen.validacion.efectivo.diferencia !== null 
+                            ? `${resumen.validacion.efectivo.diferencia >= 0 ? '+' : ''}${formatMoney(resumen.validacion.efectivo.diferencia)}`
+                            : 'N/A'}
+                          {resumen.validacion.efectivo.coincide && ' ✅ Cuadra'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ← ← ← SOLO PARA SESIONES CERRADAS: Diferencia general ← ← ← */}
+                {sesionActual.estado === 'cerrada' && !resumen?.validacion?.efectivo && (
+                  <div className="border-t border-gray-700 pt-3 mt-3">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-400">Diferencia general:</span>
+                      {(() => {
+                        const final = parseFloat(sesionActual.saldo_final || '0');
+                        const esperado = parseFloat(sesionActual.saldo_esperado || '0');
+                        const diferencia = final - esperado;
+                        return (
+                          <span className={diferencia >= 0 ? 'text-green-400' : 'text-red-400'}>
+                            {formatMoney(diferencia)}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* ← ← ← DESGLOSE POR MÉTODO (Colapsable - opcional) ← ← ← */}
+                {(resumen?.desglose_entradas || resumen?.desglose_salidas) && (
+                  <details className="mt-4 pt-4 border-t border-gray-700">
+                    <summary className="text-sm font-semibold text-gray-300 cursor-pointer flex items-center gap-2 hover:text-white transition-colors">
+                      💳 Ver desglose por método de pago
+                      <svg className="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </summary>
+                    
+                    <div className="mt-3 space-y-4 text-xs">
+                      {/* Entradas */}
+                      {resumen?.desglose_entradas && Object.keys(resumen.desglose_entradas).length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-green-400 mb-2">Ingresos</p>
+                          <div className="space-y-1.5">
+                            {Object.entries(resumen.desglose_entradas).map(([metodo, datos]: [string, any]) => (
+                              <div key={`ing-${metodo}`} className="flex justify-between items-center py-1.5 px-2 bg-green-900/10 rounded">
+                                <span className="text-gray-300">{datos.label || metodo}</span>
+                                <span className="font-medium text-green-400">{formatMoney(datos.total)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Salidas */}
+                      {resumen?.desglose_salidas && Object.keys(resumen.desglose_salidas).length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-orange-400 mb-2">Salidas</p>
+                          <div className="space-y-1.5">
+                            {Object.entries(resumen.desglose_salidas).map(([metodo, datos]: [string, any]) => (
+                              <div key={`sal-${metodo}`} className="flex justify-between items-center py-1.5 px-2 bg-orange-900/10 rounded">
+                                <span className="text-gray-300">{datos.label || metodo}</span>
+                                <span className="font-medium text-orange-400">-{formatMoney(datos.total)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                )}
+              </div>
+            );
           })()}
-          </div>
-          </div>
-          )}
-           {/* ← ← ← DESGLOSE POR MÉTODO DE PAGO (ENTRADAS Y SALIDAS) ← ← ← */}
-          {(resumen?.desglose_entradas || resumen?.desglose_salidas) && (
-            <div className="mt-4 pt-4 border-t border-gray-700 space-y-4">
-              <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
-                💳 Desglose por Método de Pago
-              </h4>
-
-              {/* ENTRADAS / ABONOS */}
-              {resumen?.desglose_entradas && Object.keys(resumen.desglose_entradas).length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-green-400 mb-2 flex items-center gap-1">
-                    <span className="w-2 h-2 bg-green-400 rounded-full"></span> Ingresos (Ventas/Abonos)
-                  </p>
-                  <div className="space-y-2">
-                    {Object.entries(resumen.desglose_entradas).map(([metodo, datos]: [string, any]) => (
-                      <div key={`ing-${metodo}`} className="flex justify-between items-center py-2 px-3 bg-green-900/20 rounded-lg border border-green-800/50">
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg">{datos.label?.includes('💵') ? '💵' : datos.label?.includes('💳') ? '💳' : datos.label?.includes('🏦') ? '🏦' : datos.label?.includes('📱') ? '📱' : '💰'}</span>
-                          <span className="text-sm text-gray-300 capitalize">{datos.label || metodo}</span>
-                          <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">{datos.count} trans.</span>
-                        </div>
-                        <span className="font-semibold text-green-400">{formatMoney(datos.total)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* SALIDAS / EGRESOS */}
-              {resumen?.desglose_salidas && Object.keys(resumen.desglose_salidas).length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-orange-400 mb-2 flex items-center gap-1">
-                    <span className="w-2 h-2 bg-orange-400 rounded-full"></span> Salidas (Comisiones/Gastos)
-                  </p>
-                  <div className="space-y-2">
-                    {Object.entries(resumen.desglose_salidas).map(([metodo, datos]: [string, any]) => (
-                      <div key={`sal-${metodo}`} className="flex justify-between items-center py-2 px-3 bg-orange-900/20 rounded-lg border border-orange-800/50">
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg">{datos.label?.includes('💵') ? '💵' : datos.label?.includes('💳') ? '💳' : datos.label?.includes('🏦') ? '🏦' : datos.label?.includes('📱') ? '📱' : '💰'}</span>
-                          <span className="text-sm text-gray-300 capitalize">{datos.label || metodo}</span>
-                          <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">{datos.count} trans.</span>
-                        </div>
-                        <span className="font-semibold text-orange-400">-{formatMoney(datos.total)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Validación residual (mantenida por compatibilidad) */}
-              {resumen.total_ventas_validacion && (
-                <div className="mt-2 pt-2 border-t border-gray-700 flex justify-between text-xs">
-                  <span className="text-gray-500">Validación sistema:</span>
-                  <span className="text-green-400">{formatMoney(parseFloat(resumen.total_ventas_validacion))}</span>
-                </div>
-              )}
-            </div>
-          )}
-          </div>
-          </div>
-          );
-          })()}  
-
                    
         
 
@@ -3823,17 +3909,30 @@ const formatDate = (dateStr: string): string => {
 
       {/* ← ← ← MODAL: Ver/Imprimir Recibo Publicado ← ← ← */}
        <ReciboImpresionModal
-        isOpen={modalReciboImpresionOpen}
-        onClose={() => {
-          setModalReciboImpresionOpen(false);
-          setReciboParaImprimir(null);
-          setAbonosParaImpresion([]);  // ← Limpiar también este estado
-        }}
-        recibo={reciboParaImprimir}
-        formatMoney={formatMoney}
-        formatDate={formatDate}
-        abonos={abonosParaImpresion}  // ← ← ← AGREGAR ESTA LÍNEA
-      />
+          isOpen={modalReciboImpresionOpen}
+          onClose={() => {
+            setModalReciboImpresionOpen(false);
+            setReciboParaImprimir(null);
+            setAbonosParaImpresion([]);
+          }}
+          recibo={reciboParaImprimir}
+          formatMoney={formatMoney}
+          formatDate={formatDate}
+          abonos={abonosParaImpresion}
+          apiUrl={apiUrl}              // ← ← ← AGREGAR
+          token={token}                // ← ← ← AGREGAR
+         /* onMetodoActualizado={(nuevoMetodo) => {  // ← ← ← AGREGAR CALLBACK
+            // Actualizar el recibo en memoria para reflejar el cambio inmediato
+            if (reciboParaImprimir) {
+              setReciboParaImprimir({ ...reciboParaImprimir, metodo_pago: nuevoMetodo });
+            }
+            // Disparar evento para actualizar otras partes de la UI
+            window.dispatchEvent(new CustomEvent('reciboActualizado', {
+              detail: { id: reciboParaImprimir?.id, metodo_pago: nuevoMetodo }
+            }));
+            console.log(`✅ Método de recibo actualizado a: ${nuevoMetodo}`);
+          }}*/
+        />
     </div>
   );
 }
@@ -4235,13 +4334,82 @@ function ValeCard({
   onCancelar,
   onNotificar,
   formatMoney,
+  apiUrl,
+  token,
+  onValeActualizado,
 }: {
   vale: ValeEmpleado;
   onPagar: (vale: ValeEmpleado) => void;
   onCancelar: (vale: ValeEmpleado) => void;
   onNotificar: (vale: ValeEmpleado) => void;
   formatMoney: (value: string | number) => string;
+  apiUrl?: string;
+  token?: string | null;
+  onValeActualizado?: (vale: ValeEmpleado) => void;
 }) {
+  // ← ← ← ESTADOS PARA EDITAR MÉTODO DE PAGO ← ← ←
+  const [editandoMetodo, setEditandoMetodo] = useState(false);
+  const [metodoTemporal, setMetodoTemporal] = useState(vale.metodo_pago || '');
+
+  // ← ← ← FUNCIÓN: Guardar método de pago del vale ← ← ←
+  const handleGuardarMetodoVale = async (nuevoMetodo: string) => {
+    console.log('💾 [ValeCard] Intentando guardar método:', nuevoMetodo, 'para vale:', vale.codigo_vale);
+    
+    if (!nuevoMetodo || nuevoMetodo === vale.metodo_pago) {
+      setEditandoMetodo(false);
+      return;
+    }
+    
+    try {
+      const res = await fetch(`${apiUrl}/caja/vales/${vale.id}/actualizar-metodo-pago/`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ metodo_pago: nuevoMetodo })
+      });
+      
+      if (res.ok) {
+        console.log(`✅ Método de vale actualizado: ${nuevoMetodo}`);
+        
+        // ← ← ← NOTIFICAR AL PADRE PARA ACTUALIZAR LA LISTA ← ← ←
+        if (onValeActualizado) {
+          onValeActualizado({ ...vale, metodo_pago: nuevoMetodo });
+        }
+        
+        // Disparar evento personalizado para consistencia global
+        window.dispatchEvent(new CustomEvent('valeActualizado', {
+          detail: { id: vale.id, metodo_pago: nuevoMetodo }
+        }));
+        
+        setEditandoMetodo(false);
+      } else {
+        console.error('❌ Error actualizando método de vale');
+        setMetodoTemporal(vale.metodo_pago || '');
+      }
+    } catch (err) {
+      console.error('❌ Error de red:', err);
+      setMetodoTemporal(vale.metodo_pago || '');
+    } finally {
+      setEditandoMetodo(false);
+    }
+  };
+
+  // ← ← ← FUNCIÓN: Manejar clic en método de pago ← ← ←
+  const handleClicMetodoVale = (e: React.MouseEvent) => {
+    // ← ← ← LOG CRÍTICO PARA DEBUG ← ← ←
+    console.log('🖱️ [ValeCard] handleClicMetodoVale llamado | Vale:', vale.codigo_vale, '| Estado actual:', editandoMetodo);
+    
+    e.stopPropagation(); // Evitar propagación si está dentro de un contenedor clickable
+    e.preventDefault();  // ← ← ← AGREGAR: Prevenir comportamiento por defecto
+    
+    setMetodoTemporal(vale.metodo_pago || '');
+    setEditandoMetodo(true);
+    
+    console.log('✅ [ValeCard] Estado actualizado: editandoMetodo=true');
+  };
+
   return (
     <div className="p-3 bg-gray-900 rounded-lg border border-orange-500/30">
       <div className="flex items-start justify-between mb-2">
@@ -4259,11 +4427,10 @@ function ValeCard({
           </p>
         </div>
         <span className="px-2 py-0.5 bg-yellow-900/30 text-yellow-400 text-xs rounded border border-yellow-700">
-          {vale.estado === 'registrado' ? 'Registrado' : 
+          {vale.estado === 'registrado' ? 'Registrado' :
            vale.estado === 'pagado' ? '✅ Pagado' : '❌ Cancelado'}
         </span>
       </div>
-      
       <p className="font-medium text-white text-sm mb-1">
         {vale.profesional_nombre}
       </p>
@@ -4271,12 +4438,65 @@ function ValeCard({
         {formatMoney(vale.monto)}
       </p>
       
-      {/* Método de pago */}
-      {vale.metodo_pago && (
-        <p className="text-xs text-gray-400 mb-2">
-          💳 {vale.metodo_pago_display || vale.metodo_pago}
-        </p>
-      )}
+      {/* ← ← ← MÉTODO DE PAGO EDITABLE (CORREGIDO) ← ← ← */}
+      <div className="mb-2">
+       {/* <span className="text-xs text-gray-400 block mb-1">💳 Método:</span>*/}
+        {editandoMetodo ? (
+          // ← ← ← MODO EDICIÓN: Select desplegable
+          <select
+            value={metodoTemporal}
+            onChange={(e) => {
+              console.log('🔄 [ValeCard] Select onChange:', e.target.value);
+              setMetodoTemporal(e.target.value);
+            }}
+            onBlur={() => {
+              console.log('🔚 [ValeCard] Select onBlur, guardando:', metodoTemporal);
+              handleGuardarMetodoVale(metodoTemporal);
+            }}
+            onClick={(e) => {
+              console.log('👆 [ValeCard] Select onClick');
+              e.stopPropagation();
+            }}
+            autoFocus
+            className="w-full bg-gray-800 border border-orange-500 text-orange-400 text-xs rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-orange-500 capitalize cursor-pointer"
+          >
+            {[
+              { value: 'efectivo', label: '💵 Efectivo' },
+              { value: 'transferencia', label: '🏦 Transferencia' },
+              { value: 'nequi', label: '📱 Nequi' },
+              { value: 'daviplata', label: '📱 Daviplata' },
+              { value: 'bold', label: '💳 Bold' },
+              { value: 'tarjeta', label: '💳 Tarjeta en sitio' },
+              { value: 'caja_menor', label: '📦 Caja menor' },
+            ].map((opcion) => (
+              <option key={opcion.value} value={opcion.value}>
+                {opcion.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          // ← ← ← MODO LECTURA: Click para editar
+          <button
+            type="button"  // ← ← ← AGREGAR: Evitar submit accidental
+            onClick={handleClicMetodoVale}
+            className="w-full text-left text-orange-400 font-semibold capitalize hover:text-orange-300 hover:underline transition-colors text-xs py-1 px-2 rounded hover:bg-white/10 cursor-pointer focus:outline-none focus:ring-1 focus:ring-orange-500"
+            title="Click para cambiar método de pago"
+            // ← ← ← AGREGAR: Estilos para asegurar clickeabilidad
+            style={{ pointerEvents: 'auto' }}
+          >
+            {vale.metodo_pago_display ||
+              ({
+                'efectivo': '💵 Efectivo',
+                'transferencia': '🏦 Transferencia',
+                'nequi': '📱 Nequi',
+                'daviplata': '📱 Daviplata',
+                'bold': '💳 Bold',
+                'tarjeta': '💳 Tarjeta en sitio',
+                'caja_menor': '📦 Caja menor',
+              }[vale.metodo_pago || ''] || vale.metodo_pago || 'Sin método')}
+          </button>
+        )}
+      </div>
       
       {/* Session info si está disponible */}
       {vale.session_caja && (
@@ -4284,33 +4504,29 @@ function ValeCard({
           🏦 Sesión #{vale.session_caja}
         </p>
       )}
-
+      
       {/* Acciones - solo si está registrado */}
       {vale.estado === 'registrado' && (
         <div className="flex items-center gap-2">
           {/* Notificar WhatsApp */}
           {!vale.notificacion_whatsapp_enviada && (
             <button
-              onClick={() => onNotificar(vale)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onNotificar(vale);
+              }}
               className="flex-1 px-2 py-1.5 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-700 rounded text-xs text-blue-300 transition-colors flex items-center justify-center gap-1"
               title="Enviar notificación WhatsApp"
             >
               📱
             </button>
           )}
-          
-          {/* Pagar 
-          <button
-            onClick={() => onPagar(vale)}
-            className="flex-1 px-2 py-1.5 bg-green-900/30 hover:bg-green-900/50 border border-green-700 rounded text-xs text-green-300 transition-colors flex items-center justify-center gap-1"
-            title="Marcar como pagado"
-          >
-            💰
-          </button>*/}
-          
           {/* Cancelar */}
           <button
-            onClick={() => onCancelar(vale)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancelar(vale);
+            }}
             className="flex-1 px-2 py-1.5 bg-red-900/30 hover:bg-red-900/50 border border-red-700 rounded text-xs text-red-300 transition-colors flex items-center justify-center gap-1"
             title="Cancelar vale"
           >
