@@ -44,6 +44,8 @@ interface ReciboCaja {
   metodo_pago: string;
   session_caja_turno: string;
   
+
+  
   // ← ← ← CAMPOS DE CLIENTE ← ← ←
   cliente_nombre: string;
   cliente_telefono: string;
@@ -2472,34 +2474,55 @@ const formatDate = (dateStr: string): string => {
             </div>
             
             <div className="p-4 max-h-[600px] overflow-y-auto space-y-2">
-              {recibosComisiones.length === 0 ? (
-                <p className="text-center text-gray-400 py-8 text-sm">
-                  Sin comisiones recientes
-                </p>
-              ) : (
-                recibosComisiones.map((recibo) => (
-                    <ReciboCard
-                        key={recibo.id}
-                        recibo={recibo}
-                        onExpand={cargarDetalleRecibo}
-                        isExpanded={reciboExpandido === recibo.id}
-                        onEditar={handleEditarRecibo}
-                        onPublicar={handlePublicarRecibo}
-                         onImprimir={handleVerReciboImpresion}
-                        formatMoney={formatMoney}
-                        formatDate={formatDate}
-                        getReciboColor={getReciboColor}
-                        getTipoItemBadge={getTipoItemBadge}
-                        loadingDetalle={loadingDetalle && reciboExpandido === recibo.id}
-                        detalleRecibo={detalleRecibo?.id === recibo.id ? detalleRecibo : null}
-                        sesionSeleccionada={sesionSeleccionada}
-                        sessionActiva={sessionActiva}
-                        apiUrl={apiUrl}
-                        token={token}
-                        OPCIONES_METODO={OPCIONES_METODO}
-                    />
-                ))
-              )}
+              {recibosComisiones.map((recibo) => (
+  <div
+    key={recibo.id}
+    onClick={() => handleClicRecibo(recibo)}  // ← NUEVO: Abre modal según estado
+    className={`p-3 ${getReciboColor(recibo.tipo, recibo.estado)} ${
+      recibo.estado === 'borrador' ? 'cursor-pointer hover:shadow-lg' : 'cursor-default'
+    } transition-all rounded-lg border border-gray-700`}
+  >
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <div>
+          <p className="text-xs text-orange-400 hover:text-orange-300 disabled:opacity-50 flex items-center gap-1">
+            {recibo.codigo_recibo}
+          </p>
+          <p className="text-xs text-gray-400">
+            {recibo.cliente_nombre || 'Sin cliente'}
+          </p>
+          <p className="text-xs text-gray-400">
+            {formatDate(recibo.fecha)}
+          </p>
+        </div>
+      </div>
+      <div className="text-right">
+        <p className="font-bold text-white">
+          {formatMoney(recibo.total)}
+        </p>
+        <div className="flex items-center justify-end gap-1 mt-1">
+          {/* <span className="text-xs text-gray-400">{recibo.tipo} •</span>
+         <span className={`text-xs px-2 py-0.5 rounded ${
+            recibo.estado === 'borrador' 
+              ? 'bg-yellow-900/50 text-yellow-400' 
+              : recibo.estado === 'publicado'
+              ? 'bg-green-900/50 text-green-400'
+              : 'bg-red-900/50 text-red-400'
+          }`}>
+            {recibo.estado}
+          </span>*/}
+        </div>
+      </div>
+    </div>
+    
+    {/* Badge de método de pago (solo lectura)
+    {recibo.metodo_pago && (
+      <p className="text-xs text-blue-400 mt-1 ml-1 capitalize">
+        💳 {OPCIONES_METODO.find(o => o.value === recibo.metodo_pago)?.label || recibo.metodo_pago}
+      </p>
+    )} */}
+  </div>
+))}
             </div>
           </div>
         </div>
@@ -3915,7 +3938,7 @@ const formatDate = (dateStr: string): string => {
             setReciboParaImprimir(null);
             setAbonosParaImpresion([]);
           }}
-          recibo={reciboParaImprimir}
+          recibo={reciboParaImprimir as ReciboCaja | null}  // Forzar tipo compatible
           formatMoney={formatMoney}
           formatDate={formatDate}
           abonos={abonosParaImpresion}
@@ -4414,6 +4437,9 @@ function ValeCard({
     <div className="p-3 bg-gray-900 rounded-lg border border-orange-500/30">
       <div className="flex items-start justify-between mb-2">
         <div>
+           <p className="font-medium text-white text-sm mb-1">
+        {vale.profesional_nombre}
+      </p>
           <span className="font-mono text-xs text-orange-400">
             {vale.codigo_vale}
           </span>
@@ -4429,81 +4455,24 @@ function ValeCard({
         <span className="px-2 py-0.5 bg-yellow-900/30 text-yellow-400 text-xs rounded border border-yellow-700">
           {vale.estado === 'registrado' ? 'Registrado' :
            vale.estado === 'pagado' ? '✅ Pagado' : '❌ Cancelado'}
-        </span>
-      </div>
-      <p className="font-medium text-white text-sm mb-1">
-        {vale.profesional_nombre}
-      </p>
-      <p className="text-lg font-bold text-orange-400 mb-1">
+            <p className="text-lg font-bold text-orange-400 mb-1">
         {formatMoney(vale.monto)}
       </p>
+        </span>
+
+      </div>
+     
+     
       
       {/* ← ← ← MÉTODO DE PAGO EDITABLE (CORREGIDO) ← ← ← */}
-      <div className="mb-2">
-       {/* <span className="text-xs text-gray-400 block mb-1">💳 Método:</span>*/}
-        {editandoMetodo ? (
-          // ← ← ← MODO EDICIÓN: Select desplegable
-          <select
-            value={metodoTemporal}
-            onChange={(e) => {
-              console.log('🔄 [ValeCard] Select onChange:', e.target.value);
-              setMetodoTemporal(e.target.value);
-            }}
-            onBlur={() => {
-              console.log('🔚 [ValeCard] Select onBlur, guardando:', metodoTemporal);
-              handleGuardarMetodoVale(metodoTemporal);
-            }}
-            onClick={(e) => {
-              console.log('👆 [ValeCard] Select onClick');
-              e.stopPropagation();
-            }}
-            autoFocus
-            className="w-full bg-gray-800 border border-orange-500 text-orange-400 text-xs rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-orange-500 capitalize cursor-pointer"
-          >
-            {[
-              { value: 'efectivo', label: '💵 Efectivo' },
-              { value: 'transferencia', label: '🏦 Transferencia' },
-              { value: 'nequi', label: '📱 Nequi' },
-              { value: 'daviplata', label: '📱 Daviplata' },
-              { value: 'bold', label: '💳 Bold' },
-              { value: 'tarjeta', label: '💳 Tarjeta en sitio' },
-              { value: 'caja_menor', label: '📦 Caja menor' },
-            ].map((opcion) => (
-              <option key={opcion.value} value={opcion.value}>
-                {opcion.label}
-              </option>
-            ))}
-          </select>
-        ) : (
-          // ← ← ← MODO LECTURA: Click para editar
-          <button
-            type="button"  // ← ← ← AGREGAR: Evitar submit accidental
-            onClick={handleClicMetodoVale}
-            className="w-full text-left text-orange-400 font-semibold capitalize hover:text-orange-300 hover:underline transition-colors text-xs py-1 px-2 rounded hover:bg-white/10 cursor-pointer focus:outline-none focus:ring-1 focus:ring-orange-500"
-            title="Click para cambiar método de pago"
-            // ← ← ← AGREGAR: Estilos para asegurar clickeabilidad
-            style={{ pointerEvents: 'auto' }}
-          >
-            {vale.metodo_pago_display ||
-              ({
-                'efectivo': '💵 Efectivo',
-                'transferencia': '🏦 Transferencia',
-                'nequi': '📱 Nequi',
-                'daviplata': '📱 Daviplata',
-                'bold': '💳 Bold',
-                'tarjeta': '💳 Tarjeta en sitio',
-                'caja_menor': '📦 Caja menor',
-              }[vale.metodo_pago || ''] || vale.metodo_pago || 'Sin método')}
-          </button>
-        )}
-      </div>
+
       
-      {/* Session info si está disponible */}
+      {/* Session info si está disponible
       {vale.session_caja && (
         <p className="text-xs text-cyan-400 mb-2 font-mono">
           🏦 Sesión #{vale.session_caja}
         </p>
-      )}
+      )} */}
       
       {/* Acciones - solo si está registrado */}
       {vale.estado === 'registrado' && (
@@ -4535,12 +4504,12 @@ function ValeCard({
         </div>
       )}
       
-      {/* Estado final si ya fue procesado */}
+      {/* Estado final si ya fue procesado 
       {vale.estado !== 'registrado' && (
         <p className="text-xs text-gray-500 mt-2 italic">
           {vale.estado === 'pagado' ? '✓ Pagado' : '✗ Cancelado'}
         </p>
-      )}
+      )}*/}
     </div>
   );
 }

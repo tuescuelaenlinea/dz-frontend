@@ -2,10 +2,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-//import { ReciboCaja } from '@/app/admin/caja/page';
 
-
-// Agrega esta interfaz al inicio del archivo, junto a las otras interfaces
+// ← ← ← INTERFACES ← ← ←
 interface PagoRelacionado {
   id: number;
   tipo: 'abono' | 'pago';
@@ -22,8 +20,9 @@ interface PagoRelacionado {
   origen_tipo?: string;
   origen_tipo_display?: string;
   descripcion_item?: string;
+  tabla?: 'abonos' | 'pagos';  // ← ← ← CLAVE: Identifica la tabla para edición
 }
-// ← ← ← INTERFAZ PARA ABONOS ← ← ←
+
 export interface AbonoRecibo {
   id: number;
   recibo: number;
@@ -43,42 +42,29 @@ interface ReciboImpresionModalProps {
   formatMoney: (value: string | number) => string;
   formatDate: (dateStr: string) => string;
   
-  // ← ← ← NUEVAS PROPS PARA CARGA INTERNA DE ABONOS ← ← ←
   apiUrl?: string;
   token?: string | null;
-  cargarAbonosInternamente?: boolean;  // ← Controla si carga abonos automáticamente
-  
-  // ← ← ← MANTIENE COMPATIBILIDAD: abonos como prop opcional ← ← ←
+  cargarAbonosInternamente?: boolean;
   abonos?: AbonoRecibo[];
 }
 
-// ← ← ← INTERFAZ LOCAL PARA ReciboCaja (COMPLETA Y SINCRONIZADA) ← ← ←
 interface ReciboCaja {
   id: number;
   codigo_recibo: string;
   tipo: 'entrada' | 'salida' | 'venta';
   estado: 'borrador' | 'publicado' | 'anulado';
-  
-  // ← ← ← TOTALES ← ← ←
   subtotal: string;
   descuento: string;
   total: string;
   propina_total: string;
-  
-  // ← ← ← MÉTODO Y SESIÓN ← ← ←
   metodo_pago: string;
   session_caja_turno: string;
-  
-  // ← ← ← CAMPOS DE CLIENTE (CRÍTICOS - AGREGAR ESTOS) ← ← ←
+  session_caja_id?: number | null; 
   cliente_nombre: string;
-  cliente_telefono: string;  // ← ← ← AGREGAR (FALTABA)
-  cliente_email: string;     // ← ← ← AGREGAR (FALTABA)
-  
-  // ← ← ← FECHAS Y NOTAS ← ← ←
+  cliente_telefono: string;
+  cliente_email: string;
   fecha: string;
   notas?: string;
-  
-  // ← ← ← ITEMS ANIDADOS ← ← ←
   items?: Array<{
     id: number;
     tipo_item: string;
@@ -91,8 +77,6 @@ interface ReciboCaja {
     cita?: number | null;
     producto?: number | null;
   }>;
-  
-  // ← ← ← DISTRIBUCIONES DE PROPINA ← ← ←
   distribuciones_propina?: Array<{
     id: number;
     profesional: number;
@@ -109,32 +93,42 @@ export default function ReciboImpresionModal({
   formatDate,
   apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api',
   token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null,
-  cargarAbonosInternamente = true,  // ← Por defecto carga internamente
+  cargarAbonosInternamente = true,
   abonos: abonosExternos = [],
 }: ReciboImpresionModalProps) {
   
-  // ← ← ← ESTADOS INTERNOS PARA CARGA DE ABONOS ← ← ←
+  // ← ← ← ESTADOS PARA ABONOS INTERNOS ← ← ←
   const [abonosInternos, setAbonosInternos] = useState<AbonoRecibo[]>([]);
   const [loadingAbonos, setLoadingAbonos] = useState(false);
   const [errorAbonos, setErrorAbonos] = useState<string | null>(null);
 
+  // ← ← ← ESTADOS PARA PAGOS RELACIONADOS ← ← ←
   const [pagosRelacionados, setPagosRelacionados] = useState<PagoRelacionado[]>([]);
   const [loadingPagos, setLoadingPagos] = useState(false);
 
-    // ← ← ← ESTADOS PARA EDITAR MÉTODO DE PAGO DE ABONOS ← ← ←
+  // ← ← ← ESTADOS PARA EDICIÓN DE ABONOS ← ← ←
   const [abonoEditandoId, setAbonoEditandoId] = useState<number | null>(null);
   const [metodoTemporalAbono, setMetodoTemporalAbono] = useState<string>('');
 
-  // ← ← ← ESTADOS PARA EDICIÓN DE MÉTODO (REGISTROS UNIFICADOS) ← ← ←
+  // ← ← ← ESTADOS PARA EDICIÓN DE REGISTROS UNIFICADOS ← ← ←
   const [registroEditandoId, setRegistroEditandoId] = useState<string | null>(null);
   const [metodoTemporalRegistro, setMetodoTemporalRegistro] = useState('');
+
   // ← ← ← DETERMINAR QUÉ ABONOS USAR ← ← ←
   const abonos = cargarAbonosInternamente ? abonosInternos : abonosExternos;
 
-  // Agrega esto junto a los otros estados del componente
-const [loadingRegistros, setLoadingRegistros] = useState(false);
+  // ← ← ← OPCIONES DE MÉTODO DE PAGO ← ← ←
+  const OPCIONES_METODO = [
+    { value: 'efectivo', label: '💵 Efectivo' },
+    { value: 'transferencia', label: '🏦 Transferencia' },
+    { value: 'nequi', label: '📱 Nequi' },
+    { value: 'daviplata', label: '📱 Daviplata' },
+    { value: 'bold', label: '💳 Bold' },
+    { value: 'tarjeta', label: '💳 Tarjeta' },  
+    { value: 'caja_menor', label: '📦 Caja menor' },  
+  ] as const;
 
-  // ← ← ← FUNCIÓN: Cargar pagos y abonos del recibo ← ← ←
+  // ← ← ← FUNCIÓN: Cargar pagos y abonos unificados ← ← ←
   const cargarPagosRelacionados = async (reciboId: number) => {
     if (!reciboId) return;
     
@@ -146,8 +140,22 @@ const [loadingRegistros, setLoadingRegistros] = useState(false);
       
       if (res.ok) {
         const data = await res.json();
-        // ← ← ← UNIFICAR abonos y pagos, ordenar por fecha descendente ← ← ←
-        const todos = [...(data.abonos || []), ...(data.pagos || [])]
+        
+        // ← ← ← UNIFICAR Y MAPEAR CON TABLA CORRECTA ← ← ←
+        const abonosMapeados = (data.abonos || []).map((a: any) => ({
+          ...a,
+          tipo: 'abono' as const,
+          tabla: 'abonos' as const,  // ← ← ← CLAVE: Identificar tabla
+        }));
+        
+        const pagosMapeados = (data.pagos || []).map((p: any) => ({
+          ...p,
+          tipo: 'pago' as const,
+          tabla: 'pagos' as const,  // ← ← ← CLAVE: Identificar tabla
+        }));
+        
+        // ← ← ← UNIFICAR Y ORDENAR POR FECHA DESCENDENTE ← ← ←
+        const todos = [...abonosMapeados, ...pagosMapeados]
           .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
         
         setPagosRelacionados(todos);
@@ -170,38 +178,9 @@ const [loadingRegistros, setLoadingRegistros] = useState(false);
     }
   }, [recibo?.id, isOpen]);
 
-  // ← ← ← HELPER: Icono según método de pago ← ← ←
-  const getMetodoIcon = (metodo: string) => {
-    const icons: Record<string, string> = {
-      'efectivo': '💵',
-      'transferencia': '🏦',
-      'nequi': '📱',
-      'daviplata': '📱',
-      'bold': '💳',
-      'tarjeta': '💳',
-      'tarjeta_sitio': '💳',
-      'pendiente': '⏳',
-    };
-    return icons[metodo] || '💰';
-  };
-
-  // ← ← ← HELPER: Color según tipo de registro ← ← ←
-  const getTipoBadgeClass = (tipo: 'abono' | 'pago', origen_tipo?: string) => {
-    if (tipo === 'abono') return 'bg-blue-900/50 text-blue-300 border-blue-700';
-    
-    // Para pagos, diferenciar por origen_tipo
-    switch (origen_tipo) {
-      case 'ajuste': return 'bg-orange-900/50 text-orange-300 border-orange-700'; // Vales
-      case 'comision': return 'bg-emerald-900/50 text-emerald-300 border-emerald-700'; // Comisiones
-      case 'cita': return 'bg-purple-900/50 text-purple-300 border-purple-700'; // Ventas directas
-      default: return 'bg-gray-900/50 text-gray-300 border-gray-700';
-    }
-  };
-
-  // ← ← ← EFECTO: Cargar abonos cuando el modal se abre y hay recibo ← ← ←
+  // ← ← ← EFECTO: Cargar abonos internos si corresponde ← ← ←
   useEffect(() => {
     if (!isOpen || !recibo?.id || !cargarAbonosInternamente) {
-      // Limpiar estados si no se debe cargar o no hay recibo
       setAbonosInternos([]);
       setErrorAbonos(null);
       return;
@@ -216,15 +195,13 @@ const [loadingRegistros, setLoadingRegistros] = useState(false);
           headers: token ? { 'Authorization': `Bearer ${token}` } : {}
         });
         
-        if (!res.ok) {
-          throw new Error(`Error ${res.status}: ${res.statusText}`);
-        }
+        if (!res.ok) throw new Error(`Error ${res.status}: ${res.statusText}`);
         
         const data = await res.json();
         setAbonosInternos(data.abonos || []);
         
       } catch (err: any) {
-        console.error('❌ Error cargando abonos para impresión:', err);
+        console.error('❌ Error cargando abonos:', err);
         setErrorAbonos(err.message || 'Error al cargar abonos');
         setAbonosInternos([]);
       } finally {
@@ -241,67 +218,39 @@ const [loadingRegistros, setLoadingRegistros] = useState(false);
       setAbonosInternos([]);
       setLoadingAbonos(false);
       setErrorAbonos(null);
+      setPagosRelacionados([]);
     }
   }, [isOpen]);
 
+  // ← ← ← HELPER: Icono según método de pago ← ← ←
+  const getMetodoIcon = (metodo: string) => {
+    const icons: Record<string, string> = {
+      'efectivo': '💵', 'transferencia': '🏦', 'nequi': '📱',
+      'daviplata': '📱', 'bold': '💳', 'tarjeta': '💳',
+      'tarjeta_sitio': '💳', 'pendiente': '⏳',
+    };
+    return icons[metodo] || '💰';
+  };
 
-// INSERTAR ANTES:
-// ← ← ← OPCIONES DE MÉTODO DE PAGO ← ← ←
-const OPCIONES_METODO = [
-  { value: 'efectivo', label: '💵 Efectivo' },
-  { value: 'transferencia', label: '🏦 Transferencia' },
-  { value: 'nequi', label: '📱 Nequi' },
-  { value: 'daviplata', label: '📱 Daviplata' },
-  { value: 'bold', label: '💳 Bold' },
-  { value: 'tarjeta', label: '💳 Tarjeta' },  
-  { value: 'caja_menor', label: '📦 Caja menor' },  
-] as const;
-
+  // ← ← ← HELPER: Label amigable para método de pago ← ← ←
+  const getMetodoLabel = (metodo: string) => {
+    const opciones: Record<string, string> = {
+      efectivo: '💵 Efectivo', transferencia: '🏦 Transferencia',
+      nequi: '📱 Nequi', daviplata: '📱 Daviplata',
+      bold: '💳 Bold', tarjeta: '💳 Tarjeta',
+      caja_menor: '📦 Caja menor',
+    };
+    return opciones[metodo] || metodo;
+  };
 
   // ← ← ← HELPER: Formatear hora ← ← ←
   const formatTime = (dateStr: string): string => {
     if (!dateStr) return '';
     try {
-      const date = new Date(dateStr);
-      return date.toLocaleTimeString('es-CO', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
+      return new Date(dateStr).toLocaleTimeString('es-CO', {
+        hour: '2-digit', minute: '2-digit', hour12: false
       });
-    } catch {
-      return '';
-    }
-  };
-
-  
-
-  if (!isOpen || !recibo) return null;
-
-  // ← ← ← HELPER: Formatear hora de abono ← ← ←
-  const formatAbonoTime = (fechaAbono: string) => {
-    try {
-      return new Date(fechaAbono).toLocaleTimeString('es-CO', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-      });
-    } catch {
-      return '';
-    }
-  };
-
-  // ← ← ← HELPER: Label amigable para método de pago ← ← ←
-  const getMetodoLabel = (metodo: string) => {
-      const opciones: Record<string, string> = {
-      efectivo: '💵 Efectivo',
-      transferencia: '🏦 Transferencia',
-      nequi: '📱 Nequi',
-      daviplata: '📱 Daviplata',
-      bold: '💳 Bold',
-      tarjeta: '💳 Tarjeta',
-      caja_menor: '📦 Caja menor',
-    };
-    return opciones[metodo] || metodo;
+    } catch { return ''; }
   };
 
   // ← ← ← HELPER: Calcular total abonado ← ← ←
@@ -309,12 +258,12 @@ const OPCIONES_METODO = [
     return abonos.reduce((sum, a) => sum + parseFloat(String(a.monto)), 0);
   };
 
-    // ← ← ← FUNCIÓN: Guardar método de pago de un abono ← ← ←
+  // ═══════════════════════════════════════════════════════════════
+  // ← ← ← FUNCIONES PARA EDITAR MÉTODO DE PAGO DE ABONOS ← ← ←
+  // ═══════════════════════════════════════════════════════════════
+  
   const handleGuardarMetodoAbono = async (abonoId: number, nuevoMetodo: string) => {
-    if (!nuevoMetodo) {
-      setAbonoEditandoId(null);
-      return;
-    }
+    if (!nuevoMetodo) { setAbonoEditandoId(null); return; }
     
     try {
       const res = await fetch(`${apiUrl}/caja/abonos/${abonoId}/actualizar-metodo-pago/`, {
@@ -329,15 +278,21 @@ const OPCIONES_METODO = [
       if (res.ok) {
         console.log(`✅ Método de abono actualizado: ${nuevoMetodo}`);
         
-        
-        // ← ← ← ACTUALIZAR ESTADO LOCAL PARA REFLEJAR CAMBIO INMEDIATO ← ← ←
+        // ← ← ← ACTUALIZAR ESTADO LOCAL ← ← ←
         setAbonosInternos(prev => prev.map(a =>
           a.id === abonoId 
             ? { ...a, metodo_pago: nuevoMetodo as AbonoRecibo['metodo_pago'] } 
             : a
         ));
-                
-        // ← ← ← DISPARAR EVENTO PARA ACTUALIZAR PADRE SI ES NECESARIO ← ← ←
+        
+        // ← ← ← ACTUALIZAR PAGOS RELACIONADOS SI EXISTE ← ← ←
+        setPagosRelacionados(prev => prev.map(r =>
+          r.tabla === 'abonos' && r.id === abonoId
+            ? { ...r, metodo_pago: nuevoMetodo }
+            : r
+        ));
+        
+        // ← ← ← DISPARAR EVENTO PARA PADRE ← ← ←
         window.dispatchEvent(new CustomEvent('abonoActualizado', {
           detail: { id: abonoId, metodo_pago: nuevoMetodo }
         }));
@@ -355,56 +310,93 @@ const OPCIONES_METODO = [
     }
   };
 
-  // ← ← ← FUNCIÓN: Manejar clic en método de pago de abono ← ← ←
   const handleClicMetodoAbono = (abono: AbonoRecibo, e: React.MouseEvent) => {
-    e.stopPropagation(); // Evitar propagación
+    e.stopPropagation();
     setAbonoEditandoId(abono.id);
     setMetodoTemporalAbono(abono.metodo_pago);
   };
 
-// ← ← ← FUNCIÓN: Manejar clic para editar método (registros unificados) ← ← ←
-const handleClicMetodoRegistro = (registro: any, e: React.MouseEvent) => {
-  e.stopPropagation();
-  setRegistroEditandoId(`${registro.tipo}-${registro.id}`);
-  setMetodoTemporalRegistro(registro.metodo_pago);
-};
-
-// ← ← ← FUNCIÓN: Guardar método de pago (ruta dinámica según tabla) ← ← ←
-const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos', nuevoMetodo: string) => {
-  if (!nuevoMetodo) {
-    setRegistroEditandoId(null);
-    return;
-  }
+  // ═══════════════════════════════════════════════════════════════
+  // ← ← ← FUNCIONES PARA EDITAR MÉTODO DE REGISTROS UNIFICADOS ← ← ←
+  // ═══════════════════════════════════════════════════════════════
   
-  try {
-    const endpoint = tabla === 'abonos' 
-      ? `${apiUrl}/caja/abonos/${id}/actualizar-metodo-pago/`
-      : `${apiUrl}/pagos/${id}/actualizar-metodo-pago/`;
-    
-    const res = await fetch(endpoint, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify({ metodo_pago: nuevoMetodo })
-    });
-    
-    if (res.ok) {
-      console.log(`✅ Método actualizado en ${tabla}: ${nuevoMetodo}`);
-      await cargarPagosRelacionados(recibo?.id || 0);
-    } else {
-      console.error(`❌ Error actualizando método en ${tabla}`);
-      setMetodoTemporalRegistro('');
-    }
-  } catch (err) {
-    console.error('❌ Error de red:', err);
-    setMetodoTemporalRegistro('');
-  } finally {
-    setRegistroEditandoId(null);
-  }
-};
+  const handleClicMetodoRegistro = (registro: PagoRelacionado, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRegistroEditandoId(`${registro.tabla}-${registro.id}`);
+    setMetodoTemporalRegistro(registro.metodo_pago);
+  };
 
+  const handleGuardarMetodoRegistro = async (
+    id: number, 
+    tabla: 'abonos' | 'pagos', 
+    nuevoMetodo: string
+  ) => {
+    if (!nuevoMetodo) { setRegistroEditandoId(null); return; }
+    
+    try {
+      // ← ← ← CLAVE: Endpoint dinámico según tabla ← ← ←
+      const endpoint = tabla === 'abonos' 
+        ? `${apiUrl}/caja/abonos/${id}/actualizar-metodo-pago/`
+        : `${apiUrl}/pagos/${id}/actualizar-metodo-pago/`;
+      
+      const res = await fetch(endpoint, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ metodo_pago: nuevoMetodo })
+      });
+      
+      if (res.ok) {
+        console.log(`✅ Método actualizado en ${tabla}: ${nuevoMetodo}`);
+        
+        // ← ← ← ACTUALIZAR ESTADO LOCAL INMEDIATAMENTE ← ← ←
+        setPagosRelacionados(prev => prev.map(r =>
+          r.tabla === tabla && r.id === id
+            ? { ...r, metodo_pago: nuevoMetodo }
+            : r
+        ));
+        
+        // ← ← ← DISPARAR EVENTO GLOBAL ← ← ←
+        window.dispatchEvent(new CustomEvent('metodoPagoActualizado', {
+          detail: { id, tabla, metodo_pago: nuevoMetodo }
+        }));
+        
+        setRegistroEditandoId(null);
+      } else {
+        console.error(`❌ Error actualizando método en ${tabla}`);
+        setMetodoTemporalRegistro('');
+      }
+    } catch (err) {
+      console.error('❌ Error de red:', err);
+      setMetodoTemporalRegistro('');
+    } finally {
+      setRegistroEditandoId(null);
+    }
+  };
+
+  // ← ← ← HELPER: Badge por tipo de registro ← ← ←
+  const getTipoBadgeClass = (registro: PagoRelacionado) => {
+    if (registro.tipo === 'abono') {
+      return 'bg-blue-900/50 text-blue-300 border-blue-700';
+    }
+    
+    // Para pagos, diferenciar por origen_tipo
+    switch (registro.origen_tipo) {
+      case 'ajuste':
+      case 'vale':
+        return 'bg-orange-900/50 text-orange-300 border-orange-700'; // Vales
+      case 'comision_empleado':
+        return 'bg-emerald-900/50 text-emerald-300 border-emerald-700'; // Comisiones
+      case 'cita':
+        return 'bg-purple-900/50 text-purple-300 border-purple-700'; // Ventas directas
+      default:
+        return 'bg-gray-900/50 text-gray-300 border-gray-700';
+    }
+  };
+
+  // ← ← ← FUNCIÓN DE IMPRESIÓN ← ← ←
   const handlePrint = () => {
     const printContent = document.getElementById('recibo-para-imprimir');
     if (!printContent) return;
@@ -434,7 +426,7 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Recibo ${recibo.codigo_recibo}</title>
+        <title>Recibo ${recibo?.codigo_recibo}</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { 
@@ -562,30 +554,27 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
         <div class="info">
           <div class="info-row">
             <span class="label">Recibo:</span>
-            <span><strong>${recibo.codigo_recibo}</strong></span>
+            <span><strong>${recibo?.codigo_recibo}</strong></span>
           </div>
           <div class="info-row">
             <span class="label">Fecha:</span>
-            <span>${formatDate(recibo.fecha)}</span>
+            <span>${recibo?.fecha ? formatDate(recibo.fecha) : ''}</span>
           </div>
           <div class="info-row">
             <span class="label">Estado:</span>
-            <span class="badge badge-${recibo.estado}">${recibo.estado}</span>
+            <span class="badge badge-${recibo?.estado}">${recibo?.estado}</span>
           </div>
-          ${recibo.cliente_nombre ? `
+          ${recibo?.cliente_nombre ? `
           <div class="info-row">
             <span class="label">Cliente:</span>
             <span>${recibo.cliente_nombre}</span>
           </div>` : ''}
-          ${recibo.cliente_telefono ? `
+          ${recibo?.cliente_telefono ? `
           <div class="info-row">
             <span class="label">Teléfono:</span>
             <span>${recibo.cliente_telefono}</span>
           </div>` : ''}
-          
-          
-          
-          ${recibo.session_caja_turno ? `
+          ${recibo?.session_caja_turno ? `
           <div class="info-row">
             <span class="label">Turno:</span>
             <span class="capitalize">${recibo.session_caja_turno}</span>
@@ -601,7 +590,7 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
             </tr>
           </thead>
           <tbody>
-            ${(recibo.items || []).map((item: any) => `
+            ${(recibo?.items || []).map((item: any) => `
               <tr>
                 <td style="text-align:center;">${item.cantidad}</td>
                 <td>${item.descripcion}${item.profesional_nombre ? `<br/><small style="color:#666">👨 ${item.profesional_nombre}</small>` : ''}</td>
@@ -614,27 +603,27 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
         <div class="totals">
           <div class="total-row">
             <span>Subtotal:</span>
-            <span>${formatMoney(recibo.subtotal)}</span>
+            <span>${formatMoney(recibo?.subtotal || 0)}</span>
           </div>
-          ${parseFloat(recibo.descuento) > 0 ? `
+          ${recibo?.descuento && parseFloat(recibo.descuento) > 0 ? `
           <div class="total-row">
             <span>Descuento:</span>
             <span style="color:#dc3545;">-${formatMoney(recibo.descuento)}</span>
           </div>` : ''}
-          ${parseFloat(recibo.propina_total) > 0 ? `
+          ${recibo?.propina_total && parseFloat(recibo.propina_total) > 0 ? `
           <div class="total-row">
             <span>Propina:</span>
             <span style="color:#6f42c1;">+${formatMoney(recibo.propina_total)}</span>
           </div>` : ''}
           <div class="total-row grand">
             <span>TOTAL:</span>
-            <span>${formatMoney(recibo.total)}</span>
+            <span>${formatMoney(recibo?.total || 0)}</span>
           </div>
         </div>
 
         ${abonosPrintHTML}
 
-        ${recibo.notas ? `
+        ${recibo?.notas ? `
         <div style="margin-top:12px; padding:8px; background:#f8f9fa; border-radius:4px; border:1px solid #e9ecef;">
           <strong style="font-size:10px; color:#555;">Notas:</strong>
           <p style="font-size:11px; margin-top:4px;">${recibo.notas}</p>
@@ -658,6 +647,8 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
       ventanaImpresion.print();
     }, 500);
   };
+
+  if (!isOpen || !recibo) return null;
 
   return (
     <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
@@ -703,7 +694,7 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
               <span className="text-gray-400">Fecha:</span>
               <span className="text-white">{formatDate(recibo.fecha)}</span>
             </div>
-            <div className="flex justify-between items-center">
+           {/* <div className="flex justify-between items-center">
               <span className="text-gray-400">Estado:</span>
               <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${
                 recibo.estado === 'publicado' ? 'bg-green-900/50 text-green-400 border border-green-700' :
@@ -712,14 +703,25 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
               }`}>
                 {recibo.estado}
               </span>
-            </div>
+            </div>*/}
             {recibo.cliente_nombre && (
               <div className="flex justify-between">
                 <span className="text-gray-400">Cliente:</span>
                 <span className="text-white">{recibo.cliente_nombre}</span>
               </div>
             )}
-           
+            {recibo.cliente_telefono && (
+              <div className="flex justify-between">
+                <span className="text-gray-400">Teléfono:</span>
+                <span className="text-white">{recibo.cliente_telefono}</span>
+              </div>
+            )}
+            {recibo.session_caja_turno && (
+              <div className="flex justify-between">
+                <span className="text-gray-400">Turno:</span>
+                <span className="text-white capitalize">{recibo.session_caja_turno}  {recibo.session_caja_id}</span>
+              </div>
+            )}
           </div>
 
           {/* ← Items */}
@@ -785,7 +787,7 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
           </div>
 
           {/* ← ← ← SECCIÓN DE ABONOS (CON ESTADOS DE CARGA) ← ← ← */}
-          {cargarAbonosInternamente && (
+         {/* {cargarAbonosInternamente && (
             <div className="mt-4 pt-3 border-t border-dashed border-gray-600">
               {loadingAbonos ? (
                 <div className="flex items-center justify-center py-3">
@@ -801,7 +803,7 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
                   <p className="text-xs font-semibold text-gray-400 mb-2 flex items-center gap-1">
                     💰 Pagos registrados:
                   </p>
-                                    <div className="space-y-1.5">
+                  <div className="space-y-1.5">
                     {abonos.map((abono) => (
                       <div 
                         key={abono.id}
@@ -810,9 +812,8 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
                         <div className="flex items-center gap-2 flex-1 min-w-0">
                           <span className="text-gray-500">•</span>
                           
-                          {/* ← ← ← MÉTODO DE PAGO EDITABLE ← ← ← */}
-                          {abonoEditandoId === abono.id ? (
-                            // ← ← ← MODO EDICIÓN: Select desplegable
+                          {/* ← ← ← MÉTODO DE PAGO EDITABLE PARA ABONOS ← ← ← */}
+                         {/* {abonoEditandoId === abono.id ? (
                             <select
                               value={metodoTemporalAbono}
                               onChange={(e) => setMetodoTemporalAbono(e.target.value)}
@@ -821,22 +822,13 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
                               autoFocus
                               className="bg-gray-700 border border-blue-500 text-blue-400 text-[10px] rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 capitalize min-w-[100px]"
                             >
-                              {[
-                                { value: 'efectivo', label: '💵 Efectivo' },
-                                { value: 'transferencia', label: '🏦 Transferencia' },
-                                { value: 'nequi', label: '📱 Nequi' },
-                                { value: 'daviplata', label: '📱 Daviplata' },
-                                { value: 'bold', label: '💳 Bold' },
-                                { value: 'tarjeta', label: '💳 Tarjeta' },
-                                { value: 'caja_menor', label: '📦 Caja menor' },
-                              ].map((opcion) => (
+                              {OPCIONES_METODO.map((opcion) => (
                                 <option key={opcion.value} value={opcion.value}>
                                   {opcion.label}
                                 </option>
                               ))}
                             </select>
                           ) : (
-                            // ← ← ← MODO LECTURA: Click para editar
                             <button
                               onClick={(e) => handleClicMetodoAbono(abono, e)}
                               className="capitalize text-left hover:text-blue-300 hover:underline transition-colors truncate"
@@ -853,9 +845,8 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
                           )}
                           <span className="text-gray-600 text-[10px] whitespace-nowrap">
                             {new Date(abono.fecha_abono).toLocaleDateString('es-CO', {
-                              day: '2-digit',
-                              month: '2-digit'
-                            })} {formatAbonoTime(abono.fecha_abono)}
+                              day: '2-digit', month: '2-digit'
+                            })} {formatTime(abono.fecha_abono)}
                           </span>
                         </div>
                         <span className="font-semibold text-green-400 whitespace-nowrap ml-2">
@@ -864,7 +855,6 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
                       </div>
                     ))}
                   </div>
-                  {/* ← ← ← SUBTOTAL DE ABONOS ← ← ← */}
                   <div className="mt-2 pt-2 border-t border-gray-700/50 flex justify-between text-[10px] text-gray-500">
                     <span>Total abonado:</span>
                     <span className="text-gray-400">
@@ -873,109 +863,97 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
                   </div>
                 </>
               ) : (
-                <p className="text-xs text-gray-500 italic">
-                  Sin pagos registrados
-                </p>
+                <p className="text-xs text-gray-500 italic">Sin pagos registrados</p>
               )}
+            </div>
+          )}*/}
+
+          {/* ← ← ← SECCIÓN DE PAGOS RELACIONADOS UNIFICADOS ← ← ← */}
+          {pagosRelacionados?.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-dashed border-gray-600">
+              <p className="text-xs font-semibold text-gray-400 mb-2 flex items-center gap-1">
+                💰 Historial de Pagos:
+              </p>
+              
+              <div className="space-y-1.5">
+                {pagosRelacionados.map((registro) => {
+                  const keyRegistro = `${registro.tabla}-${registro.id}`;
+                  const esEditando = registroEditandoId === keyRegistro;
+                  
+                  return (
+                    <div 
+                      key={keyRegistro}
+                      className="flex items-center justify-between text-xs text-gray-300 group"
+                    >
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <span className="text-gray-500">•</span>
+                        
+                        {/* ← ← ← BADGE DE TIPO CON COLOR DIFERENCIADO ← ← ← 
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${getTipoBadgeClass(registro)}`}>
+                          {registro.tipo === 'abono' ? 'Abono' : 
+                           registro.origen_tipo_display || registro.origen_tipo || 'Pago'}
+                        </span>*/}
+                        
+                        {/* ← ← ← MÉTODO DE PAGO EDITABLE PARA REGISTROS UNIFICADOS ← ← ← */}
+                        {esEditando ? (
+                          <select
+                            value={metodoTemporalRegistro}
+                            onChange={(e) => setMetodoTemporalRegistro(e.target.value)}
+                            onBlur={() => handleGuardarMetodoRegistro(registro.id, registro.tabla!, metodoTemporalRegistro)}
+                            onClick={(e) => e.stopPropagation()}
+                            autoFocus
+                            className="bg-gray-700 border border-blue-500 text-blue-400 text-[10px] rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 capitalize min-w-[100px]"
+                          >
+                            {OPCIONES_METODO.map((opcion) => (
+                              <option key={opcion.value} value={opcion.value}>
+                                {opcion.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <button
+                            onClick={(e) => handleClicMetodoRegistro(registro, e)}
+                            className="capitalize text-left hover:text-blue-300 hover:underline transition-colors truncate"
+                            title="Click para cambiar método de pago"
+                          >
+                            {getMetodoLabel(registro.metodo_pago)}
+                          </button>
+                        )}
+                        
+                        {/* Referencia */}
+                        {registro.referencia && (
+                          <span className="text-gray-500 text-[10px] truncate max-w-[60px]" title={registro.referencia}>
+                            ({registro.referencia.substring(0, 6)}...)
+                          </span>
+                        )}
+                        
+                        {/* Fecha */}
+                        <span className="text-gray-500 text-[10px] whitespace-nowrap">
+                          {new Date(registro.fecha).toLocaleDateString('es-CO', {
+                            day: '2-digit', month: '2-digit'
+                          })} {formatTime(registro.fecha)}
+                        </span>
+                      </div>
+                      
+                      {/* Monto */}
+                      <span className="font-bold text-green-400 whitespace-nowrap ml-2">
+                        {formatMoney(registro.monto)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {/* ← ← ← TOTAL GENERAL ← ← ← */}
+              <div className="mt-3 pt-2 border-t border-gray-700/50 flex justify-between text-xs">
+                <span className="text-gray-400 font-medium">Total registrado:</span>
+                <span className="text-green-400 font-bold">
+                  {formatMoney(pagosRelacionados.reduce((sum, r) => sum + parseFloat(String(r.monto)), 0))}
+                </span>
+              </div>
             </div>
           )}
 
-        
-{(pagosRelacionados?.length > 0 || loadingPagos) && (
-  <div className="mt-4 pt-3 border-t border-dashed border-gray-600">
-    <p className="text-xs font-semibold text-gray-400 mb-2 flex items-center gap-1">
-      💰 Pagos y Abonos registrados:
-    </p>
-    
-    {loadingRegistros ? (
-      <div className="flex items-center justify-center py-2">
-        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div>
-      </div>
-    ) : (
-      <div className="space-y-1.5">
-        {pagosRelacionados.map((registro) => (
-          <div 
-            key={`${registro.tipo}-${registro.id}`}
-            className="flex items-center justify-between text-xs text-gray-300 group"
-          >
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <span className="text-gray-500">•</span>
-              
-              {/* ← ← ← BADGE DE TIPO ← ← ← */}
-              <span className={`text-[10px] px-1 py-0.5 rounded border ${
-                registro.tipo === 'abono' 
-                  ? 'bg-blue-900/30 text-blue-400 border-blue-700'
-                  : 'bg-green-900/30 text-green-400 border-green-700'
-              }`}>
-                {registro.tipo === 'abono' ? 'Abono' : (registro.origen_tipo_display || 'Pago')}
-              </span>
-              
-              {/* ← ← ← MÉTODO DE PAGO EDITABLE ← ← ← */}
-              {registroEditandoId === `${registro.tipo}-${registro.id}` ? (
-                // ← ← ← MODO EDICIÓN: Select desplegable
-                <select
-                  value={metodoTemporalRegistro}
-                  onChange={(e) => setMetodoTemporalRegistro(e.target.value)}
-                  onBlur={() => {const tipoPlural = registro.tipo === 'abono' ? 'abonos' : 'pagos';
-                    handleGuardarMetodoRegistro(registro.id, tipoPlural, metodoTemporalRegistro);
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  autoFocus
-                  className="bg-gray-700 border border-blue-500 text-blue-400 text-[10px] rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 capitalize min-w-[100px]"
-                >
-                  {OPCIONES_METODO.map((opcion) => (
-                    <option key={opcion.value} value={opcion.value}>
-                      {opcion.label}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                // ← ← ← MODO LECTURA: Click para editar
-                <button
-                  onClick={(e) => handleClicMetodoRegistro(registro, e)}
-                  className="capitalize text-left hover:text-blue-300 hover:underline transition-colors truncate"
-                  title="Click para cambiar método de pago"
-                >
-                  {getMetodoLabel(registro.metodo_pago)}
-                </button>
-              )}
-              
-              {/* Referencia externa si existe */}
-              {registro.referencia && (
-                <span className="text-gray-600 text-[10px] truncate max-w-[80px]" title={registro.referencia}>
-                  ({registro.referencia.substring(0, 8)}{registro.referencia.length > 8 ? '...' : ''})
-                </span>
-              )}
-              
-              {/* Fecha */}
-              <span className="text-gray-600 text-[10px] whitespace-nowrap">
-                {new Date(registro.fecha).toLocaleDateString('es-CO', {
-                  day: '2-digit',
-                  month: '2-digit'
-                })} {formatTime(registro.fecha)}
-              </span>
-            </div>
-            
-            {/* Monto */}
-            <span className="font-semibold text-green-400 whitespace-nowrap ml-2">
-              {formatMoney(registro.monto)}
-            </span>
-          </div>
-        ))}
-      </div>
-    )}
-    
-    {/* ← ← ← TOTAL ← ← ← */}
-    {pagosRelacionados?.length > 0 && (
-    <div className="mt-2 pt-2 border-t border-gray-700/50 flex justify-between text-[10px] text-gray-500">
-      <span>Total registrado:</span>
-      <span className="text-gray-400">
-        {formatMoney(pagosRelacionados.reduce((sum, r) => sum + parseFloat(String(r.monto)), 0))}
-      </span>
-    </div>
-  )}
-  </div>
-)}
           {/* ← Notas */}
           {recibo.notas && (
             <div className="mt-4 pt-3 border-t border-dashed border-gray-600">
@@ -1004,9 +982,7 @@ const handleGuardarMetodoRegistro = async (id: number, tabla: 'abonos' | 'pagos'
                 Cargando...
               </>
             ) : (
-              <>
-                🖨️ Imprimir
-              </>
+              <>🖨️ Imprimir</>
             )}
           </button>
         </div>
