@@ -67,7 +67,7 @@ const guardarConfiguracion = async (configData: ValoracionConfig) => {
   setSaving(true);
   try {
     const token = localStorage.getItem('admin_token');
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || 'https://api.dzsalon.com/api';
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || 'http://179.43.112.64:8080/api';
     const url = `${baseUrl}/servicios/${servicioId}/valoracion-config/`;
     
     console.log('💾 Guardando configuración en:', url);
@@ -87,7 +87,7 @@ const guardarConfiguracion = async (configData: ValoracionConfig) => {
     let response: Response;
     
     if (tieneFotos) {
-      // ← ← ← USAR FORMDATA SI HAY FOTOS NUEVAS ← ← ←
+      // ← ← ← USAR FORMDATA SI HAY FOTOS ← ← ←
       const formData = new FormData();
       
       // Campos principales
@@ -95,19 +95,11 @@ const guardarConfiguracion = async (configData: ValoracionConfig) => {
       formData.append('descripcion', configData.descripcion || '');
       formData.append('activo', configData.activo ? 'true' : 'false');
       
-      // ← ← ← SERIALIZAR SECCIONES SIN LAS FOTOS (solo metadata) ← ← ←
-      const seccionesParaEnviar = configData.secciones.map((seccion, sIdx) => ({
-        id: seccion.id,  // ← ← ← IMPORTANTE: Enviar ID para actualizar
-        tipo: seccion.tipo,
-        titulo: seccion.titulo,
-        instruccion: seccion.instruccion || '',
-        orden: seccion.orden || sIdx,
-        obligatoria: seccion.obligatoria ?? false,
-        seleccion_multiple: seccion.seleccion_multiple ?? false,
-        condicion_visible: seccion.condicion_visible || {},
-        opciones: seccion.opciones?.map((opcion, oIdx) => {
-          const opcionData: any = {
-            id: opcion.id,  // ← ← ← CLAVE: ID para actualizar
+      // ← ← ← SERIALIZAR SECCIONES CON IDs Y FOTOS SEPARADAS ← ← ←
+      const seccionesParaEnviar = configData.secciones.map((seccion, sIdx) => {
+        const opcionesLimpias = seccion.opciones?.map((opcion, oIdx) => {
+          // ← ← ← CLAVE: Conservar el ID si existe ← ← ←
+          const opcionBase: any = {
             titulo: opcion.titulo,
             descripcion: opcion.descripcion || '',
             valor_adicional: opcion.valor_adicional || 0,
@@ -115,30 +107,56 @@ const guardarConfiguracion = async (configData: ValoracionConfig) => {
             activo: opcion.activo ?? true,
           };
           
-          // Solo enviar foto si es un archivo nuevo
+          // ← ← ← CLAVE: Incluir ID si existe (para actualización) ← ← ←
+          if (opcion.id) {
+            opcionBase.id = opcion.id;
+          }
+          
+          return opcionBase;
+        }) || [];
+        
+        const seccionBase: any = {
+          tipo: seccion.tipo,
+          titulo: seccion.titulo,
+          instruccion: seccion.instruccion || '',
+          orden: seccion.orden || sIdx,
+          obligatoria: seccion.obligatoria ?? false,
+          seleccion_multiple: seccion.seleccion_multiple ?? false,
+          condicion_visible: seccion.condicion_visible || {},
+          opciones: opcionesLimpias,
+        };
+        
+        // ← ← ← CLAVE: Incluir ID de sección si existe ← ← ←
+        if (seccion.id) {
+          seccionBase.id = seccion.id;
+        }
+        
+        return seccionBase;
+      });
+      
+      formData.append('secciones', JSON.stringify(seccionesParaEnviar));
+      
+      // ← ← ← AGREGAR FOTOS CON CLAVES ESPECÍFICAS ← ← ←
+      configData.secciones.forEach((seccion, sIdx) => {
+        seccion.opciones?.forEach((opcion, oIdx) => {
           if (opcion.foto instanceof File) {
             const fotoKey = `foto_seccion_${sIdx}_opcion_${oIdx}`;
             formData.append(fotoKey, opcion.foto);
             console.log(`📸 Agregando foto: ${fotoKey} → ${opcion.foto.name}`);
           }
-          // Si ya tiene foto_url pero no foto_file, NO la borramos
-          
-          return opcionData;
-        }) || []
-      }));
-      
-      formData.append('secciones', JSON.stringify(seccionesParaEnviar));
+        });
+      });
       
       response = await fetch(url, {
         method,
         headers: {
           'Authorization': `Bearer ${token}`,
-          // NO poner Content-Type, el navegador lo hace automáticamente con boundary
+          // NO poner Content-Type, el navegador lo hace automáticamente
         },
         body: formData,
       });
     } else {
-      // ← ← ← USAR JSON SI NO HAY FOTOS NUEVAS ← ← ←
+      // ← ← ← USAR JSON SI NO HAY FOTOS ← ← ←
       response = await fetch(url, {
         method,
         headers: {
