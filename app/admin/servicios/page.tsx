@@ -903,21 +903,61 @@ export default function AdminServiciosPage() {
             </div>
 
             {/* Footer compacto */}
-            <div className="sticky bottom-0 bg-gray-50 px-4 py-3 border-t border-gray-200 rounded-b-xl flex gap-2 flex-shrink-0">
-              <button
-                onClick={() => setModalAbierto(false)}
-                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={guardarServicio}
-                disabled={guardando}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {guardando ? 'Guardando...' : (modoEdicion ? 'Actualizar' : 'Crear')}
-              </button>
-            </div>
+<div className="sticky bottom-0 bg-gray-50 px-4 py-3 border-t border-gray-200 rounded-b-xl flex flex-col gap-2 flex-shrink-0">
+  {/* ← ← ← BOTÓN DE VALORACIÓN (NUEVO) ← ← ← */}
+  {modoEdicion && servicioSeleccionado && (
+    <button
+      onClick={() => {
+        router.push(`/admin/servicios/${servicioSeleccionado.id}/valoracion`);
+      }}
+      className={`w-full px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+        formData.requiere_valoracion
+          ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white shadow-lg shadow-purple-500/30'
+          : 'bg-gray-200 hover:bg-gray-300 text-gray-700 border-2 border-dashed border-gray-400'
+      }`}
+      title={
+        formData.requiere_valoracion
+          ? 'Configurar valoración virtual del servicio'
+          : 'Click para activar y configurar valoración virtual'
+      }
+    >
+      {formData.requiere_valoracion ? (
+        <>
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+          </svg>
+          ⭐ Configurar Valoración Virtual
+        </>
+      ) : (
+        <>
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+          </svg>
+          ❌ Sin Valoración Virtual - Click para Activar
+        </>
+      )}
+    </button>
+  )}
+
+  {/* Botones de acción principales */}
+  <div className="flex gap-2">
+    <button
+      onClick={() => setModalAbierto(false)}
+      className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors"
+    >
+      Cancelar
+    </button>
+    <button
+      onClick={guardarServicio}
+      disabled={guardando}
+      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+    >
+      {guardando ? 'Guardando...' : (modoEdicion ? 'Actualizar' : 'Crear')}
+    </button>
+  </div>
+</div>
+
+            
           </div>
         </div>
       )}
