@@ -231,55 +231,150 @@ export default function SeccionBuilder({
           </div>
 
           {/* Condiciones de visibilidad */}
-          <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
-            <h4 className="text-sm font-medium text-gray-300 mb-3">
-              🔀 Condiciones de visibilidad (opcional)
-            </h4>
-            <p className="text-xs text-gray-500 mb-3">
-              Esta sección solo se mostrará si se cumple la condición
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <select
-                value={seccion.condicion_visible?.seccion_id || ''}
-                onChange={(e) => {
-                  const seccionId = e.target.value ? parseInt(e.target.value) : undefined;
-                  onUpdate({
-                    ...seccion,
-                    condicion_visible: seccionId
-                      ? { ...seccion.condicion_visible, seccion_id: seccionId }
-                      : undefined,
-                  });
-                }}
-                className="px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-white focus:border-purple-500 focus:outline-none"
-              >
-                <option value="">Sin condición</option>
-                {todasSecciones
-                  .filter((s) => s !== seccion)
-                  .map((s, idx) => (
-                    <option key={idx} value={s.id || idx}>
-                      {s.titulo || `Sección ${idx + 1}`}
+<div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
+  <h4 className="text-sm font-medium text-gray-300 mb-3">
+    🔀 Condiciones de visibilidad (opcional)
+  </h4>
+  <p className="text-xs text-gray-500 mb-3">
+    Esta sección solo se mostrará si se cumple la condición
+  </p>
+  
+  {/* ← ← ← CLAVE: Buscar la sección base seleccionada ← ← ← */}
+  {(() => {
+    const seccionBaseId = seccion.condicion_visible?.seccion_id;
+    const seccionBase = seccionBaseId 
+      ? todasSecciones.find(s => s.id === seccionBaseId)
+      : null;
+    
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* SELECT 1: Sección base */}
+        <div>
+          <label className="block text-xs font-medium text-gray-400 mb-1">
+            1. Sección que activa esta
+          </label>
+          <select
+            value={seccion.condicion_visible?.seccion_id || ''}
+            onChange={(e) => {
+              const seccionId = e.target.value ? parseInt(e.target.value) : undefined;
+              if (seccionId) {
+                // ← ← ← CLAVE: Al cambiar sección, resetear opcion_id ← ← ←
+                onUpdate({
+                  ...seccion,
+                  condicion_visible: { 
+                    seccion_id: seccionId,
+                    // No incluimos opcion_id aquí, se resetea
+                  },
+                });
+              } else {
+                // Sin condición: eliminar todo
+                onUpdate({
+                  ...seccion,
+                  condicion_visible: undefined,
+                });
+              }
+            }}
+            className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-white focus:border-purple-500 focus:outline-none"
+          >
+            <option value="">Sin condición (siempre visible)</option>
+            {todasSecciones
+              .filter((s) => s.id !== seccion.id) // ← ← ← Usar ID para filtrar
+              .map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.titulo || `Sección (sin título)`}
+                </option>
+              ))}
+          </select>
+        </div>
+
+        {/* SELECT 2: Opciones de la sección base */}
+        <div>
+          <label className="block text-xs font-medium text-gray-400 mb-1">
+            2. Opción específica que activa
+          </label>
+          <select
+            value={seccion.condicion_visible?.opcion_id || ''}
+            onChange={(e) => {
+              const opcionId = e.target.value ? parseInt(e.target.value) : undefined;
+              if (opcionId && seccion.condicion_visible?.seccion_id) {
+                onUpdate({
+                  ...seccion,
+                  condicion_visible: { 
+                    seccion_id: seccion.condicion_visible.seccion_id,
+                    opcion_id: opcionId,
+                  },
+                });
+              } else {
+                // Solo sección, sin opción específica
+                onUpdate({
+                  ...seccion,
+                  condicion_visible: seccion.condicion_visible?.seccion_id
+                    ? { seccion_id: seccion.condicion_visible.seccion_id }
+                    : undefined,
+                });
+              }
+            }}
+            className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-white focus:border-purple-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={!seccionBase}
+          >
+            {!seccionBase ? (
+              <option value="">Primero selecciona una sección</option>
+            ) : (
+              <>
+                <option value="">Cualquier opción de "{seccionBase.titulo}"</option>
+                {/* ← ← ← CLAVE: Renderizar opciones de la sección base ← ← ← */}
+                {seccionBase.opciones && seccionBase.opciones.length > 0 ? (
+                  seccionBase.opciones.map((opcion, idx) => (
+                    <option key={opcion.id || idx} value={opcion.id}>
+                      {opcion.titulo || `Opción ${idx + 1}`}
+                      {opcion.valor_adicional > 0 && ` (+$${opcion.valor_adicional})`}
                     </option>
-                  ))}
-              </select>
-              <select
-                value={seccion.condicion_visible?.opcion_id || ''}
-                onChange={(e) => {
-                  const opcionId = e.target.value ? parseInt(e.target.value) : undefined;
-                  onUpdate({
-                    ...seccion,
-                    condicion_visible: opcionId && seccion.condicion_visible?.seccion_id
-                      ? { ...seccion.condicion_visible, opcion_id: opcionId }
-                      : undefined,
-                  });
-                }}
-                className="px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-white focus:border-purple-500 focus:outline-none"
-                disabled={!seccion.condicion_visible?.seccion_id}
-              >
-                <option value="">Cualquier opción</option>
-                {/* Aquí podrías cargar las opciones de la sección seleccionada */}
-              </select>
-            </div>
-          </div>
+                  ))
+                ) : (
+                  <option disabled>
+                    ⚠️ "{seccionBase.titulo}" no tiene opciones
+                  </option>
+                )}
+              </>
+            )}
+          </select>
+          {!seccionBase && (
+            <p className="text-xs text-yellow-400 mt-1">
+              💡 Selecciona primero una sección en el campo anterior
+            </p>
+          )}
+          {seccionBase && seccionBase.opciones && seccionBase.opciones.length === 0 && (
+            <p className="text-xs text-orange-400 mt-1">
+              ⚠️ La sección "{seccionBase.titulo}" no tiene opciones configuradas
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  })()}
+  
+  {/* Resumen visual de la condición */}
+  {seccion.condicion_visible?.seccion_id && (
+    <div className="mt-3 p-2 bg-purple-900/20 border border-purple-700/50 rounded text-xs text-purple-300">
+      <strong>📋 Condición actual:</strong> Esta sección se mostrará solo si el cliente responde en "
+      {todasSecciones.find(s => s.id === seccion.condicion_visible?.seccion_id)?.titulo || 'Sección'}
+      {seccion.condicion_visible?.opcion_id && (
+        <>
+          " la opción "
+          <strong>
+            {(() => {
+              const seccionBase = todasSecciones.find(s => s.id === seccion.condicion_visible?.seccion_id);
+              const opcion = seccionBase?.opciones?.find(o => o.id === seccion.condicion_visible?.opcion_id);
+              return opcion?.titulo || 'Opción';
+            })()}
+          </strong>
+        </>
+      )}
+      {!seccion.condicion_visible?.opcion_id && '" cualquier opción'}
+      "
+    </div>
+  )}
+</div>
 
           {/* Opciones (para tipos que las requieren) */}
           {requiereOpciones && (

@@ -1,6 +1,7 @@
 'use client';
-// components/cliente/valoracion/ResumenValoracion.tsx
-import { ValoracionConfig, RespuestaValoracion } from '@/types/valoracion';
+
+import { useMemo } from 'react';
+import { ValoracionConfig, ValoracionSeccion, RespuestaValoracion } from '@/types/valoracion';
 
 interface ResumenProps {
   config: ValoracionConfig;
@@ -10,28 +11,63 @@ interface ResumenProps {
 
 export default function ResumenValoracion({ config, respuestas, totalEstimado }: ResumenProps) {
   
-  // Función para encontrar la opción seleccionada y sus datos
-  const getDetalleRespuesta = (respuesta: RespuestaValoracion) => {
-    const seccion = config.secciones.find(s => s.id === respuesta.seccion);
-    if (!seccion) return null;
+ // components/cliente/valoracion/ResumenValoracion.tsx
 
-    // Si es selección múltiple
-    if (Array.isArray(respuesta.opcion_seleccionada)) {
-      const opciones = seccion.opciones.filter(op => 
-        (respuesta.opcion_seleccionada as number[])?.includes(op.id!)
-      );
-      return { seccion, opciones, texto: respuesta.respuesta_texto, foto: respuesta.foto_subida };
-    }
+// Función para encontrar la opción seleccionada y sus datos
+const getDetalleRespuesta = (respuesta: RespuestaValoracion) => {
+  const seccion = config.secciones.find(s => s.id === respuesta.seccion);
+  if (!seccion) return null;
 
-    // Si es selección única
-    if (respuesta.opcion_seleccionada) {
-      const opcion = seccion.opciones.find(op => op.id === respuesta.opcion_seleccionada);
-      return { seccion, opciones: opcion ? [opcion] : [], texto: respuesta.respuesta_texto, foto: respuesta.foto_subida };
-    }
+  // ← ← ← CLAVE: Usar variable intermedia para type narrowing ← ← ←
+  const opcionSeleccionada = respuesta.opcion_seleccionada;
 
-    // Si es solo texto o foto
-    return { seccion, opciones: [], texto: respuesta.respuesta_texto, foto: respuesta.foto_subida };
-  };
+  // Si es selección múltiple
+  if (Array.isArray(opcionSeleccionada)) {
+    const opciones = seccion.opciones.filter(op => 
+      opcionSeleccionada.includes(op.id!)  // ← ← ← AHORA TypeScript sabe que es array
+    );
+    return { seccion, opciones, texto: respuesta.respuesta_texto, foto: respuesta.foto_subida };
+  }
+
+  // Si es selección única
+  if (opcionSeleccionada !== undefined && opcionSeleccionada !== null) {
+    const opcion = seccion.opciones.find(op => op.id === opcionSeleccionada);
+    return { seccion, opciones: opcion ? [opcion] : [], texto: respuesta.respuesta_texto, foto: respuesta.foto_subida };
+  }
+
+  // Si es solo texto o foto
+  return { seccion, opciones: [], texto: respuesta.respuesta_texto, foto: respuesta.foto_subida };
+};
+
+  // ← ← ← CLAVE: Calcular total correctamente aquí también ← ← ←
+  const totalCalculadoLocal = useMemo(() => {
+    let total = 0;
+    
+    respuestas.forEach(resp => {
+      const seccion = config.secciones.find(s => s.id === resp.seccion);
+      if (!seccion) return;
+
+      if (resp.opcion_seleccionada) {
+        const ids = Array.isArray(resp.opcion_seleccionada) 
+          ? resp.opcion_seleccionada 
+          : [resp.opcion_seleccionada];
+        
+        ids.forEach(id => {
+          const opcion = seccion.opciones.find(o => o.id === id);
+          if (opcion) {
+            // ← ← ← CONVERTIR EXPLÍCITAMENTE A NÚMERO ← ← ←
+            const valor = parseFloat(String(opcion.valor_adicional || 0));
+            total += isNaN(valor) ? 0 : valor;
+          }
+        });
+      }
+    });
+
+    return total;
+  }, [respuestas, config]);
+
+  // Usar el total calculado localmente (más confiable)
+  const totalFinal = totalCalculadoLocal > 0 ? totalCalculadoLocal : totalEstimado;
 
   return (
     <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
@@ -50,16 +86,17 @@ export default function ResumenValoracion({ config, respuestas, totalEstimado }:
           )}
         </div>
 
-        {/* Líneas divisoras y detalles */}
+        {/* Líneas divisorias y detalles */}
         <div className="space-y-6">
           {respuestas.map((respuesta, idx) => {
             const detalle = getDetalleRespuesta(respuesta);
             if (!detalle) return null;
 
-            // Calcular subtotal de esta sección
-            const subtotalSeccion = detalle.opciones.reduce(
-              (sum, op) => sum + (op.valor_adicional || 0), 0
-            );
+            // ← ← ← CLAVE: Convertir a número y sumar correctamente ← ← ←
+            const subtotalSeccion = detalle.opciones.reduce((sum, op) => {
+               const valor = Number(op.valor_adicional) || 0;
+               return sum + valor;
+            }, 0);
 
             return (
               <div key={idx} className="pb-4 border-b border-gray-100 last:border-0">
@@ -69,7 +106,7 @@ export default function ResumenValoracion({ config, respuestas, totalEstimado }:
                   </h4>
                   {subtotalSeccion > 0 && (
                     <span className="font-bold text-purple-600 text-sm">
-                      +${subtotalSeccion.toLocaleString('es-CO')}
+                      +${subtotalSeccion.toLocaleString('es-CO', { maximumFractionDigits: 0 })}
                     </span>
                   )}
                 </div>
@@ -79,6 +116,11 @@ export default function ResumenValoracion({ config, respuestas, totalEstimado }:
                   {detalle.opciones.map(op => (
                     <div key={op.id} className="flex justify-between text-sm text-gray-600">
                       <span>✓ {op.titulo}</span>
+                      {parseFloat(String(op.valor_adicional || 0)) > 0 && (
+                        <span className="text-purple-600 font-medium">
+                          +${parseFloat(String(op.valor_adicional || 0)).toLocaleString('es-CO', { maximumFractionDigits: 0 })}
+                        </span>
+                      )}
                     </div>
                   ))}
                   
@@ -112,7 +154,7 @@ export default function ResumenValoracion({ config, respuestas, totalEstimado }:
         <div className="flex justify-between items-center mb-2">
           <span className="text-gray-600 font-medium">Total Estimado</span>
           <span className="text-3xl font-bold text-gray-900">
-            ${totalEstimado.toLocaleString('es-CO')}
+            ${totalFinal.toLocaleString('es-CO', { maximumFractionDigits: 0 })}
           </span>
         </div>
         <p className="text-xs text-gray-500 text-right">

@@ -51,33 +51,34 @@ export default function AsistenteValoracion({ servicioId, citaId, onClose, onSuc
   }, [citaId]);
 
   // 2. Calcular Total Dinámico
-  useEffect(() => {
-    if (!config) return;
+useEffect(() => {
+  if (!config) return;
 
-    let total = 0;
-    
-    respuestas.forEach(resp => {
-      const seccion = config.secciones.find(s => s.id === resp.seccion);
-      if (!seccion) return;
+  let total = 0;
+  
+  respuestas.forEach(resp => {
+    const seccion = config.secciones.find(s => s.id === resp.seccion);
+    if (!seccion) return;
 
-      // Sumar opciones
-      if (resp.opcion_seleccionada) {
-        const ids = Array.isArray(resp.opcion_seleccionada) 
-          ? resp.opcion_seleccionada 
-          : [resp.opcion_seleccionada];
-        
-        ids.forEach(id => {
-          const opcion = seccion.opciones.find(o => o.id === id);
-          if (opcion) total += opcion.valor_adicional || 0;
-        });
-      }
-    });
+    // Sumar opciones
+    if (resp.opcion_seleccionada) {
+      const ids = Array.isArray(resp.opcion_seleccionada) 
+        ? resp.opcion_seleccionada 
+        : [resp.opcion_seleccionada];
+      
+      ids.forEach(id => {
+        const opcion = seccion.opciones.find(o => o.id === id);
+        if (opcion) {
+          // ← ← ← CONVERSIÓN EXPLÍCITA A NÚMERO ← ← ←
+          const valor = Number(opcion.valor_adicional) || 0;
+          total += valor;
+        }
+      });
+    }
+  });
 
-    // Aquí podrías sumar un precio base del servicio si existe en 'config'
-    // total += config.precio_base || 0; 
-
-    setTotalCalculado(total);
-  }, [respuestas, config]);
+  setTotalCalculado(total);
+}, [respuestas, config]);
 
   // 3. Manejar Respuestas
   const handleRespuesta = (seccionId: number, data: Partial<RespuestaValoracion>) => {
