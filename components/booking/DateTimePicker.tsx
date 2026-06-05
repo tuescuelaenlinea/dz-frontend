@@ -21,35 +21,20 @@ interface DateTimePickerProps {
   onAvailabilityError?: (message: string) => void;
 }
 
-// ← ← ← FUNCIÓN ROBUSTA: Extraer componentes LOCALES sin conversión UTC
+// ← SIMPLIFICADO: Usar métodos locales del navegador (sin forzar timezone)
 const formatDateLocal = (date: Date): string => {
-  // ← Usar Intl para forzar zona horaria local (America/Bogota)
-  const formatter = new Intl.DateTimeFormat('es-CO', {
-    timeZone: 'America/Bogota',  // ← ← ← CLAVE: zona horaria de Colombia
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-  
-  const parts = formatter.formatToParts(date);
-  const year = parts.find(p => p.type === 'year')?.value;
-  const month = parts.find(p => p.type === 'month')?.value;
-  const day = parts.find(p => p.type === 'day')?.value;
-  
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
 
-// ← ← ← FUNCIÓN ROBUSTA: Parsear YYYY-MM-DD a Date en zona local
+// ← SIMPLIFICADO: Parsear YYYY-MM-DD a Date en zona local del navegador
 const parseDateLocal = (dateString: string): Date => {
   const [year, month, day] = dateString.split('-').map(Number);
-  
-  // ← Crear fecha usando constructor con zona local explícita
+  // ← Crear fecha a mediodía para evitar problemas de timezone
   // Mes es 0-indexed en JavaScript (0 = enero)
-  const date = new Date(year, month - 1, day, 12, 0, 0, 0);
-  
-  // ← ← ← FORZAR que la fecha se interprete en zona horaria local
-  // Esto evita que new Date() la convierta a UTC y desplace el día
-  return new Date(date.toLocaleString('en-US', { timeZone: 'America/Bogota' }));
+  return new Date(year, month - 1, day, 12, 0, 0, 0);
 };
 
 export default function DateTimePicker({
@@ -76,47 +61,44 @@ export default function DateTimePicker({
     return slots;
   };
 
-  // Establecer fecha mínima (hoy + 1 día) - EN ZONA HORARIA LOCAL
+  // Establecer fecha mínima (hoy + 1 día)
   useEffect(() => {
     const today = new Date();
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    // ← Usar formateo local simplificado
     setMinDate(formatDateLocal(tomorrow));
     setAllDaySlots(generateAllDaySlots());
   }, []);
 
-  // Cargar horarios ocupados cuando cambia la fecha
+  // Cargar horarios ocupados cuando cambia la fecha o profesional
+    // Cargar horarios ocupados cuando cambia la fecha o profesional
   useEffect(() => {
-    // ← Validación temprana
     if (!selectedDate || !profesionalId) {
       setOccupiedTimes([]);
       setAllDaySlots([]);
       return;
     }
 
-    // ← CORREGIDO: Obtener fecha como string LOCAL directamente del Date
-    // Sin pasar por toISOString() que convierte a UTC
     const fechaStr = formatDateLocal(selectedDate);
-        // ← ← ← VALIDACIÓN: Asegurar que fechaStr sea YYYY-MM-DD válido
+    
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) {
-      console.error('❌ Fecha inválida para API:', fechaStr, 'desde selectedDate:', selectedDate);
+      console.error('❌ Fecha inválida para API:', fechaStr);
       setAllDaySlots([]);
       setOccupiedTimes([]);
       return;
     }
     
-    // ← ← ← LOG PARA DEBUG (puedes remover después de probar)
-    console.log('🔍 [DateTimePicker] Fecha enviada al backend:', fechaStr, '| selectedDate toString:', selectedDate?.toString());
-    const profesionalIdToUse = profesionalId;
+    // ← ← ← CLAVE: Asignar a variable local tipada como number ← ← ←
+    const profId: number = profesionalId;
+    
+    console.log('🔍 [DateTimePicker] Fecha enviada al backend:', fechaStr, '| profesionalId:', profId);
 
     async function loadAvailability() {
       setLoading(true);
       
       try {
-        // ← Enviar string YYYY-MM-DD directamente al backend
-        // El backend debe interpretar esto como fecha LOCAL, no UTC
-        const data = await api.getDisponibilidadProfesional(profesionalIdToUse, fechaStr);
+        // ← ← ← AHORA usa profId (number) en lugar de profesionalId (number | null) ← ← ←
+        const data = await api.getDisponibilidadProfesional(profId, fechaStr);
         
         if (data.no_trabaja) {
           setAllDaySlots([]);
@@ -156,8 +138,7 @@ export default function DateTimePicker({
   }, [selectedDate, profesionalId, onAvailabilityError]);
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // ← CORREGIDO: Parsear fecha con mediodía para evitar problemas de timezone
-    const dateString = e.target.value;  // "YYYY-MM-DD" del input
+    const dateString = e.target.value;
     const date = dateString ? parseDateLocal(dateString) : null;
     
     onDateChange(date);
@@ -210,7 +191,6 @@ export default function DateTimePicker({
         
         <input
           type="date"
-          // ← CORREGIDO: Usar formateo local simplificado
           value={selectedDate ? formatDateLocal(selectedDate) : ''}
           onChange={handleDateChange}
           min={minDate}

@@ -105,7 +105,7 @@ const getColombiaTime = (): string => {
   }).format(now);
 };
 
-// Obtener datetime completo en formato ISO Colombia
+/// Obtener datetime completo en formato ISO Colombia CON TIMEZONE
 const getColombiaDateTime = (): string => {
   const now = new Date();
   const colombiaStr = new Intl.DateTimeFormat('es-CO', {
@@ -114,10 +114,13 @@ const getColombiaDateTime = (): string => {
     hour: '2-digit', minute: '2-digit', second: '2-digit',
     hour12: false
   }).format(now).replace(',', '');
-  // Convertir "YYYY/MM/DD HH:MM:SS" → "YYYY-MM-DDTHH:MM:SS"
+  
+  // Convertir "YYYY/MM/DD HH:MM:SS" → "YYYY-MM-DDTHH:MM:SS-05:00"
   const [datePart, timePart] = colombiaStr.split(' ');
   const [y, m, d] = datePart.split('/');
-  return `${y}-${m}-${d}T${timePart}`;
+  
+  // ← ← ← CLAVE: Agregar offset de Colombia (-05:00) ← ← ←
+  return `${y}-${m}-${d}T${timePart}-05:00`;
 };
 
 
@@ -193,6 +196,7 @@ export default function CajaReciboModal({
   // ← ← ← NUEVOS ESTADOS PARA FLUJO DE ABONOS ← ← ←
   const [showAbonoModal, setShowAbonoModal] = useState(false);
   const [montoAbono, setMontoAbono] = useState('');
+  const [recibido, setRecibido] = useState('');
   const [metodoPagoAbono, setMetodoPagoAbono] = useState('bold');
   const [referenciaExterna, setReferenciaExterna] = useState<string>('');
 
@@ -1306,6 +1310,11 @@ const handleAbrirModalAbono = async () => {
         }
     }
 
+    // 2. Precargar valores
+  const saldoPendiente = resumenAbonos?.saldo_pendiente || 0;
+  setMontoAbono(saldoPendiente.toString());
+  setRecibido(saldoPendiente.toString());  // ← ← ← AGREGAR ESTA LÍNEA
+
     // 2. Abrir el modal de abono
     setShowAbonoModal(true);
 };
@@ -1674,7 +1683,7 @@ if (metodoPago === 'pendiente') {
       const payload: any = {
         tipo: tipoRecibo,
         estado: estadoRecibo,
-        fecha: getColombiaDateTime(),  // Ej: "2026-05-19T19:30:00"
+        //fecha: getColombiaDateTime(),  // Ej: "2026-05-19T19:30:00"
         subtotal: subtotal,
         descuento: descuento,
         total: total,
@@ -3171,31 +3180,96 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                 )}
               </div>
 
-              {/* ← ← ← INPUT DE MONTO DE ABONO ← ← ← */}
+              {/* ← ← ← CAMPOS DE MONTO Y RECIBIDO ← ← ← */}
               <div>
-                <label className="block text-sm font-semibold text-gray-300 mb-2">
-                  Monto del abono *
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                  <input
-                    type="number"
-                    min="1000"
-                    step="1000"
-                    value={montoAbono}
-                    onChange={(e) => setMontoAbono(e.target.value)}
-                    className="w-full px-4 py-3 pl-8 bg-gray-900 border border-gray-600 rounded-lg text-white text-lg font-bold focus:border-green-500 focus:outline-none"
-                    placeholder="0"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Campo Monto del Abono (solo lectura) */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-300 mb-2">
+                      💰 Monto del Abono
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                      <input
+                        type="number"
+                        value={montoAbono}
+                        readOnly
+                        className="w-full px-4 py-3 pl-8 bg-gray-700 border border-gray-600 rounded-lg text-white text-lg font-bold cursor-not-allowed"
+                        placeholder="0"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Valor a registrar (automático)
+                    </p>
+                  </div>
+
+                  {/* Campo Recibido (editable) */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-300 mb-2">
+                      💵 Recibido
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1000"
+                        value={recibido}
+                        onChange={(e) => {
+                          const valorRecibido = parseFloat(e.target.value) || 0;
+                          setRecibido(e.target.value);
+                          
+                          // Lógica de actualización del monto de abono
+                          const saldoPendiente = resumenAbonos?.saldo_pendiente || 0;
+                          
+                          if (valorRecibido >= saldoPendiente) {
+                            // Si recibe más o igual al saldo, el abono es el saldo completo
+                            setMontoAbono(saldoPendiente.toString());
+                          } else {
+                            // Si recibe menos, el abono es lo recibido
+                            setMontoAbono(valorRecibido.toString());
+                          }
+                        }}
+                        className="w-full px-4 py-3 pl-8 bg-gray-900 border border-green-600 rounded-lg text-white text-lg font-bold focus:border-green-500 focus:outline-none"
+                        placeholder="0"
+                        autoFocus
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Valor recibido del cliente
+                    </p>
+                  </div>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Mínimo $1.000 • Máximo: {formatMoney(total - (resumenAbonos?.total_abonado || 0))}
-                </p>
-                {/* Validación visual */}
-                {montoAbono && parseFloat(montoAbono) > (total - (resumenAbonos?.total_abonado || 0)) && (
-                  <p className="text-xs text-red-400 mt-1">
-                    ⚠️ El monto excede el saldo pendiente
-                  </p>
+
+                {/* ← ← ← MOSTRAR SALDO RESTANTE (resaltado) ← ← ← */}
+                {recibido && parseFloat(recibido) > 0 && (
+                  <div className={`mt-3 p-3 rounded-lg border-2 ${
+                    parseFloat(recibido) >= (resumenAbonos?.saldo_pendiente || 0)
+                      ? 'bg-green-900/30 border-green-500'
+                      : 'bg-orange-900/30 border-orange-500'
+                  }`}>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-semibold text-gray-300">
+                        {parseFloat(recibido) >= (resumenAbonos?.saldo_pendiente || 0) 
+                          ? '✅ Saldo a favor del cliente:' 
+                          : '⚠️ Saldo pendiente restante:'}
+                      </span>
+                      <span className={`text-lg font-bold ${
+                        parseFloat(recibido) >= (resumenAbonos?.saldo_pendiente || 0)
+                          ? 'text-green-400'
+                          : 'text-orange-400'
+                      }`}>
+                        $ {Math.abs(
+                          parseFloat(recibido) - (resumenAbonos?.saldo_pendiente || 0)
+                        ).toLocaleString('es-CO')}
+                      </span>
+                    </div>
+                    {parseFloat(recibido) >= (resumenAbonos?.saldo_pendiente || 0) && (
+                      <p className="text-xs text-green-300 mt-1">
+                        El cliente recibió cambio o pago en exceso
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -3242,6 +3316,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                 onClick={() => {
                   setShowAbonoModal(false);
                   setMontoAbono('');
+                  setRecibido('');
                   setReferenciaExterna('');
                   // NO llamar a handleRegistrarAbono
                   // NO cambiar estado del recibo
@@ -3253,81 +3328,85 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
               
               {/* ← ← ← BOTÓN REGISTRAR: SOLO registra abono, NO publica ← ← ← */}
            <button
-  onClick={async () => {
-    const montoNum = parseFloat(montoAbono);
-    
-    // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
-    // ← ← ← CORRECCIÓN: Calcular saldo disponible excluyendo abono en edición ← ← ←
-    // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
-    
-    const totalAbonado = resumenAbonos?.total_abonado || 0;
-    
-    // Buscar el abono que se está editando
-    const abonoEditando = abonoEditandoId 
-      ? abonos.find(a => String(a.id) === String(abonoEditandoId)) 
-      : null;
-    
-    const montoAbonoEditando = abonoEditando ? parseFloat(abonoEditando.monto.toString()) : 0;
-    
-    // Calcular total de OTROS abonos (excluyendo el que se está editando)
-    const otrosAbonos = totalAbonado - montoAbonoEditando;
-    
-    // Calcular máximo permitido: total recibo - otros abonos
-    const maxAbono = total - otrosAbonos;
-    
-    // Validaciones
-    if (isNaN(montoNum) || montoNum <= 0) {
-      alert('⚠️ Ingresa un monto válido mayor a 0');
-      return;
-    }
-    if (montoNum < 1000) {
-      alert('⚠️ El monto mínimo es $1.000');
-      return;
-    }
-    // ← ← ← VALIDACIÓN CORREGIDA: Usar maxAbono calculado correctamente ← ← ←
-    if (montoNum > maxAbono) {
-      alert(`⚠️ El monto excede el saldo pendiente (${formatMoney(maxAbono)})`);
-      return;
-    }
-    
-    setLoading(true);
-    try {
-      // ← ← ← SOLO REGISTRAR ABONO ← ← ←
-      await handleRegistrarAbono();
-      
-    } catch (err: any) {
-      console.error('❌ Error registrando abono:', err);
-      alert(`❌ Error: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  }}
-  disabled={
-    loading ||
-    !montoAbono ||
-    parseFloat(montoAbono) < 1000 ||
-    // ← ← ← CORRECCIÓN: Calcular límite correcto en disabled ← ← ←
-    parseFloat(montoAbono) > (() => {
-      const totalAbonado = resumenAbonos?.total_abonado || 0;
-      const abonoEditando = abonoEditandoId 
-        ? abonos.find(a => String(a.id) === String(abonoEditandoId)) 
-        : null;
-      const montoAbonoEditando = abonoEditando ? parseFloat(abonoEditando.monto.toString()) : 0;
-      const otrosAbonos = totalAbonado - montoAbonoEditando;
-      return total - otrosAbonos;
-    })()
-  }
-  className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
->
-  {loading ? (
-    <>
-      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-      Procesando...
-    </>
-  ) : (
-    abonoEditandoId ? '✅ Actualizar Abono' : '✅ Registrar Abono'
-  )}
-</button>
+            onClick={async () => {
+              
+              const montoNum = parseFloat(montoAbono);
+              
+              // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+              // ← ← ← CORRECCIÓN: Calcular saldo disponible excluyendo abono en edición ← ← ←
+              // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+              
+              const totalAbonado = resumenAbonos?.total_abonado || 0;
+              
+              // Buscar el abono que se está editando
+              const abonoEditando = abonoEditandoId 
+                ? abonos.find(a => String(a.id) === String(abonoEditandoId)) 
+                : null;
+              
+              const montoAbonoEditando = abonoEditando ? parseFloat(abonoEditando.monto.toString()) : 0;
+              
+              // Calcular total de OTROS abonos (excluyendo el que se está editando)
+              const otrosAbonos = totalAbonado - montoAbonoEditando;
+              
+              // Calcular máximo permitido: total recibo - otros abonos
+              const maxAbono = total - otrosAbonos;
+              
+              // Validaciones
+              if (isNaN(montoNum) || montoNum <= 0) {
+                alert('⚠️ Ingresa un monto válido mayor a 0');
+                return;
+              }
+              if (montoNum < 1000) {
+                alert('⚠️ El monto mínimo es $1.000');
+                return;
+              }
+              // ← ← ← VALIDACIÓN CORREGIDA: Usar maxAbono calculado correctamente ← ← ←
+              if (montoNum > maxAbono) {
+                alert(`⚠️ El monto excede el saldo pendiente (${formatMoney(maxAbono)})`);
+                return;
+              }
+              
+              setLoading(true);
+              setMontoAbono('');
+                  setRecibido('');
+                  setReferenciaExterna('');
+              try {
+                // ← ← ← SOLO REGISTRAR ABONO ← ← ←
+                await handleRegistrarAbono();
+                
+              } catch (err: any) {
+                console.error('❌ Error registrando abono:', err);
+                alert(`❌ Error: ${err.message}`);
+              } finally {
+                setLoading(false);
+              }
+            }}
+            disabled={
+              loading ||
+              !montoAbono ||
+              parseFloat(montoAbono) < 1000 ||
+              // ← ← ← CORRECCIÓN: Calcular límite correcto en disabled ← ← ←
+              parseFloat(montoAbono) > (() => {
+                const totalAbonado = resumenAbonos?.total_abonado || 0;
+                const abonoEditando = abonoEditandoId 
+                  ? abonos.find(a => String(a.id) === String(abonoEditandoId)) 
+                  : null;
+                const montoAbonoEditando = abonoEditando ? parseFloat(abonoEditando.monto.toString()) : 0;
+                const otrosAbonos = totalAbonado - montoAbonoEditando;
+                return total - otrosAbonos;
+              })()
+            }
+            className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Procesando...
+              </>
+            ) : (
+              abonoEditandoId ? '✅ Actualizar Abono' : '✅ Registrar Abono'
+            )}
+          </button>
             </div>
             
           </div>

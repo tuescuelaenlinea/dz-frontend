@@ -151,74 +151,114 @@ export default function ProfesionalesTab() {
   // ← Recalcular totales cuando cambien los datos necesarios
   useEffect(() => {
     if (citas.length > 0 && serviciosProfesionales.length > 0 && Object.keys(configuracion).length > 0) {
+      console.log('🔍 [DEBUG] Datos cargados:');
+      console.log('- Citas:', citas.length);
+      console.log('- ServiciosProfesionales:', serviciosProfesionales.length);
+      console.log('- Muestra de spList:', serviciosProfesionales.slice(0, 3));
+
+      console.log('🔍 [DEBUG] Datos cargados:');
+      console.log('- Citas:', citas.length);
+      console.log('- ServiciosProfesionales:', serviciosProfesionales.length);
+      console.log('- Muestra de spList:', serviciosProfesionales.slice(0, 3));
+
       calcularTotales(citas, serviciosProfesionales, configuracion);
     }
   }, [citas, serviciosProfesionales, configuracion, profesionalSeleccionado]);
 
   const cargarDatos = async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('admin_token');
-      
-      // ← ← ← POR ESTA (nuevo endpoint específico):
-      const citasUrl = `${apiUrl}/citas/para-profesionales-tab/?fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}`;
-      
-      const citasRes = await fetch(citasUrl, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      
-      let citasList: Cita[] = [];
-      if (citasRes.ok) {
-        const data = await citasRes.json();
-        citasList = Array.isArray(data) ? data : (data.results || []);
-      }
-      
-      // Cargar profesionales
-      const profsUrl = `${apiUrl}/profesionales/?activo=true&ordering=nombre`;
-      const profsRes = await fetch(profsUrl, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      
-      let profsList: Profesional[] = [];
-      if (profsRes.ok) {
-        const data = await profsRes.json();
-        profsList = Array.isArray(data) ? data : (data.results || []);
-      }
-      
-      // Cargar servicios-profesionales
-      const spUrl = `${apiUrl}/servicios-profesionales/?activo=true`;
-      const spRes = await fetch(spUrl, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      
-      let spList: ServicioProfesional[] = [];
-      if (spRes.ok) {
-        const data = await spRes.json();
-        spList = Array.isArray(data) ? data : (data.results || []);
-      }
-      
-      // Cargar configuración
-      const configUrl = `${apiUrl}/configuracion/activa/`;
-      const configRes = await fetch(configUrl, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      
-      let configData: Configuracion = {};
-      if (configRes.ok) {
-        configData = await configRes.json();
-      }
-      
-      setCitas(citasList);
-      setProfesionales(profsList);
-      setServiciosProfesionales(spList);
-      setConfiguracion(configData);
-      
-    } catch (err) {
-      console.error('❌ Error cargando datos:', err);
-    } finally {
-      setLoading(false);
+  setLoading(true);
+  try {
+    const token = localStorage.getItem('admin_token');
+    
+    // ← Cargar citas
+    const citasUrl = `${apiUrl}/citas/para-profesionales-tab/?fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}`;
+    const citasRes = await fetch(citasUrl, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    
+    let citasList: Cita[] = [];
+    if (citasRes.ok) {
+      const data = await citasRes.json();
+      citasList = Array.isArray(data) ? data : (data.results || []);
     }
-  };
+    
+    // ← Cargar profesionales
+    const profsUrl = `${apiUrl}/profesionales/?activo=true&ordering=nombre`;
+    const profsRes = await fetch(profsUrl, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    
+    let profsList: Profesional[] = [];
+    if (profsRes.ok) {
+      const data = await profsRes.json();
+      profsList = Array.isArray(data) ? data : (data.results || []);
+    }
+    
+    // ← ← ← CAMBIO CLAVE: Cargar TODAS las relaciones servicio-profesional con paginación ← ← ←
+    let spList: ServicioProfesional[] = [];
+    let nextPage: string | null = `${apiUrl}/servicios-profesionales/?activo=true&page_size=100`;
+    
+    while (nextPage) {
+      // ← ← ← CORRECCIÓN: Normalizar la URL para usar el dominio correcto ← ← ←
+      // El backend puede devolver URLs con dominios incorrectos (IP sin puerto)
+      // Reemplazamos cualquier dominio por el apiUrl correcto
+      const normalizedUrl: string = nextPage.replace(
+        /https?:\/\/[^/]+\/api/,  // Regex que matchea cualquier dominio hasta /api
+        apiUrl  // Reemplaza con el apiUrl correcto
+      );
+      
+      console.log(`📡 Fetching: ${normalizedUrl}`);
+      
+      const spRes = await fetch(normalizedUrl, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      
+      if (!spRes.ok) {
+        console.error(`❌ Error cargando página de servicios-profesionales: ${spRes.status}`);
+        break;
+      }
+      
+      const data = await spRes.json();
+      const results = Array.isArray(data) ? data : (data.results || []);
+      spList = [...spList, ...results];
+      
+      console.log(`📦 Cargadas ${spList.length} relaciones servicio-profesional...`);
+      
+      // ← ← ← CORRECCIÓN: Normalizar también la URL del next ← ← ←
+      if (data.next) {
+        nextPage = data.next.replace(
+          /https?:\/\/[^/]+\/api/,
+          apiUrl
+        );
+      } else {
+        nextPage = null;
+      }
+    }
+    
+    console.log(`✅ Total relaciones cargadas: ${spList.length}`);
+    
+    // ← Cargar configuración
+    const configUrl = `${apiUrl}/configuracion/activa/`;
+    const configRes = await fetch(configUrl, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    
+    let configData: Configuracion = {};
+    if (configRes.ok) {
+      configData = await configRes.json();
+    }
+    
+    setCitas(citasList);
+    setProfesionales(profsList);
+    setServiciosProfesionales(spList);
+    setConfiguracion(configData);
+    
+  } catch (err) {
+    console.error('❌ Error cargando datos:', err);
+  } finally {
+    setLoading(false);
+  }
+};
 
   // ← Calcular horas de cita
   const calcularHorasCita = (horaInicio: string, horaFin: string): number => {
@@ -238,71 +278,113 @@ export default function ProfesionalesTab() {
 
   // ← ← ← ACTUALIZADO: Calcular detalles de ganancias para cada cita ← ← ←
   const calcularDetallesCitas = (citasList: Cita[], spList: ServicioProfesional[], configData: Configuracion): DetalleCita[] => {
-    const porcentajeBold = parseFloat(String(configData.porcentaje_bold || 3.5));
+  const porcentajeBold = parseFloat(String(configData.porcentaje_bold || 3.5));
+  
+  return citasList.map(cita => {
+    const precioTotal = parseFloat(cita.precio_total) || 0;
+    const totalProductos = cita.total_productos || 0;
+    const montoPropina = typeof cita.monto_propina === 'number' ? cita.monto_propina : 0;
+    const baseParaImpuesto = precioTotal + montoPropina;
+    const comisionBold = baseParaImpuesto * (porcentajeBold / 100);
     
-    return citasList.map(cita => {
-      const precioTotal = parseFloat(cita.precio_total) || 0;
-      const totalProductos = cita.total_productos || 0;
-      
-      // ← ← ← ACCESO SEGURO A PROPINA ← ← ←
-      const montoPropina = typeof cita.monto_propina === 'number' ? cita.monto_propina : 0;
-      const baseParaImpuesto = typeof cita.base_para_impuesto === 'number' ? cita.base_para_impuesto : (precioTotal + montoPropina);
-      
-      // ← ← ← DEBUG LOG (solo en desarrollo) ← ← ←
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`🔍 Cita ${cita.id}:`, {
-          precio_total: precioTotal,
-          monto_propina: montoPropina,
-          base_para_impuesto: baseParaImpuesto,
-          profesional_id: cita.profesional
-        });
-      }
-     
-     
-      const comisionBold = baseParaImpuesto * (porcentajeBold / 100);
-   
-      
-      // Calcular porcentaje del profesional
-      let porcentajeProf = 0;
-      if (cita.profesional) {
-        const asignacion = spList.find(
-          sp => sp.servicio === cita.servicio && sp.profesional === cita.profesional
-        );
-        
-        if (asignacion?.precio_especial !== null && asignacion?.precio_especial !== undefined && asignacion.precio_especial !== '') {
-          porcentajeProf = parseFloat(String(asignacion.precio_especial));
-        } else {
-          const profesional = profesionales.find(p => p.id === cita.profesional);
-          porcentajeProf = parseFloat(String(profesional?.porcentaje_global || 50));
-        }
-      }
-      
-      // ← ← ← FÓRMULA ACTUALIZADA: (precio_servicio - impuesto - productos) × %profesional + propina ← ← ←
-      // La propina va 100% al profesional, el impuesto se calcula sobre (servicio + propina)
-      const baseCalculable = precioTotal - comisionBold - totalProductos;
-      const gananciaPorServicio = baseCalculable * (porcentajeProf / 100);
-      const gananciaProfesional = gananciaPorServicio + montoPropina;  // ← Propina completa para el profesional
-      
-      // Saldo para el salón (sin incluir la propina que ya fue al profesional)
-      const saldo = precioTotal - comisionBold - gananciaPorServicio - totalProductos;
-      
-      // Horas de la cita
-      const horasCita = calcularHorasCita(cita.hora_inicio, cita.hora_fin);
-      
-      return {
-        cita,
-        precioTotal,
-        montoPropina,              // ← NUEVO
-        baseParaImpuesto,          // ← NUEVO
-        comisionBold,              // ← Ahora calculada sobre baseParaImpuesto
-        porcentajeProfesional: porcentajeProf,
-        gananciaProfesional,       // ← Incluye propina completa
-        saldo,
-        horasCita,
-        totalProductos
-      };
+    // Calcular porcentaje del profesional
+let porcentajeProf = 0;
+if (cita.profesional) {
+  // ← ← ← LOGS DE DEBUGGING ← ← ←
+  console.log('📋 [DEBUG] spList completo:', spList);
+  console.log('🔍 Buscando: servicio=', cita.servicio, 'profesional=', cita.profesional);
+  console.log('🔍 Tipos: servicio=', typeof cita.servicio, 'profesional=', typeof cita.profesional);
+  
+  // ← ← ← Verificar si existe la relación en spList ← ← ←
+  const relacionExiste = spList.some(
+    sp => sp.servicio === cita.servicio && sp.profesional === cita.profesional
+  );
+  console.log('🔎 ¿Existe relación servicio-profesional en spList?', relacionExiste);
+  
+  if (relacionExiste) {
+    const relacionEncontrada = spList.find(
+      sp => sp.servicio === cita.servicio && sp.profesional === cita.profesional
+    );
+    console.log('✅ Relación encontrada:', relacionEncontrada);
+  }
+  // ← ← ← FIN LOGS ← ← ←
+  
+  const asignacion = spList.find(
+    sp => sp.servicio === cita.servicio && sp.profesional === cita.profesional
+  );
+
+  // ← ← ← LOG: Mostrar qué encontramos en spList
+  const posiblesAsignaciones = spList.filter(sp => 
+    sp.servicio === cita.servicio || sp.profesional === cita.profesional
+  );
+  
+  if (posiblesAsignaciones.length > 0) {
+    console.log(`📋 [Cita ${cita.id}] Asignaciones relacionadas encontradas en spList:`, 
+      posiblesAsignaciones.map(sp => ({
+        id: sp.id,
+        servicio: sp.servicio,
+        profesional: sp.profesional,
+        precio_especial: sp.precio_especial,
+        activo: sp.activo
+      }))
+    );
+  } else {
+    console.warn(`⚠️ [Cita ${cita.id}] NO hay asignaciones en spList para servicio=${cita.servicio} O profesional=${cita.profesional}`);
+  }
+
+  if (asignacion) {
+    console.log(`✅ [Cita ${cita.id}] Asignación encontrada:`, {
+      id: asignacion.id,
+      servicio: asignacion.servicio,
+      profesional: asignacion.profesional,
+      precio_especial: asignacion.precio_especial,
+      activo: asignacion.activo
     });
-  };
+  }
+
+  // ← ← ← VALIDACIÓN CORREGIDA ← ← ←
+  if (asignacion && 
+      asignacion.precio_especial !== null && 
+      asignacion.precio_especial !== undefined) {
+    
+    const precioEspecialStr = String(asignacion.precio_especial).trim();
+    
+    if (precioEspecialStr !== '' && !isNaN(parseFloat(precioEspecialStr))) {
+      porcentajeProf = parseFloat(precioEspecialStr);
+      console.log(`✅ USANDO precio_especial: ${porcentajeProf}% para cita ${cita.id}`);
+    } else {
+      const profesional = profesionales.find(p => p.id === cita.profesional);
+      porcentajeProf = parseFloat(String(profesional?.porcentaje_global || 50));
+      console.log(`⚠️ precio_especial inválido (${precioEspecialStr}), usando porcentaje_global: ${porcentajeProf}%`);
+    }
+  } else {
+    const profesional = profesionales.find(p => p.id === cita.profesional);
+    porcentajeProf = parseFloat(String(profesional?.porcentaje_global || 50));
+    console.log(`ℹ️ Sin asignación, usando porcentaje_global: ${porcentajeProf}%`);
+  }
+}
+    
+    // Cálculos restantes (sin cambios)
+    const baseCalculable = precioTotal - comisionBold - totalProductos;
+    const gananciaPorServicio = baseCalculable * (porcentajeProf / 100);
+    const gananciaProfesional = gananciaPorServicio + montoPropina;
+    const saldo = precioTotal - comisionBold - gananciaPorServicio - totalProductos;
+    const horasCita = calcularHorasCita(cita.hora_inicio, cita.hora_fin);
+    
+    return {
+      cita,
+      precioTotal,
+      montoPropina,
+      baseParaImpuesto,
+      comisionBold,
+      porcentajeProfesional: porcentajeProf,
+      gananciaProfesional,
+      saldo,
+      horasCita,
+      totalProductos
+    };
+  });
+};
 
   // ← ← ← ACTUALIZADO: Calcular totales según profesional seleccionado ← ← ←
   const calcularTotales = (citasList: Cita[], spList: ServicioProfesional[], configData: Configuracion) => {
@@ -1057,7 +1139,7 @@ const handleOpenProductosModal = async (cita: Cita) => {
               </button>
             </div>
 
-            {/* Tabla */}
+           {/* Tabla */}
             <div className="p-6 max-h-[50vh] overflow-y-auto">
               <table className="w-full text-xs">
                 <thead className="bg-gray-900 sticky top-0">
@@ -1083,14 +1165,17 @@ const handleOpenProductosModal = async (cita: Cita) => {
                       <tr key={detalle.cita.id} className="hover:bg-gray-700/50">
                         <td className="px-3 py-3 text-xs font-mono text-blue-400">{detalle.cita.codigo_reserva}</td>
                         <td className="px-3 py-3 text-gray-300">{formatDate(detalle.cita.fecha)}</td>
-                        <td className="px-3 py-3 text-gray-300">{detalle.cita.servicio_nombre}</td>
+                        <td className="px-3 py-3 text-gray-300">{detalle.cita.servicio_nombre} ({detalle.porcentajeProfesional}%)</td>
                         <td className="px-3 py-3 text-gray-300">{detalle.cita.cliente_nombre}</td>
                         <td className="px-3 py-3 text-gray-300">{detalle.cita.profesional_nombre || 'Sin asignar'}</td>
                         <td className="px-3 py-3 text-right text-green-400 font-semibold">${detalle.precioTotal.toLocaleString()}</td>
                         <td className="px-3 py-3 text-right text-pink-400">${detalle.montoPropina.toLocaleString()}</td>
                         <td className="px-3 py-3 text-right text-orange-400">${detalle.totalProductos.toLocaleString()}</td>
                         <td className="px-3 py-3 text-right text-orange-400">${detalle.comisionBold.toLocaleString()} ({porcentajeBold}%)</td>
-                        <td className="px-3 py-3 text-right text-purple-400 font-semibold">${detalle.gananciaProfesional.toLocaleString()}</td>
+                        {/* ← ← ← CAMBIO 1: Agregar % aplicado junto a Ganancia Profesional ← ← ← */}
+                        <td className="px-3 py-3 text-right text-purple-400 font-semibold">
+                          ${detalle.gananciaProfesional.toLocaleString()} 
+                        </td>
                         <td className="px-3 py-3 text-right text-green-400 font-semibold">${detalle.saldo.toLocaleString()}</td>
                       </tr>
                     );
@@ -1104,7 +1189,8 @@ const handleOpenProductosModal = async (cita: Cita) => {
               const { totalComisionBold, totalGananciaProfesionales, totalSaldos, totalServicios, totalProductos, totalPropinas } = obtenerTotalesModal();
               return (
                 <div className="sticky bottom-0 bg-gray-900 px-6 py-4 border-t border-gray-700 rounded-b-2xl">
-                  <div className="grid grid-cols-5 gap-3">
+                  {/* ← ← ← CAMBIO 2: Cambiar de grid-cols-5 a grid-cols-6 para agregar la card de Saldo Salón ← ← ← */}
+                  <div className="grid grid-cols-6 gap-3">
                     <div className="bg-green-900/30 border border-green-700 rounded-lg p-3">
                       <p className="text-xs text-green-300 mb-1">💰 Total Servicios</p>
                       <p className="text-lg font-bold text-green-400">${totalServicios.toLocaleString('es-CO')}</p>
@@ -1124,6 +1210,11 @@ const handleOpenProductosModal = async (cita: Cita) => {
                     <div className="bg-purple-900/30 border border-purple-700 rounded-lg p-3">
                       <p className="text-xs text-purple-300 mb-1">💵 Total Ganancia Profesionales</p>
                       <p className="text-lg font-bold text-purple-400">${totalGananciaProfesionales.toLocaleString('es-CO')}</p>
+                    </div>
+                    {/* ← ← ← NUEVA CARD: Total Saldo Salón ← ← ← */}
+                    <div className="bg-emerald-900/30 border border-emerald-700 rounded-lg p-3">
+                      <p className="text-xs text-emerald-300 mb-1">🏦 Total Saldo Salón</p>
+                      <p className="text-lg font-bold text-emerald-400">${totalSaldos.toLocaleString('es-CO')}</p>
                     </div>
                   </div>
                 </div>

@@ -124,6 +124,8 @@ interface CitaHuerfana {
   cliente_nombre: string;
   precio_total: string;
   pago_acumulado: string;  // ← ← ← AGREGAR: Para calcular saldo
+  cliente_telefono: string;  // ← ← ← AGREGAR
+  cliente_email: string;     // ← ← ← AGREGAR
   estado: string;
   fecha?: string;       // ← NUEVO: Fecha de la cita
   hora_inicio?: string; // ← NUEVO: Hora de la cita
@@ -142,7 +144,48 @@ interface AbonoRecibo {
 // ← ← ← FIN AGREGADO ← ← ←
 
 // ← ← ← COMPONENTE PRINCIPAL ← ← ←
+// ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+// ← ← ← HELPERS: Fechas con timezone Colombia (UTC-5) ← ← ←
+// ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
 
+// Obtener fecha en formato YYYY-MM-DD en timezone Colombia
+const getColombiaDate = (): string => {
+  const now = new Date();
+  const colombiaDate = new Intl.DateTimeFormat('es-CO', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(now);
+  const [day, month, year] = colombiaDate.split('/');
+  return `${year}-${month}-${day}`;
+};
+
+// Obtener hora en formato HH:MM en timezone Colombia
+const getColombiaTime = (): string => {
+  const now = new Date();
+  return new Intl.DateTimeFormat('es-CO', {
+    timeZone: 'America/Bogota',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(now);
+};
+
+// Obtener datetime completo en formato ISO Colombia
+const getColombiaDateTime = (): string => {
+  const now = new Date();
+  const colombiaStr = new Intl.DateTimeFormat('es-CO', {
+    timeZone: 'America/Bogota',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false
+  }).format(now).replace(',', '');
+  // Convertir "YYYY/MM/DD HH:MM:SS" → "YYYY-MM-DDTHH:MM:SS"
+  const [datePart, timePart] = colombiaStr.split(' ');
+  const [y, m, d] = datePart.split('/');
+  return `${y}-${m}-${d}T${timePart}`;
+};
 export default function CajaPage() {
   // ← ← ← AGREGAR ESTO AQUÍ (al inicio del componente)
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
@@ -1153,64 +1196,92 @@ setHayBorradoresPendientes(false);
 // ← ← ← EN page.tsx - función crearRecibosParaHuerfanas ACTUALIZADA ← ← ←
 const crearRecibosParaHuerfanas = async () => {
   setModalHuerfanasOpen(false);
-  const resultados: Array<{cita: CitaHuerfana, exito: boolean, error?: string}> = [];
-
-  // Filtrar SOLO las citas marcadas por el usuario
   const citasAProcesar = citasHuerfanas.filter(c => citasSeleccionadas.has(c.id));
-
+  
   if (citasAProcesar.length === 0) {
     alert('⚠️ Debes seleccionar al menos una cita para generar recibos.');
     setModalHuerfanasOpen(true);
     return;
   }
-
+  
   try {
-    const sessionCajaId = sessionActiva?.id || null;
+    // ← ← ← CLAVE: AGRUPAR CITAS POR CLIENTE + FECHA ← ← ←
+    const grupos = new Map<string, CitaHuerfana[]>();
     
-    // ← ← ← CAMBIO CLAVE: Usar nuevo endpoint 'vincular-recibo-sin-pago' ← ← ←
-    for (const cita of citasAProcesar) {
+    citasAProcesar.forEach(cita => {
+      // Normalizar identificador del cliente (email o teléfono)
+      const email = (cita.cliente_email || '').trim().toLowerCase();
+      const telefono = (cita.cliente_telefono || '').replace(/\D/g, '');
+      const clienteId = email || telefono || `anon-${cita.id}`;
+      const fechaStr = cita.fecha || '';
+      
+      // Clave de agrupación: cliente + fecha
+      const key = `${clienteId}__${fechaStr}`;
+      
+      if (!grupos.has(key)) {
+        grupos.set(key, []);
+      }
+      grupos.get(key)!.push(cita);
+    });
+    
+    console.log(`📦 Se crearon ${grupos.size} grupo(s) de citas`);
+    
+    let exitosas = 0;
+    let fallidas = 0;
+    const errores: string[] = [];
+    
+    // Procesar cada grupo con el nuevo endpoint
+    for (const [key, citasDelGrupo] of grupos.entries()) {
+      const citasIds = citasDelGrupo.map(c => c.id);
+      
       try {
-        const res = await fetch(`${apiUrl}/citas/${cita.id}/vincular-recibo-sin-pago/`, {
+        const res = await fetch(`${apiUrl}/citas/vincular-multiples-recibo-sin-pago/`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             ...(token ? { 'Authorization': `Bearer ${token}` } : {})
           },
-          body: JSON.stringify({ 
-            session_caja_id: sessionActiva?.id || null,  // ← ← ← Pasar sesión si existe
+          body: JSON.stringify({
+            citas_ids: citasIds,
+            session_caja_id: sessionActiva?.id || null,
             metodo_pago: 'bold',
           })
         });
-
+        
         if (!res.ok) {
           const errorData = await res.json().catch(() => ({}));
-          console.warn(`⚠️ Cita ${cita.codigo_reserva}: ${errorData.error || res.statusText}`);
-          resultados.push({ cita, exito: false, error: errorData.error });
+          const errorMsg = errorData.error || res.statusText;
+          console.warn(`️ Grupo ${key}: ${errorMsg}`);
+          errores.push(`Grupo (${citasDelGrupo.length} citas): ${errorMsg}`);
+          fallidas++;
           continue;
         }
-
-        const data = await res.json();
-        console.log(`✅ Cita ${cita.codigo_reserva} vinculada:`, data);
-        resultados.push({ cita, exito: true });
         
+        const data = await res.json();
+        console.log(`✅ Grupo ${key} vinculado:`, data.recibo.codigo_recibo);
+        exitosas++;
       } catch (err: any) {
-        console.error(`❌ Error para ${cita.codigo_reserva}:`, err);
-        resultados.push({ cita, exito: false, error: err.message });
+        console.error(`❌ Error para grupo ${key}:`, err);
+        errores.push(`Grupo (${citasDelGrupo.length} citas): ${err.message}`);
+        fallidas++;
       }
+      
+      // Pequeña pausa entre grupos
       await new Promise(resolve => setTimeout(resolve, 200));
     }
-
-    const exitosas = resultados.filter(r => r.exito).length;
-    const fallidas = resultados.filter(r => !r.exito).length;
-
+    
+    // Mostrar resumen
     if (exitosas > 0) {
-      alert(`✅ Se vincularon ${exitosas} cita(s) exitosamente (sin generar pagos duplicados).`);
+      alert(`✅ Se crearon ${exitosas} recibo(s) agrupado(s) exitosamente.`);
       await cargarRecibosRecientes(sessionActiva?.id || null, true, Date.now());
       await cargarVales();
     }
-    if (fallidas > 0) {
-      console.warn(`⚠️ ${fallidas} cita(s) fallaron. Revisa consola.`);
+    
+    if (fallidas > 0 || errores.length > 0) {
+      console.warn(`⚠️ ${fallidas} grupo(s) fallaron:`, errores);
+      alert(`⚠️ ${fallidas} grupo(s) no pudieron procesarse. Revisa la consola.`);
     }
+    
   } catch (err) {
     console.error('❌ Error crítico:', err);
     alert('❌ Error de red al procesar citas.');
@@ -1222,44 +1293,49 @@ const crearRecibosParaHuerfanas = async () => {
 
 // ← ← ← NUEVA FUNCIÓN: Crea borrador en BD y abre modal en modo edición
 const handleCrearYAbrirRecibo = async () => {
-  if (!sessionActiva) {
-    alert('⚠️ Debes tener una sesión de caja abierta para crear un recibo');
-    return;
-  }
-  try {
-    const res = await fetch(`${apiUrl}/caja/recibos/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify({
-        tipo: 'venta',
-        estado: 'borrador',
-        session_caja: sessionActiva.id,
-        cliente_nombre: 'Cliente',
-        cliente_telefono: 'No proporcionado',
-        cliente_email: 'no@proporcionado.com',
-        notas: '',        
-        metodo_pago: 'bold',  // ← ← ← REQUERIDO para tipo='venta'
-        subtotal: 0,
-        descuento: 0,
-        total: 0,
-        propina_total: 0,
-        items_data: [] // ← Se crea vacío, los items se agregan luego
-      })     
- 
-    });
-    if (!res.ok) throw new Error('Error creando recibo borrador');
-    const data = await res.json();
-    setNuevoReciboDraftId(data.id);
-    setModalNuevoReciboOpen(true);
-    console.log(`✅ Recibo borrador creado: ${data.codigo_recibo} (ID: ${data.id})`);
-  } catch (err: any) {
-    console.error('❌ Error creando recibo borrador:', err);
-    alert(`⚠️ No se pudo crear el recibo: ${err.message}`);
-  }
-};
+    if (!sessionActiva) {
+      alert('⚠️ Debes tener una sesión de caja abierta para crear un recibo');
+      return;
+    }
+    try {
+      // ← ← ← CLAVE: Obtener fecha/hora actual de Colombia ← ← ←
+      const fechaColombia = getColombiaDateTime();  // "2026-06-05T14:30:00"
+      
+      const res = await fetch(`${apiUrl}/caja/recibos/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          tipo: 'venta',
+          estado: 'borrador',
+          session_caja: sessionActiva.id,
+          cliente_nombre: 'Cliente',
+          cliente_telefono: 'No proporcionado',
+          cliente_email: 'no@proporcionado.com',
+          notas: '',
+          metodo_pago: 'bold',
+          subtotal: 0,
+          descuento: 0,
+          total: 0,
+          propina_total: 0,
+          items_data: [],
+          // ← ← ← AGREGAR ESTE CAMPO ← ← ←
+          //fecha: new Date().toISOString(),
+        })
+      });
+      
+      if (!res.ok) throw new Error('Error creando recibo borrador');
+      const data = await res.json();
+      setNuevoReciboDraftId(data.id);
+      setModalNuevoReciboOpen(true);
+      console.log(`✅ Recibo borrador creado: ${data.codigo_recibo} (ID: ${data.id}) | Fecha: ${fechaColombia}`);
+    } catch (err: any) {
+      console.error('❌ Error creando recibo borrador:', err);
+      alert(`⚠️ No se pudo crear el recibo: ${err.message}`);
+    }
+  };
 
 
   // ← ← ← NUEVA FUNCIÓN: Publicar recibo con validaciones ← ← ←
