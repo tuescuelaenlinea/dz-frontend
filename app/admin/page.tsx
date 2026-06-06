@@ -8,7 +8,7 @@ import ProductoModal, { ProductoSeleccionado } from '@/components/admin/Producto
 import CitasTab from '@/components/admin/CitasTab';
 import ProfesionalesTab from '@/components/admin/ProfesionalesTab';
 import CajaPage from '@/app/admin/caja/page';
-
+import HorarioSemanalModal from '@/components/admin/HorarioSemanalModal';
 // ← ← ← CSS PARA OCULTAR SPINNERS DE INPUTS NUMBER ← ← ←
 // Agregar en <style jsx global> o en globals.css si usas Tailwind
 const hideNumberSpinners = `
@@ -232,6 +232,10 @@ export default function AdminPage() {
 
   // ← ← ← Estado para recibo que se va a editar en Caja ← ← ←
   const [reciboParaEditar, setReciboParaEditar] = useState<any | null>(null);
+
+  // Agrega estos estados junto a los demás useState del componente
+const [modalHorarioSemanaOpen, setModalHorarioSemanaOpen] = useState(false);
+const [profesionalParaHorario, setProfesionalParaHorario] = useState<any>(null);
   
   // ← Nuevo cliente
   const [nuevoClienteData, setNuevoClienteData] = useState<NuevoClienteData>({
@@ -1600,6 +1604,24 @@ const handleCrearRecibo = async () => {
           metodoSeleccionadoId={metodoPagoSeleccionadoId}
         />
       )}
+
+      // 5. Agregar el modal al final del componente, antes del cierre del return principal
+{modalHorarioSemanaOpen && profesionalParaHorario && (
+  <HorarioSemanalModal
+    isOpen={modalHorarioSemanaOpen}
+    onClose={() => {
+      setModalHorarioSemanaOpen(false);
+      setProfesionalParaHorario(null);
+    }}
+    profesional={{
+      id: profesionalParaHorario.id,
+      nombre: profesionalParaHorario.nombre,
+      especialidad: profesionalParaHorario.especialidad || '',
+      activo: profesionalParaHorario.activo !== false,
+      foto_url: profesionalParaHorario.foto_url || null,
+    }}
+  />
+)}
 
       {/* Modal Productos para Item */}
       {productoModalOpen && itemParaProductos && (

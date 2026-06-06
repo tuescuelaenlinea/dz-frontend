@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import CajaReciboModal from '@/components/admin/CajaReciboModal';
 import CalcularComisionesModal from '@/components/admin/CalcularComisionesModal';
 import ReciboImpresionModal from '@/components/admin/ReciboImpresionModal';
+
 // ← ← ← INTERFACES ← ← ←
 
 interface CajaSession {
@@ -506,7 +507,42 @@ useEffect(() => {
   };
 }, [reciboExpandido, cargarDatosCaja]);  // ← ← ← AGREGAR cargarDatosCaja como dependencia
 
-
+// ← ← ← ESCUCHAR EVENTO DE RECIBO ELIMINADO ← ← ←
+useEffect(() => {
+  const handleReciboEliminado = (event: CustomEvent) => {
+    // ← ← ← VALIDAR QUE event.detail NO SEA NULL ← ← ←
+    if (!event.detail) {
+      console.warn('⚠️ [page.tsx] Evento reciboEliminado recibido sin detail');
+      return;
+    }
+    
+    const { reciboId } = event.detail;
+    
+    if (!reciboId) {
+      console.warn('⚠️ [page.tsx] reciboId no definido en event.detail');
+      return;
+    }
+    
+    console.log(`🗑️ [page.tsx] Recibo eliminado: ${reciboId}, recargando lista...`);
+    
+    // Recargar datos de caja para actualizar la lista y eliminar el "recibo fantasma"
+    const cacheBuster = Date.now();
+    cargarDatosCaja(cacheBuster);  // ← ← ← CON CACHE-BUSTER
+    
+    // Si el recibo eliminado estaba expandido, cerrar el detalle
+    if (reciboExpandido === reciboId) {
+      console.log(`🗑️ [page.tsx] Cerrando detalle del recibo eliminado ${reciboId}`);
+      setReciboExpandido(null);
+      setDetalleRecibo(null);
+    }
+  };
+  
+  window.addEventListener('reciboEliminado', handleReciboEliminado as EventListener);
+  
+  return () => {
+    window.removeEventListener('reciboEliminado', handleReciboEliminado as EventListener);
+  };
+}, [reciboExpandido, cargarDatosCaja]);  // ← ← ← AGREGAR cargarDatosCaja como dependencia
 
   // ← Formulario abrir caja
   const [formDataAbrir, setFormDataAbrir] = useState({
@@ -670,6 +706,7 @@ const cargarContadorCitasHuerfanas = async () => {
     setLoadingCitasCount(false);
   }
 };
+
 
 // ← ← ← EFECTO: Cargar contador al montar componente y cuando cambie la sesión ← ← ←
 useEffect(() => {

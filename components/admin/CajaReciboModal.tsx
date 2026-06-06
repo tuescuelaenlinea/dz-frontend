@@ -771,6 +771,25 @@ const registrarAbonoEnCitas = async (montoAbono: number, metodoPago: string) => 
     }
   };
 
+  // ← ← ← PREVENIR CIERRE ACCIDENTAL DEL MODAL ← ← ←
+useEffect(() => {
+  const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+    // Solo mostrar advertencia si hay items en el recibo
+    if (items.length > 0 && modoEdicion && reciboId) {
+      const message = 'Tienes un recibo en edición con items. ¿Seguro que deseas salir?';
+      e.preventDefault();
+      e.returnValue = message;
+      return message;
+    }
+  };
+  
+  window.addEventListener('beforeunload', handleBeforeUnload);
+  
+  return () => {
+    window.removeEventListener('beforeunload', handleBeforeUnload);
+  };
+}, [items.length, modoEdicion, reciboId]);
+
   // ← Cargar profesionales para propinas
   useEffect(() => {
     if (isOpen && tipoRecibo === 'venta' && items.length === 0) {
@@ -2075,27 +2094,148 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
         }
         };
 
-  const handleClose = () => {
-    setItems([]);
-    setDescuento(0);
-    setPropinaTotal(0);
-    setPropinaEditable('0');
-    setPropinaDistribucion([]);
-    setClienteNombre('');
-    setNotas('');
-    setSearchTerm('');
-    setModoEdicion(false);
-    setReciboEditando(null);
-    setReciboId(null);
-    setTipoRecibo('venta');
-    setMetodoPago('bold');
-    setEstadoRecibo('borrador');
-    setPropinaMetodo('proporcional');
-    setShowProfessionalModal(false);
-    setItemParaProfesional(null);
-    setItemsQuitados([]);  // ← ← ← NUEVO
-    onClose();
-  };
+ const handleClose = async () => {
+  console.log('🔒 [handleClose] Cerrando modal...');
+  
+  // ← ← ← VALIDACIÓN: Si es modo edición y hay reciboId ← ← ←
+  if (modoEdicion && reciboId) {
+    console.log('🔍 [handleClose] Modo edición detectado, verificando items...');
+    
+    // Si NO hay items → Eliminar recibo AUTOMÁTICAMENTE sin preguntar
+    if (items.length === 0) {
+      console.log('🗑️ [handleClose] Recibo sin items, eliminando automáticamente...');
+      try {
+        const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          }
+        });
+        
+        if (res.ok) {
+          console.log('✅ [handleClose] Recibo eliminado exitosamente');
+          
+          // ← ← ← CLAVE: Disparar evento CON reciboId en el detail ← ← ←
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('reciboEliminado', {
+              detail: { reciboId }
+            }));
+          }
+        } else {
+          console.warn('⚠️ [handleClose] No se pudo eliminar el recibo:', await res.text());
+        }
+      } catch (err) {
+        console.error('❌ [handleClose] Error eliminando recibo:', err);
+      }
+    }
+    // Si HAY items → Preguntar qué hacer
+    else {
+      console.log('💾 [handleClose] Recibo con items, preguntando al usuario...');
+      const opcion = window.confirm(
+        `⚠️ Este recibo tiene ${items.length} item(s).\n\n` +
+        '¿Qué deseas hacer?\n\n' +
+        '• "Aceptar": Guardar como borrador (actualizar con items)\n' +
+        '• "Cancelar": Eliminar recibo y todos sus items'
+      );
+      
+      if (!opcion) {
+        // Usuario eligió eliminar
+        console.log('🗑️ [handleClose] Usuario eligió eliminar recibo');
+        try {
+          const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/`, {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            }
+          });
+          
+          if (res.ok) {
+            console.log('✅ [handleClose] Recibo con items eliminado');
+            
+            // ← ← ← CLAVE: Disparar evento CON reciboId en el detail ← ← ←
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('reciboEliminado', {
+                detail: { reciboId }
+              }));
+            }
+          }
+        } catch (err) {
+          console.error('❌ [handleClose] Error eliminando recibo:', err);
+        }
+      } else {
+        // ← ← ← USUARIO ELIGIÓ GUARDAR → ACTUALIZAR BORRADOR CON ITEMS ← ← ←
+        console.log('💾 [handleClose] Usuario eligió guardar borrador - ACTUALIZANDO...');
+        
+        try {
+          // ← ← ← PREPARAR PAYLOAD IGUAL QUE "ACTUALIZAR BORRADOR" ← ← ←
+          const payloadBase = {
+            tipo: tipoRecibo,
+            estado: 'borrador',
+            subtotal: subtotal,
+            descuento: descuento,
+            total: total,
+            propina_total: propinaTotal,
+            propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
+            metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
+            session_caja: sessionCajaId,
+            cliente_nombre: tipoRecibo === 'venta'
+              ? (clienteNombre?.trim() || 'No proporcionado')
+              : '',
+            cliente_telefono: tipoRecibo === 'venta'
+              ? (clienteTelefono?.trim() || 'No proporcionado')
+              : '',
+            cliente_email: tipoRecibo === 'venta'
+              ? (clienteEmail?.trim() || 'No@proporcionado.com')
+              : '',
+            notas: notas || '',
+          };
+          
+          console.log('📦 [handleClose] Actualizando borrador con payload:', payloadBase);
+          console.log('📦 [handleClose] Items a guardar:', items.length);
+          
+          // ← ← ← LLAMAR handleActualizarReciboConPayload (igual que botón Actualizar) ← ← ←
+          await handleActualizarReciboConPayload(payloadBase, false);
+          
+          console.log('✅ [handleClose] Borrador actualizado exitosamente con items');
+          
+        } catch (err: any) {
+          console.error('❌ [handleClose] Error actualizando borrador:', err);
+          alert('⚠️ No se pudo guardar el recibo con los items. Error: ' + err.message);
+        }
+      }
+    }
+  }
+  // Si es modo creación nuevo (no hay reciboId) → Simplemente cerrar
+  else {
+    console.log('ℹ️ [handleClose] Modo creación nuevo, cerrando sin acciones');
+  }
+  
+  // ← ← ← LIMPIAR ESTADOS ← ← ←
+  setItems([]);
+  setDescuento(0);
+  setPropinaTotal(0);
+  setPropinaEditable('0');
+  setPropinaDistribucion([]);
+  setClienteNombre('');
+  setNotas('');
+  setSearchTerm('');
+  setModoEdicion(false);
+  setReciboEditando(null);
+  setReciboId(null);
+  setTipoRecibo('venta');
+  setMetodoPago('bold');
+  setEstadoRecibo('borrador');
+  setPropinaMetodo('proporcional');
+  setShowProfessionalModal(false);
+  setItemParaProfesional(null);
+  setItemsQuitados([]);
+  
+  // ← ← ← CLAVE: Llamar onClose() DESPUÉS de todo ← ← ←
+  console.log('🚪 [handleClose] Llamando a onClose()');
+  onClose();
+};
 
   if (!isOpen) return null;
 
