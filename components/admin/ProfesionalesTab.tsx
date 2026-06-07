@@ -6,7 +6,7 @@ import ProfessionalModal from '../booking/ProfessionalModal';
 import PaymentMethodModal from '../booking/PaymentMethodModal';
 import ProductoModal, { ProductoSeleccionado } from './ProductoModal';
 import HorarioSemanalModal from './HorarioSemanalModal';
-
+import ResumenValoracionCitaModal from '@/components/reservas/ResumenValoracionCitaModal';
 
 interface Cita {
   id: number;
@@ -29,6 +29,7 @@ interface Cita {
   total_productos?: number;  // ← NUEVO: Total de productos de la cita
   monto_propina?: number;
   base_para_impuesto?: number;
+  servicio_requiere_valoracion?: boolean;
 }
 
 interface Profesional {
@@ -140,6 +141,9 @@ export default function ProfesionalesTab() {
   // ← Detalles para el modal
   const [detalleCitas, setDetalleCitas] = useState<DetalleCita[]>([]);
   const [tipoDetalle, setTipoDetalle] = useState<'generado' | 'ganado' | 'abonos'>('generado');
+
+  const [modalResumenValoracionOpen, setModalResumenValoracionOpen] = useState(false);
+  const [citaParaVerValoracion, setCitaParaVerValoracion] = useState<number | null>(null);
 
   // ← API config
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
@@ -267,6 +271,11 @@ export default function ProfesionalesTab() {
   } finally {
     setLoading(false);
   }
+};
+// función para abrir el modal del resumen de valoracion
+const handleVerValoracion = (citaId: number) => {
+  setCitaParaVerValoracion(citaId);
+  setModalResumenValoracionOpen(true);
 };
 
   // ← Calcular horas de cita
@@ -1034,7 +1043,7 @@ const handleOpenProductosModal = async (cita: Cita) => {
                           </span>
                           <span className={`px-2 py-1 rounded text-xs font-bold text-white ${getEstadoColor(cita.estado)}`}>
                             {cita.estado}
-                          </span>
+                          </span>                         
                         </div>
                         <p className="text-white font-semibold text-sm truncate">
                           {cita.cliente_nombre}
@@ -1044,39 +1053,57 @@ const handleOpenProductosModal = async (cita: Cita) => {
                         </p>
                       </div>
 
-                      {/* Body */}
+                     {/* Body */}
                       <div className="p-3">
                         <p className="text-gray-300 text-xs mb-2 line-clamp-2">
                           {cita.servicio_nombre}
                         </p>
-                        <p className="text-lg font-bold text-green-400">
-                          ${parseInt(cita.precio_total).toLocaleString()}
-                        </p>
-                       {detalle && (
-                        <div className="mt-2 space-y-1">
-                          {/* ← ← ← NUEVO: Propina (solo si > 0) ← ← ← */}
-                          {detalle.montoPropina > 0 && (
-                            <p className="text-xs text-pink-400 font-medium">
-                              💝 Propina: ${detalle.montoPropina.toLocaleString()}
+                        
+                        {/* ← ← ← PRECIO: Siempre visible, diseño condicional ← ← ← */}
+                        <div className="mb-2">
+                          {cita.servicio_requiere_valoracion ? (
+                            /* CON VALORACIÓN: Botón morado */
+                            <button
+                              onClick={() => handleVerValoracion(cita.id)}
+                              className=" px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-medium transition-colors  gap-1"
+                              title="Ver resumen de valoración"
+                            >
+                              📋 Valoración ${parseInt(cita.precio_total).toLocaleString()}
+                            </button>
+                          ) : (
+                            /* SIN VALORACIÓN: Precio verde grande */
+                            <p className="text-2xl font-bold text-green-400 ">
+                              ${parseInt(cita.precio_total).toLocaleString()}
                             </p>
                           )}
-                          
-                          <p className="text-xs text-purple-400">
-                            💵 Ganancia: ${detalle.gananciaProfesional.toLocaleString()} ({detalle.porcentajeProfesional}%)
-                          </p>
-                          <p className="text-xs text-orange-400">
-                            🧾 Impuesto (${porcentajeBold}%): ${detalle.comisionBold.toLocaleString()}
-                          </p>
-                          {detalle.totalProductos > 0 && (
-                            <p className="text-xs text-orange-400">
-                              📦 Productos: ${detalle.totalProductos.toLocaleString()}
-                            </p>
-                          )}
-                          <p className="text-xs text-green-400">
-                            💰 Saldo: ${detalle.saldo.toLocaleString()}
-                          </p>
                         </div>
-                      )}
+                        
+                        {/* Detalles (ganancia, impuesto, etc.) */}
+                        {detalle && (
+                          <div className="mt-2 space-y-1">
+                            {/* ← ← ← NUEVO: Propina (solo si > 0) ← ← ← */}
+                            {detalle.montoPropina > 0 && (
+                              <p className="text-xs text-pink-400 font-medium">
+                                💝 Propina: ${detalle.montoPropina.toLocaleString()}
+                              </p>
+                            )}
+                            
+                            <p className="text-xs text-purple-400">
+                              💵 Ganancia: ${detalle.gananciaProfesional.toLocaleString()} ({detalle.porcentajeProfesional}%)
+                            </p>
+                            <p className="text-xs text-orange-400">
+                              🧾 Impuesto (${porcentajeBold}%): ${detalle.comisionBold.toLocaleString()}
+                            </p>
+                            {detalle.totalProductos > 0 && (
+                              <p className="text-xs text-orange-400">
+                                📦 Productos: ${detalle.totalProductos.toLocaleString()}
+                              </p>
+                            )}
+                            <p className="text-xs text-green-400">
+                              💰 Saldo: ${detalle.saldo.toLocaleString()}
+                            </p>
+                          </div>
+                        )}
                       </div>
 
                       {/* Footer */}
@@ -1511,6 +1538,17 @@ const handleOpenProductosModal = async (cita: Cita) => {
           metodoSeleccionadoId={null}
         />
       )}
+      {modalResumenValoracionOpen && citaParaVerValoracion && (
+  <ResumenValoracionCitaModal
+    isOpen={modalResumenValoracionOpen}
+    onClose={() => {
+      setModalResumenValoracionOpen(false);
+      setCitaParaVerValoracion(null);
+    }}
+    citaId={citaParaVerValoracion}
+  />
+)}
+
     </div>
   );
 }

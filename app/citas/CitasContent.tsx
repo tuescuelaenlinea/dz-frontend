@@ -11,6 +11,8 @@ import ProfessionalSelector from '@/components/booking/ProfessionalSelector';
 import PaymentMethodSelector, { PaymentMethod } from '@/components/booking/PaymentMethodSelector';
 import UploadReceipt from '@/components/booking/UploadReceipt';
 import BankAccountsModal from '@/components/booking/BankAccountsModal';
+import ValoracionModal from '@/components/reservas/ValoracionModal';
+import { RespuestaValoracion } from '@/types/valoracion';
 
 // ==========================================
 // TYPES
@@ -29,6 +31,7 @@ interface Servicio {
   disponible_salon: boolean;
   disponible_domicilio: boolean;
   adicional_domicilio?: string;
+  requiere_valoracion?: boolean;
 }
 
 interface Profesional {
@@ -54,6 +57,7 @@ interface ItemReserva {
   fecha: Date | null;
   hora: string | null;
   precio: number;
+  respuestasValoracion?: RespuestaValoracion[];
 }
 
 type BookingStep = 1 | 2 | 3 | 3.5 | 4 | 5 | 6 | 'success';
@@ -104,6 +108,11 @@ export default function CitasContent() {
   const [montoValidado, setMontoValidado] = useState(false);
   const [saldoPendiente, setSaldoPendiente] = useState<number | null>(null);
 
+  // ← ← ← VALORACIÓN: Estados para el modal de valoración ← ← ←
+  const [modalValoracionOpen, setModalValoracionOpen] = useState(false);
+  const [respuestasValoracion, setRespuestasValoracion] = useState<RespuestaValoracion[]>([]);
+  const [precioCalculadoValoracion, setPrecioCalculadoValoracion] = useState<number | null>(null);
+
   // ← FUNCIÓN AUXILIAR: Formatear fecha en zona horaria local (Colombia)
   // ← ← ← FUNCIÓN CORREGIDA: Formatear fecha SIN desfase de zona horaria
   const formatDateLocal = (date: Date | null): string => {
@@ -152,7 +161,36 @@ export default function CitasContent() {
     loadConfig();
   }, []);
 
-  // ← NUEVO: Función para agregar el item actual al carrito
+    // ← ← ← VALORACIÓN: Callback cuando el cliente completa la valoración ← ← ←
+  const handleValoracionCompletada = (precioCalculado: number, respuestas: RespuestaValoracion[]) => {
+    console.log('✅ [Valoración] Completada:', { precioCalculado, respuestasCount: respuestas.length });
+    
+    // Actualizar el precio del item actual con el precio calculado
+    setItemActual(prev => ({
+      ...prev,
+      precio: precioCalculado
+    }));
+    
+    // Guardar las respuestas para enviarlas después con la cita
+    setRespuestasValoracion(respuestas);
+    setPrecioCalculadoValoracion(precioCalculado);
+    
+    // Cerrar modal y avanzar al paso 2
+    setModalValoracionOpen(false);
+    setCurrentStep(2);
+  };
+
+  // ← ← ← VALORACIÓN: Callback si el cliente cierra el modal sin completar ← ← ←
+  const handleValoracionCancelada = () => {
+    console.log('❌ [Valoración] Modal cerrado sin completar');
+    setModalValoracionOpen(false);
+    // Resetear el item actual (deseleccionar el servicio)
+    setItemActual({ precio: 0 });
+    setRespuestasValoracion([]);
+    setPrecioCalculadoValoracion(null);
+  };
+
+  // ← NUEVO: Función para agregar el item actual al carrito  
   const agregarItemAReserva = () => {
     if (!itemActual.servicio || !itemActual.profesional || !itemActual.fecha || !itemActual.hora) {
       setError('Por favor completa todos los datos del servicio antes de agregarlo.');
@@ -166,16 +204,22 @@ export default function CitasContent() {
       fecha: itemActual.fecha,
       hora: itemActual.hora,
       precio: itemActual.precio || 0,
+      // ← ← ← VALORACIÓN: Incluir respuestas de valoración si existen ← ← ←
+      respuestasValoracion: respuestasValoracion.length > 0 ? respuestasValoracion : undefined,
     };
 
     setItemsReserva(prev => [...prev, nuevoItem]);
+    
+    // ← ← ← VALORACIÓN: Resetear estados de valoración ← ← ←
+    setRespuestasValoracion([]);
+    setPrecioCalculadoValoracion(null);
     
     // Resetear item actual para el siguiente
     setItemActual({ precio: 0 });
     setError(null);
     
     // Mostrar opción de agregar más o continuar
-    setCurrentStep(3.5 as any); // Paso especial intermedio
+    setCurrentStep(3.5 as any);
   };
 
   const eliminarItemDeReserva = (id: string) => {
@@ -376,6 +420,46 @@ export default function CitasContent() {
         const resultado = await res.json();
         console.log('✅ Cita creada:', resultado.codigo_reserva, 'ID:', resultado.id);
         citasCreadas.push(resultado);  // ← ← ← AGREGAR AL ARRAY
+
+        // ← ← ← VALORACIÓN: Enviar respuestas de valoración si existen para este item ← ← ←
+        if (item.respuestasValoracion && item.respuestasValoracion.length > 0) {
+          console.log('📋 [Valoración] Enviando respuestas para cita', resultado.id);
+          try {
+            const respuestasPayload = item.respuestasValoracion.map(r => ({
+              seccion: r.seccion,
+              opcion_seleccionada: r.opcion_seleccionada || null,
+              respuesta_texto: r.respuesta_texto || '',
+              valor_aplicado: 0  // El backend lo calculará
+            }));
+
+            const formData = new FormData();
+            formData.append('cita_id', resultado.id.toString());
+            formData.append('respuestas', JSON.stringify(respuestasPayload));
+
+            // Agregar archivos de fotos si existen
+            item.respuestasValoracion.forEach(r => {
+              if (r.foto_subida instanceof File) {
+                formData.append(`foto_${r.seccion}`, r.foto_subida);
+              }
+            });
+
+            const valoracionRes = await fetch(`${apiUrl}/valoracion/guardar-respuestas/`, {
+              method: 'POST',
+              headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
+              body: formData
+            });
+
+            if (valoracionRes.ok) {
+              const valoracionData = await valoracionRes.json();
+              console.log('✅ [Valoración] Respuestas guardadas:', valoracionData);
+            } else {
+              console.warn('⚠️ [Valoración] Error guardando respuestas (no crítico):', await valoracionRes.text());
+            }
+          } catch (valoracionErr) {
+            console.warn('⚠️ [Valoración] Error enviando respuestas (no crítico):', valoracionErr);
+            // No fallar la reserva si falla la valoración
+          }
+        }  
       }
 
       console.log('🎉 Todas las citas creadas:', citasCreadas.length);
@@ -645,13 +729,11 @@ export default function CitasContent() {
         return (
           <section className="bg-white rounded-2xl shadow-lg p-6 mb-24">
             <h2 className="text-xl font-bold text-gray-900 mb-2">1️⃣ Selecciona tu servicio</h2>
-            <p className="text-sm text-gray-500 mb-6">Puedes agregar varios servicios a tu reserva.</p>
+            <p className="text-sm text-gray-500 mb-6">Puedes agregar varios servicios a tu reserva.</p>            
             <ServiceSelector
               selectedService={itemActual.servicio?.id || null}
               onServiceSelect={(servicio: Servicio | null) => {
-                // ← ← ← AGREGAR: Validar que servicio no sea null
                 if (!servicio) {
-                  // Si se deseleccionó, resetear itemActual
                   setItemActual({ precio: 0 });
                   return;
                 }
@@ -667,7 +749,20 @@ export default function CitasContent() {
                   fecha: null,
                   hora: null
                 });
-                setCurrentStep(2);
+
+                // ← ← ← VALORACIÓN: Verificar si requiere valoración ← ← ←
+                if (servicio.requiere_valoracion) {
+                  console.log('📋 [Valoración] Servicio requiere valoración:', servicio.nombre);
+                  // Resetear estados de valoración previos
+                  setRespuestasValoracion([]);
+                  setPrecioCalculadoValoracion(null);
+                  // Abrir modal de valoración
+                  setModalValoracionOpen(true);
+                  // NO avanzar al paso 2 todavía, el modal lo hará al completar
+                } else {
+                  // Flujo normal: avanzar al paso 2
+                  setCurrentStep(2);
+                }
               }}
               mode={mode}
               onModeChange={setMode}
@@ -1044,6 +1139,16 @@ export default function CitasContent() {
         total={calcularPrecioTotal()}
         onConfirm={() => setShowBankAccountsModal(false)}
       />
+       {/* ← ← ← VALORACIÓN: Modal de valoración del servicio ← ← ← */}
+      {modalValoracionOpen && itemActual.servicio && (
+        <ValoracionModal
+          isOpen={modalValoracionOpen}
+          onClose={handleValoracionCancelada}
+          servicioId={itemActual.servicio.id}
+          servicioNombre={itemActual.servicio.nombre}
+          onCompletar={handleValoracionCompletada}
+        />
+      )}
     </div>
   );
 }
