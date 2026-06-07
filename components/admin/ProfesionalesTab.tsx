@@ -8,6 +8,7 @@ import ProductoModal, { ProductoSeleccionado } from './ProductoModal';
 import HorarioSemanalModal from './HorarioSemanalModal';
 import ResumenValoracionCitaModal from '@/components/reservas/ResumenValoracionCitaModal';
 
+
 interface Cita {
   id: number;
   codigo_reserva: string;
@@ -89,6 +90,9 @@ export default function ProfesionalesTab() {
   const [configuracion, setConfiguracion] = useState<Configuracion>({});
   const [loading, setLoading] = useState(false);
 
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
+
   const [fechaInicio, setFechaInicio] = useState<string>(() => {
     const now = new Date();
     const year = now.getFullYear();
@@ -161,6 +165,20 @@ export default function ProfesionalesTab() {
     cargarDatos();
   }, [fechaInicio, fechaFin]);
 
+    // ← ← ← NUEVO: Debounce para búsqueda en tiempo real (500ms) ← ← ←
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // ← ← ← NUEVO: Recargar cuando cambie la búsqueda ← ← ←
+  useEffect(() => {
+    cargarDatos();
+  }, [debouncedSearch]);
+
   // ← Recalcular totales cuando cambien los datos necesarios
   useEffect(() => {
     if (citas.length > 0 && serviciosProfesionales.length > 0 && Object.keys(configuracion).length > 0) {
@@ -183,8 +201,13 @@ export default function ProfesionalesTab() {
   try {
     const token = localStorage.getItem('admin_token');
     
-    // ← Cargar citas
-    const citasUrl = `${apiUrl}/citas/para-profesionales-tab/?fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}`;
+        // ← Cargar citas
+    // ← ← ← MODIFICADO: Incluir parámetro de búsqueda si existe ← ← ←
+    let citasUrl = `${apiUrl}/citas/para-profesionales-tab/?fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}`;
+    if (debouncedSearch && debouncedSearch.trim()) {
+      citasUrl += `&search=${encodeURIComponent(debouncedSearch.trim())}`;
+    }
+
     const citasRes = await fetch(citasUrl, {
       headers: token ? { 'Authorization': `Bearer ${token}` } : {}
     });
@@ -720,8 +743,11 @@ const handleOpenProductosModal = async (cita: Cita) => {
 
   return (
     <div className="space-y-6">
-            {/* ========== FILTROS DE FECHA Y TOTALES ========== */}
+                  {/* ========== FILTROS DE FECHA, BÚSQUEDA Y TOTALES ========== */}
       <div className="bg-gray-800 rounded-xl p-3 border border-gray-700">
+        
+        
+
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-2">
           
           {/* Fecha Inicio - Compacto */}
@@ -803,7 +829,52 @@ const handleOpenProductosModal = async (cita: Cita) => {
           </button>
 
         </div>
+
       </div>
+      {/* ← ← ← NUEVO: Barra de búsqueda en tiempo real ← ← ← */}
+        <div className="mb-3">
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="🔍 Buscar por cliente, código de recibo, teléfono o servicio..."
+              className="w-full pl-10 pr-10 py-2.5 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            {/* Botón para limpiar búsqueda */}
+            {searchTerm && (
+              <button
+                onClick={() => {
+                  setSearchTerm('');
+                  setDebouncedSearch('');
+                }}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-white transition-colors"
+                title="Limpiar búsqueda"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+          {/* Indicador de búsqueda activa */}
+          {debouncedSearch && (
+            <p className="text-xs text-blue-400 mt-1.5 flex items-center gap-1">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Mostrando resultados para: <span className="font-semibold">"{debouncedSearch}"</span>
+              <span className="text-gray-500">
+                ({getCitasFiltradas(citas).length} {getCitasFiltradas(citas).length === 1 ? 'cita encontrada' : 'citas encontradas'})
+              </span>
+            </p>
+          )}
+        </div>
 
       {/* ========== GRID DE DOS COLUMNAS ========== */}
       <div className="grid grid-cols-12 gap-6">
@@ -871,99 +942,99 @@ const handleOpenProductosModal = async (cita: Cita) => {
               </button>
 
               {/* Cards de profesionales */}
-      {profesionales.map((profesional) => {
-        const citasDelProfesional = citas.filter(c => c.profesional === profesional.id);
-        const detallesDelProfesional = detalleCitas.filter(d => d.cita.profesional === profesional.id);
-        
-        // ← ← ← CÁLCULOS PARA EL PROFESIONAL ← ← ←
-        const totalGanadoProfesional = detallesDelProfesional.reduce((sum, d) => sum + d.gananciaProfesional, 0);
-        const totalProductosProfesional = detallesDelProfesional.reduce((sum, d) => sum + d.totalProductos, 0);
-        const totalImpuestosProfesional = detallesDelProfesional.reduce((sum, d) => sum + d.comisionBold, 0);  // ← NUEVO
-        const totalServiciosProfesional = detallesDelProfesional.reduce((sum, d) => sum + d.precioTotal, 0);
-        
-        // ← Foto de fondo con fallback
-        const fotoUrl = profesional.foto_url || profesional.foto || null;
-        const backgroundStyle = fotoUrl 
-          ? { backgroundImage: `url(${fotoUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-          : { backgroundColor: '#374151' };  // Fallback gris oscuro
+                  {profesionales.map((profesional) => {
+                    const citasDelProfesional = citas.filter(c => c.profesional === profesional.id);
+                    const detallesDelProfesional = detalleCitas.filter(d => d.cita.profesional === profesional.id);
+                    
+                    // ← ← ← CÁLCULOS PARA EL PROFESIONAL ← ← ←
+                    const totalGanadoProfesional = detallesDelProfesional.reduce((sum, d) => sum + d.gananciaProfesional, 0);
+                    const totalProductosProfesional = detallesDelProfesional.reduce((sum, d) => sum + d.totalProductos, 0);
+                    const totalImpuestosProfesional = detallesDelProfesional.reduce((sum, d) => sum + d.comisionBold, 0);  // ← NUEVO
+                    const totalServiciosProfesional = detallesDelProfesional.reduce((sum, d) => sum + d.precioTotal, 0);
+                    
+                    // ← Foto de fondo con fallback
+                    const fotoUrl = profesional.foto_url || profesional.foto || null;
+                    const backgroundStyle = fotoUrl 
+                      ? { backgroundImage: `url(${fotoUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+                      : { backgroundColor: '#374151' };  // Fallback gris oscuro
 
-        return (
-          <button
-            key={profesional.id}
-            onClick={() => setProfesionalSeleccionado(profesional.id)}
-            className={`w-full rounded-xl border-2 transition-all text-left overflow-hidden relative min-h-[140px] ${
-              profesionalSeleccionado === profesional.id
-                ? 'border-blue-400 ring-2 ring-blue-400/50'
-                : 'border-gray-600 hover:border-gray-500'
-            }`}
-            style={backgroundStyle}  // ← Aplicar foto como fondo
-          >
-            {/* ← Overlay oscuro para legibilidad del texto */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/60 to-black/30"></div>
-            
-            {/* ← Contenido sobre la imagen */}
-            <div className="relative z-10 p-4 h-full flex flex-col justify-between">
-              
-              {/* Header: Nombre y Especialidad */}
-              <div>
-                <p className="text-sm font-bold text-white truncate drop-shadow-lg">
-                  {profesional.titulo} {profesional.nombre}
-                </p>
+                    return (
+                      <button
+                        key={profesional.id}
+                        onClick={() => setProfesionalSeleccionado(profesional.id)}
+                        className={`w-full rounded-xl border-2 transition-all text-left overflow-hidden relative min-h-[140px] ${
+                          profesionalSeleccionado === profesional.id
+                            ? 'border-blue-400 ring-2 ring-blue-400/50'
+                            : 'border-gray-600 hover:border-gray-500'
+                        }`}
+                        style={backgroundStyle}  // ← Aplicar foto como fondo
+                      >
+                        {/* ← Overlay oscuro para legibilidad del texto */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/60 to-black/30"></div>
+                        
+                        {/* ← Contenido sobre la imagen */}
+                        <div className="relative z-10 p-4 h-full flex flex-col justify-between">
+                          
+                          {/* Header: Nombre y Especialidad */}
+                          <div>
+                            <p className="text-sm font-bold text-white truncate drop-shadow-lg">
+                              {profesional.titulo} {profesional.nombre}
+                            </p>
 
-                <p className="text-xs text-gray-300 truncate drop-shadow">
-                  {profesional.especialidad}
-                </p>
-              </div>
+                            <p className="text-xs text-gray-300 truncate drop-shadow">
+                              {profesional.especialidad}
+                            </p>
+                          </div>
 
 
-              {/* Stats en grid compacto */}
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                {/* Citas */}
-                <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2 text-center">
-                  <p className="text-[10px] text-gray-300">Citas</p>
-                  <p className="text-sm font-bold text-white">{citasDelProfesional.length}</p>
-                </div>
-                
-                {/* Ganado */}
-                <div className="bg-green-500/20 backdrop-blur-sm rounded-lg p-2 text-center">
-                  <p className="text-[10px] text-green-300">Ganado</p>
-                  <p className="text-sm font-bold text-green-400">${totalGanadoProfesional.toLocaleString('es-CO', { notation: 'compact' })}</p>
-                </div>
-                
-                {/* ← NUEVO: Impuestos */}
-                <div className="bg-orange-500/20 backdrop-blur-sm rounded-lg p-2 text-center">
-                  <p className="text-[10px] text-orange-300">🧾 Impuestos</p>
-                  <p className="text-sm font-bold text-orange-400">${totalImpuestosProfesional.toLocaleString('es-CO', { notation: 'compact' })}</p>
-                </div>
-                
-                {/* Productos */}
-                <div className="bg-purple-500/20 backdrop-blur-sm rounded-lg p-2 text-center">
-                  <p className="text-[10px] text-purple-300">📦 Productos</p>
-                  <p className="text-sm font-bold text-purple-400">${totalProductosProfesional.toLocaleString('es-CO', { notation: 'compact' })}</p>
-                </div>
-              </div>
+                          {/* Stats en grid compacto */}
+                          <div className="grid grid-cols-2 gap-2 mt-2">
+                            {/* Citas */}
+                            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2 text-center">
+                              <p className="text-[10px] text-gray-300">Citas</p>
+                              <p className="text-sm font-bold text-white">{citasDelProfesional.length}</p>
+                            </div>
+                            
+                            {/* Ganado */}
+                            <div className="bg-green-500/20 backdrop-blur-sm rounded-lg p-2 text-center">
+                              <p className="text-[10px] text-green-300">Ganado</p>
+                              <p className="text-sm font-bold text-green-400">${totalGanadoProfesional.toLocaleString('es-CO', { notation: 'compact' })}</p>
+                            </div>
+                            
+                            {/* ← NUEVO: Impuestos */}
+                            <div className="bg-orange-500/20 backdrop-blur-sm rounded-lg p-2 text-center">
+                              <p className="text-[10px] text-orange-300">🧾 Impuestos</p>
+                              <p className="text-sm font-bold text-orange-400">${totalImpuestosProfesional.toLocaleString('es-CO', { notation: 'compact' })}</p>
+                            </div>
+                            
+                            {/* Productos */}
+                            <div className="bg-purple-500/20 backdrop-blur-sm rounded-lg p-2 text-center">
+                              <p className="text-[10px] text-purple-300">📦 Productos</p>
+                              <p className="text-sm font-bold text-purple-400">${totalProductosProfesional.toLocaleString('es-CO', { notation: 'compact' })}</p>
+                            </div>
+                          </div>
 
-        {/* Footer: Porcentaje del profesional */}
-        <div className="mt-2 flex items-center justify-between">
-          <span className="text-[10px] text-gray-400">
-            %{profesional.porcentaje_global || 50} para ti
-          </span>
+                    {/* Footer: Porcentaje del profesional */}
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-[10px] text-gray-400">
+                        %{profesional.porcentaje_global || 50} para ti
+                      </span>
 
-          {citasDelProfesional.length > 0 && (
-            <span className="text-[10px] text-blue-300 font-medium">
-              ${totalServiciosProfesional.toLocaleString('es-CO', { notation: 'compact' })} generados
-            </span>
-          )}
-        </div>
-      </div>
+                      {citasDelProfesional.length > 0 && (
+                        <span className="text-[10px] text-blue-300 font-medium">
+                          ${totalServiciosProfesional.toLocaleString('es-CO', { notation: 'compact' })} generados
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
-      {/* ← Indicador visual de selección */}
-      {profesionalSeleccionado === profesional.id && (
-        <div className="absolute top-2 right-2 w-3 h-3 bg-blue-400 rounded-full animate-pulse"></div>
-      )}
-    </button>
-  );
-})}
+                  {/* ← Indicador visual de selección */}
+                  {profesionalSeleccionado === profesional.id && (
+                    <div className="absolute top-2 right-2 w-3 h-3 bg-blue-400 rounded-full animate-pulse"></div>
+                  )}
+                </button>
+              );
+            })}
             </div>
           </div>
         </div>
@@ -999,6 +1070,7 @@ const handleOpenProductosModal = async (cita: Cita) => {
   </button>
 )}
               </h2>
+              
 
               <p className="text-sm text-gray-400">
                 {fechaInicio === fechaFin 
@@ -1013,16 +1085,37 @@ const handleOpenProductosModal = async (cita: Cita) => {
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
                 <p className="text-gray-400 mt-4">Cargando citas...</p>
               </div>
-            ) : getCitasFiltradas(citas).length === 0 ? (
-              <div className="text-center py-12 bg-gray-900 rounded-xl border border-gray-700">
-                <p className="text-gray-400 text-lg">
-                  {profesionalSeleccionado === 0
-                    ? 'No hay citas en este rango de fechas'
-                    : profesionalSeleccionado === null
-                      ? 'No hay citas sin profesional asignado'
-                      : 'No hay citas para este profesional en el rango de fechas'}
-                </p>
-              </div>
+               ) : getCitasFiltradas(citas).length === 0 ? (
+                <div className="text-center py-12 bg-gray-900 rounded-xl border border-gray-700">
+                  {debouncedSearch ? (
+                    <>
+                      <div className="text-5xl mb-3">🔍</div>
+                      <p className="text-gray-300 text-lg font-semibold mb-2">
+                        No se encontraron resultados
+                      </p>
+                      <p className="text-gray-400 text-sm mb-4">
+                        No hay citas que coincidan con "<span className="text-blue-400 font-semibold">{debouncedSearch}</span>"
+                      </p>
+                      <button
+                        onClick={() => {
+                          setSearchTerm('');
+                          setDebouncedSearch('');
+                        }}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                      >
+                        Limpiar búsqueda
+                      </button>
+                    </>
+                  ) : (
+                    <p className="text-gray-400 text-lg">
+                      {profesionalSeleccionado === 0
+                        ? 'No hay citas en este rango de fechas'
+                        : profesionalSeleccionado === null
+                          ? 'No hay citas sin profesional asignado'
+                          : 'No hay citas para este profesional en el rango de fechas'}
+                    </p>
+                  )}
+                </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {getCitasFiltradas(citas).map((cita) => {

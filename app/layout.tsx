@@ -6,6 +6,7 @@ import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import { AuthProvider } from "@/contexts/AuthContext";
 import WhatsAppButton from "@/components/WhatsAppButton";  // ← AGREGADO: Import del botón
+import FullScreenButton from '@/components/ui/FullScreenButton';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -35,6 +36,8 @@ export const metadata: Metadata = {
   },
 };
 
+
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -51,6 +54,12 @@ export default function RootLayout({
           <Footer />
           {/* ← AGREGADO: Botón flotante de WhatsApp en todas las páginas */}
           <WhatsAppButton />
+          {/* Botón flotante en esquina superior derecha */}
+      <FullScreenButton 
+        variant="floating" 
+        position="top-right" 
+        size="md"
+      />
         </AuthProvider>
       </body>
     </html>
