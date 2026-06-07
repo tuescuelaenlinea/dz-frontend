@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import CajaReciboModal from '@/components/admin/CajaReciboModal';
 import CalcularComisionesModal from '@/components/admin/CalcularComisionesModal';
 import ReciboImpresionModal from '@/components/admin/ReciboImpresionModal';
-
+import FullScreenButton from '@/components/ui/FullScreenButton';
 // ← ← ← INTERFACES ← ← ←
 
 interface CajaSession {
@@ -187,6 +187,8 @@ const getColombiaDateTime = (): string => {
   const [y, m, d] = datePart.split('/');
   return `${y}-${m}-${d}T${timePart}`;
 };
+
+
 export default function CajaPage() {
   // ← ← ← AGREGAR ESTO AQUÍ (al inicio del componente)
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
@@ -338,6 +340,7 @@ const handleGuardarMetodo = async (reciboId: number, nuevoMetodo: string) => {
     setEditandoMetodo(false);
   }
 };
+
 const cargarAbonosRecibo = async (reciboId: number) => {
   try {
     const res = await fetch(`${apiUrl}/caja/abonos/resumen/${reciboId}/`, {

@@ -4,17 +4,16 @@
 import { useState, useEffect } from 'react';
 
 interface FullScreenButtonProps {
-  // Elemento objetivo (por defecto document.documentElement = toda la página)
   targetElement?: HTMLElement | null;
-  // Estilo del botón
   variant?: 'floating' | 'inline' | 'icon';
-  // Posición del botón flotante
   position?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
-  // Tamaño del botón
   size?: 'sm' | 'md' | 'lg';
-  // Tooltip personalizado
   tooltipEnter?: string;
   tooltipExit?: string;
+  // ← ← ← NUEVO: Prop para ocultar en móvil (default: true) ← ← ←
+  hideOnMobile?: boolean;
+  // ← ← ← NUEVO: Breakpoint en píxeles (default: 768 = Tailwind md) ← ← ←
+  mobileBreakpoint?: number;
 }
 
 export default function FullScreenButton({
@@ -24,20 +23,31 @@ export default function FullScreenButton({
   size = 'md',
   tooltipEnter = 'Pantalla completa',
   tooltipExit = 'Salir de pantalla completa',
+  hideOnMobile = true,        // ← ← ← NUEVO
+  mobileBreakpoint = 768,     // ← ← ← NUEVO
 }: FullScreenButtonProps) {
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isSupported, setIsSupported] = useState(true);
+  
+  // ← ← ← NUEVO: Estado para detectar si es móvil ← ← ←
+  const [isMobile, setIsMobile] = useState(false);
+
+  // ← ← ← NUEVO: Detectar si es móvil y actualizar con resize ← ← ←
+  useEffect(() => {
+    const checkIfMobile = () => {
+      setIsMobile(window.innerWidth < mobileBreakpoint);
+    };
+
+    // Verificar al montar
+    checkIfMobile();
+
+    // Escuchar cambios de tamaño de ventana
+    window.addEventListener('resize', checkIfMobile);
+    return () => window.removeEventListener('resize', checkIfMobile);
+  }, [mobileBreakpoint]);
 
   // Detectar si el navegador soporta pantalla completa
   useEffect(() => {
-    const supported = !!(
-      document.fullscreenElement ||
-      (document as any).webkitFullscreenElement ||
-      (document as any).mozFullScreenElement ||
-      (document as any).msFullscreenElement
-    );
-    
-    // Verificar si la API está disponible
     const hasFullscreenAPI = !!(
       document.documentElement.requestFullscreen ||
       (document.documentElement as any).webkitRequestFullscreen ||
@@ -60,7 +70,6 @@ export default function FullScreenButton({
       setIsFullScreen(isCurrentlyFullScreen);
     };
 
-    // Agregar listeners para todos los navegadores
     document.addEventListener('fullscreenchange', handleFullScreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullScreenChange);
     document.addEventListener('mozfullscreenchange', handleFullScreenChange);
@@ -80,21 +89,16 @@ export default function FullScreenButton({
       const element = targetElement || document.documentElement;
 
       if (!isFullScreen) {
-        // ENTRAR a pantalla completa
         if (element.requestFullscreen) {
           await element.requestFullscreen();
         } else if ((element as any).webkitRequestFullscreen) {
-          // Safari/Chrome
           await (element as any).webkitRequestFullscreen();
         } else if ((element as any).mozRequestFullScreen) {
-          // Firefox
           await (element as any).mozRequestFullScreen();
         } else if ((element as any).msRequestFullscreen) {
-          // IE/Edge
           await (element as any).msRequestFullscreen();
         }
       } else {
-        // SALIR de pantalla completa
         if (document.exitFullscreen) {
           await document.exitFullscreen();
         } else if ((document as any).webkitExitFullscreen) {
@@ -107,32 +111,30 @@ export default function FullScreenButton({
       }
     } catch (error) {
       console.error('❌ Error al cambiar pantalla completa:', error);
-      alert('No se pudo activar pantalla completa. Tu navegador puede haber bloqueado esta función.');
+      alert('No se pudo activar pantalla completa.');
     }
   };
 
-  // Atajo de teclado: F11 o Ctrl/Cmd + Shift + F
+  // Atajo de teclado
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // F11 (solo en algunos navegadores)
       if (e.key === 'F11') {
         e.preventDefault();
         toggleFullScreen();
       }
-      // Ctrl/Cmd + Shift + F
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'F') {
         e.preventDefault();
         toggleFullScreen();
       }
-      // ESC para salir (el navegador lo hace automáticamente, pero sincronizamos estado)
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFullScreen]);
 
-  // Si no está soportado, no renderizar
+  // ← ← ← NUEVO: NO RENDERIZAR si no está soportado O si es móvil y hideOnMobile=true ← ← ←
   if (!isSupported) return null;
+  if (hideOnMobile && isMobile) return null;
 
   // Tamaños
   const sizeClasses = {
@@ -147,18 +149,16 @@ export default function FullScreenButton({
     lg: 'w-6 h-6',
   };
 
-  // Posiciones para variante flotante
   const positionClasses = {
-    'top-right': 'top-4 right-4',
+    'top-right': 'top-3 right-1',
     'top-left': 'top-4 left-4',
-    'bottom-right': 'bottom-4 right-4',
+    'bottom-right': 'bottom-2 right-2',
     'bottom-left': 'bottom-4 left-4',
   };
 
-  // Tooltip
   const tooltip = isFullScreen ? tooltipExit : tooltipEnter;
 
-  // Variante flotante (fijo en esquina)
+  // Variante flotante
   if (variant === 'floating') {
     return (
       <button
@@ -173,12 +173,13 @@ export default function FullScreenButton({
           text-gray-300 hover:text-purple-400
           transition-all duration-200
           group
+          /* ← ← ← NUEVO: Respaldo con CSS (por si JS falla) ← ← ← */
+          hidden md:flex
         `}
         title={tooltip}
         aria-label={tooltip}
       >
         {isFullScreen ? (
-          // Ícono: Salir de pantalla completa
           <svg
             className={`${iconSize[size]} transition-transform group-hover:scale-110`}
             fill="none"
@@ -193,7 +194,6 @@ export default function FullScreenButton({
             />
           </svg>
         ) : (
-          // Ícono: Entrar a pantalla completa
           <svg
             className={`${iconSize[size]} transition-transform group-hover:scale-110`}
             fill="none"
@@ -212,7 +212,7 @@ export default function FullScreenButton({
     );
   }
 
-  // Variante inline (dentro de un contenedor)
+  // Variante inline
   if (variant === 'inline') {
     return (
       <button
@@ -226,6 +226,8 @@ export default function FullScreenButton({
           text-gray-300 hover:text-purple-400
           transition-all duration-200
           group
+          /* ← ← ← NUEVO: Respaldo con CSS ← ← ← */
+          hidden md:flex
         `}
         title={tooltip}
         aria-label={tooltip}
@@ -263,11 +265,11 @@ export default function FullScreenButton({
     );
   }
 
-  // Variante solo ícono (minimalista)
+  // Variante solo ícono
   return (
     <button
       onClick={toggleFullScreen}
-      className="text-gray-400 hover:text-purple-400 transition-colors"
+      className="text-gray-400 hover:text-purple-400 transition-colors hidden md:block"
       title={tooltip}
       aria-label={tooltip}
     >

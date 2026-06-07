@@ -9,6 +9,9 @@ import CitasTab from '@/components/admin/CitasTab';
 import ProfesionalesTab from '@/components/admin/ProfesionalesTab';
 import CajaPage from '@/app/admin/caja/page';
 import HorarioSemanalModal from '@/components/admin/HorarioSemanalModal';
+import FullScreenButton from '@/components/ui/FullScreenButton';
+
+
 // ← ← ← CSS PARA OCULTAR SPINNERS DE INPUTS NUMBER ← ← ←
 // Agregar en <style jsx global> o en globals.css si usas Tailwind
 const hideNumberSpinners = `
@@ -890,6 +893,14 @@ const handleCrearRecibo = async () => {
                 {tab === 'caja' && '🏦 Caja'}
               </button>
             ))}
+            <div className="p-4">
+              {/* Header con botón inline */}
+              <div className="flex items-center justify-between mb-4">
+                {/*<h1 className="text-2xl font-bold">Full Scren</h1>*/}
+                <FullScreenButton variant="inline" size="sm" />
+              </div>
+              
+            </div>
           </div>
         </div>
       </div>
