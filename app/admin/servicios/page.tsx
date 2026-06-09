@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import ServicioProfesionalesModal from '@/components/admin/ServicioProfesionalesModal';
-
+import ServicioProductosModal from '@/components/admin/ServicioProductosModal';
 interface Categoria {
   id: number;
   nombre: string;
@@ -77,6 +77,14 @@ export default function AdminServiciosPage() {
     destacado: false,
     disponible: true,
   });
+
+  const [modalProductosAbierto, setModalProductosAbierto] = useState(false);
+  const [servicioParaProductos, setServicioParaProductos] = useState<Servicio | null>(null);
+
+  const abrirModalProductos = (servicio: Servicio) => {
+    setServicioParaProductos(servicio);
+    setModalProductosAbierto(true);
+  };
 
   const abrirModalProfesionales = (servicio: Servicio) => {
     setServicioParaProfesionales(servicio);
@@ -609,6 +617,17 @@ export default function AdminServiciosPage() {
                 >
                   ✏️
                 </button>
+                <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      abrirModalProductos(servicio);
+                    }}
+                    className="flex-1 px-2 py-1.5 text-[10px] font-medium text-green-600 hover:text-green-800 hover:bg-green-50 rounded transition-colors flex items-center justify-center gap-1"
+                    title="Gestionar productos preestablecidos"
+                  >
+                    📦
+                  </button>
                 
                 <button
                   onClick={(e) => {
@@ -961,7 +980,18 @@ export default function AdminServiciosPage() {
           </div>
         </div>
       )}
-      
+      {modalProductosAbierto && servicioParaProductos && (
+  <ServicioProductosModal
+    isOpen={modalProductosAbierto}
+    onClose={() => {
+      setModalProductosAbierto(false);
+      setServicioParaProductos(null);
+    }}
+    servicioId={servicioParaProductos.id}
+    servicioNombre={servicioParaProductos.nombre}
+    onProductosUpdated={() => cargarServicios()}
+  />
+)}
       {modalProfesionalesAbierto && servicioParaProfesionales && (
         <ServicioProfesionalesModal
           isOpen={modalProfesionalesAbierto}

@@ -119,3 +119,17 @@ html {
   @apply focus:outline-none focus:ring-1 focus:ring-blue-500 capitalize;
   @apply cursor-pointer hover:border-blue-400 transition-colors;
 }
+
+/* Animación para el acordeón */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    max-height: 500px;
+    transform: translateY(0);
+  }
+}

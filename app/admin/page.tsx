@@ -233,6 +233,14 @@ export default function AdminPage() {
   const [horaInicio, setHoraInicio] = useState(getHoraLocal());
   const [notasCliente, setNotasCliente] = useState('');
 
+  // ← ← ← NUEVO: Control de acordeón (solo un item expandido a la vez) ← ← ←
+const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+
+// Función helper para toggle del acordeón
+const toggleItemExpanded = (itemId: string) => {
+  setExpandedItemId(prev => prev === itemId ? null : itemId);
+};
+
   // ← ← ← Estado para recibo que se va a editar en Caja ← ← ←
   const [reciboParaEditar, setReciboParaEditar] = useState<any | null>(null);
 
@@ -825,30 +833,59 @@ const handleCrearRecibo = async () => {
   }
 };
 
- // ← ← ← MANEJO DE INPUT DE PROPINA ← ← ←
-      const handlePropinaFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-        // Seleccionar todo el texto al obtener foco
-        e.target.select();
-      };
+ 
+// ← ← ← MANEJO DE INPUTS CON AUTO-SELECCIÓN AL FOCUS ← ← ←
+// Función genérica para seleccionar todo el contenido al enfocar
+const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+  // Pequeño delay para asegurar que el valor esté renderizado
+  setTimeout(() => {
+    e.target.select();
+  }, 10);
+};
 
-      const handlePropinaBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-        // Si está vacío al perder foco, establecer 0
-        const value = e.target.value;
-        if (!value || value.trim() === '') {
-          setPropinaTotal(0);
-        }
-      };
+// Función genérica para inputs numéricos: seleccionar al focus, validar al blur
+const handleNumericInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+  setTimeout(() => {
+    e.target.select();
+  }, 10);
+};
 
-      const handlePropinaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const value = e.target.value;
-        // Permitir vacío temporalmente mientras escribe
-        if (value === '') {
-          setPropinaTotal(0);
-        } else {
-          const numValue = parseFloat(value);
-          setPropinaTotal(isNaN(numValue) ? 0 : numValue);
-        }
-      };
+// Para propina
+const handlePropinaFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+  setTimeout(() => {
+    e.target.select();
+  }, 10);
+};
+
+const handlePropinaBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+  const value = e.target.value;
+  if (!value || value.trim() === '') {
+    setPropinaTotal(0);
+  }
+};
+
+const handlePropinaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const value = e.target.value;
+  if (value === '') {
+    setPropinaTotal(0);
+  } else {
+    const numValue = parseFloat(value);
+    setPropinaTotal(isNaN(numValue) ? 0 : numValue);
+  }
+};
+
+// ← ← ← HANDLERS ESPECÍFICOS PARA ITEMS DEL RECIBO ← ← ←
+const handleCantidadFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+  setTimeout(() => {
+    e.target.select();
+  }, 10);
+};
+
+const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+  setTimeout(() => {
+    e.target.select();
+  }, 10);
+};
 
   const handleCancelar = () => {
     if (confirm('¿Estás seguro de cancelar? Se perderán todos los datos del recibo.')) {
@@ -913,7 +950,7 @@ const handleCrearRecibo = async () => {
           <div className="grid grid-cols-12 gap-4 min-h-[calc(100vh-180px)]">
             
             {/* ========== PANEL IZQUIERDO (70%) ========== */}
-            <div className="col-span-12 lg:col-span-8 xl:col-span-9 flex flex-col">
+            <div className="col-span-12 lg:col-span-7 xl:col-span-9 flex flex-col">
               
               {/* Buscadores */}
               <div className="mb-4">
@@ -1171,7 +1208,7 @@ const handleCrearRecibo = async () => {
             </div>
 
             {/* ========== PANEL DERECHO (30%) ========== */}
-            <div className="col-span-12 lg:col-span-4 xl:col-span-3">
+            <div className="col-span-12 lg:col-span-5 xl:col-span-3">
               <div className="bg-gray-800 rounded-xl shadow-2xl border-2 border-gray-700 sticky top-4 self-start max-h-[calc(100vh-100px)] flex flex-col">
                 
                 {/* [20%] HEADER */}
@@ -1259,10 +1296,22 @@ const handleCrearRecibo = async () => {
                   </div>
                 </div>
 
-                {/* [60%] ITEMS DEL RECIBO - 2 Columnas */}
-                <div className="flex-1 overflow-y-auto p-4">
-                  <h3 className="text-sm font-semibold text-gray-300 mb-3">
-                    📦 Items del Recibo ({reciboItems.length})
+                {/* [60%] ITEMS DEL RECIBO - ACORDEÓN (ahorra espacio) */}
+                <div className="flex-1 overflow-y-auto p-3">
+                  <h3 className="text-sm font-semibold text-gray-300 mb-3 sticky top-0 bg-gray-800 py-1 z-10 flex items-center justify-between">
+                    <span>📦 Items del Recibo ({reciboItems.length})</span>
+                    {expandedItemId && (
+                      <button
+                        onClick={() => setExpandedItemId(null)}
+                        className="text-[10px] text-gray-400 hover:text-gray-200 flex items-center gap-1"
+                        title="Colapsar todos"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                        </svg>
+                        Colapsar
+                      </button>
+                    )}
                   </h3>
                   
                   {reciboItems.length === 0 ? (
@@ -1270,89 +1319,198 @@ const handleCrearRecibo = async () => {
                       Agrega servicios o productos de la izquierda
                     </p>
                   ) : (
-                    <div className="grid grid-cols-2 gap-2">
-                      {reciboItems.map((item) => (
-                        <div key={item.id} className="relative rounded-lg overflow-hidden border border-gray-700 bg-gray-900">
-                          {/* Imagen de fondo compacta */}
-                          <div className="absolute inset-0 h-16">
-                            {item.imagenUrl ? (
-                              <img src={item.imagenUrl} alt={item.descripcion} className="w-full h-full object-cover opacity-30" />
-                            ) : (
-                              <div className="w-full h-full bg-gray-800 flex items-center justify-center">
-                                <span className="text-xl">{item.tipo === 'servicio' ? '🔧' : '📦'}</span>
+                    <div className="space-y-1.5">
+                      {reciboItems.map((item) => {
+                        const isExpanded = expandedItemId === item.id;
+                        
+                        return (
+                          <div 
+                            key={item.id} 
+                            className={`rounded-lg overflow-hidden border transition-all duration-200 ${
+                              isExpanded 
+                                ? 'border-blue-500 bg-gray-900 shadow-lg shadow-blue-500/10' 
+                                : 'border-gray-700 bg-gray-900 hover:border-gray-600'
+                            }`}
+                          >
+                            {/* ← ← ← FILA PRINCIPAL (siempre visible) - Click para expandir/colapsar ← ← ← */}
+                            <div 
+                              onClick={() => toggleItemExpanded(item.id)}
+                              className="flex items-center gap-2 p-2.5 cursor-pointer select-none"
+                            >
+                              {/* Icono de expansión */}
+                              <div className={`flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
+                                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
                               </div>
-                            )}
-                            <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/80 to-transparent" />
-                          </div>
-                          
-                          {/* Contenido compacto */}
-                          <div className="relative p-2">
-                            <div className="flex items-start justify-between mb-1">
+                              
+                              {/* Imagen miniatura */}
+                              <div className="flex-shrink-0 w-8 h-8 rounded overflow-hidden bg-gray-800 flex items-center justify-center">
+                                {item.imagenUrl ? (
+                                  <img src={item.imagenUrl} alt={item.descripcion} className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className="text-sm">{item.tipo === 'servicio' ? '🔧' : '📦'}</span>
+                                )}
+                              </div>
+                              
+                              {/* Nombre del item (truncado) */}
                               <div className="flex-1 min-w-0">
-                                <p className="font-semibold text-white text-xs truncate">{item.descripcion}</p>
-                                <p className="text-[10px] text-gray-400 truncate">{item.categoria}</p>
+                                <p className="font-semibold text-white text-sm truncate leading-tight">
+                                  {item.descripcion}
+                                </p>
+                                {item.profesionalNombre && (
+                                  <p className="text-[10px] text-blue-400 truncate flex items-center gap-0.5 mt-0.5">
+                                    👨 {item.profesionalNombre}
+                                  </p>
+                                )}
                               </div>
+                              
+                              {/* Cantidad (badge) */}
+                              <div className="flex-shrink-0 px-2 py-0.5 bg-gray-800 border border-gray-700 rounded text-xs text-gray-300 font-mono">
+                                x{item.cantidad}
+                              </div>
+                              
+                              {/* Total (destacado) */}
+                              <span className="flex-shrink-0 text-sm font-bold text-green-400 whitespace-nowrap min-w-[70px] text-right">
+                                {formatCurrency(item.subtotal)}
+                              </span>
+                              
+                              {/* Botón eliminar (siempre visible, no propaga click) */}
                               <button
-                                onClick={() => removerItem(item.id)}
-                                className="text-red-400 hover:text-red-300 ml-1 flex-shrink-0"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removerItem(item.id);
+                                  if (expandedItemId === item.id) setExpandedItemId(null);
+                                }}
+                                className="flex-shrink-0 text-red-400 hover:text-red-300 hover:bg-red-900/30 p-1 rounded transition-colors"
+                                title="Eliminar item"
                               >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>
                               </button>
                             </div>
                             
-                            {/* Fila única: Cantidad | Precio | Subtotal */}
-                              <div className="flex items-center gap-1 mb-2">
+                            {/* ← ← ← CONTENIDO EXPANDIBLE (solo visible cuando isExpanded) ← ← ← */}
+                            {isExpanded && (
+                              <div className="border-t border-gray-700 bg-gray-900/50 p-3 space-y-3 animate-[fadeIn_0.2s_ease-out]">
                                 
-                                {/* ← ← ← CANTIDAD: Ancho reducido a la mitad (w-6) + sin spinners ← ← ← */}
-                                <input
-                                  type="number"
-                                  min="1"
-                                  value={item.cantidad}
-                                  onChange={(e) => actualizarCantidad(item.id, parseInt(e.target.value) || 1)}
-                                  className="w-6 bg-gray-800 border border-gray-600 rounded py-0.5 text-white text-xs text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                />
-                                
-                                <div className="flex-1">
-                                  {/* ← ← ← PRECIO: Sin spinners ← ← ← */}
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="100"
-                                    value={item.precioUnitario}
-                                    onChange={(e) => actualizarPrecio(item.id, parseFloat(e.target.value) || 0)}
-                                    className="w-full bg-gray-800 border border-gray-600 rounded py-0.5 text-white text-xs px-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                  />
+                                {/* Info adicional del item */}
+                                <div className="flex items-center gap-2 text-xs text-gray-400">
+                                  <span className="truncate">{item.categoria}</span>
+                                  {item.duracion && (
+                                    <>
+                                      <span className="text-gray-600">•</span>
+                                      <span className="flex items-center gap-0.5">⏱ {item.duracion}</span>
+                                    </>
+                                  )}
                                 </div>
-                                <span className="text-xs font-bold text-blue-400 whitespace-nowrap">
-                                  {formatCurrency(item.subtotal)}
-                                </span>
+                                
+                                {/* Controles editables en línea */}
+                                <div className="flex items-center gap-2 bg-gray-800/70 rounded-lg p-2 border border-gray-700">
+                                  
+                                  {/* Cantidad */}
+                                  <div className="flex flex-col items-center">
+                                    <label className="text-[9px] text-gray-500 uppercase mb-0.5">Cant</label>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={item.cantidad}
+                                      onFocus={handleCantidadFocus}
+                                      onChange={(e) => actualizarCantidad(item.id, parseInt(e.target.value) || 1)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="w-14 bg-gray-900 border border-gray-600 rounded py-1 text-white text-sm text-center font-semibold focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                    />
+                                  </div>
+                                  
+                                  {/* Separador */}
+                                  <div className="w-px h-8 bg-gray-700" />
+                                  
+                                  {/* Precio unitario */}
+                                  <div className="flex-1 min-w-0">
+                                    <label className="text-[9px] text-gray-500 uppercase mb-0.5 block">Precio Unit.</label>
+                                    <div className="relative">
+                                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-xs">$</span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="100"
+                                        value={item.precioUnitario}
+                                        onFocus={handlePrecioFocus}
+                                        onChange={(e) => actualizarPrecio(item.id, parseFloat(e.target.value) || 0)}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="w-full pl-5 pr-2 py-1 bg-gray-900 border border-gray-600 rounded text-white text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                      />
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Separador */}
+                                  <div className="w-px h-8 bg-gray-700" />
+                                  
+                                  {/* Subtotal */}
+                                  <div className="flex flex-col items-end min-w-[80px]">
+                                    <label className="text-[9px] text-gray-500 uppercase mb-0.5">Subtotal</label>
+                                    <span className="text-base font-bold text-green-400 whitespace-nowrap leading-tight">
+                                      {formatCurrency(item.subtotal)}
+                                    </span>
+                                  </div>
+                                </div>
+                                
+                                {/* Botones de acción (solo servicios) */}
+                                {item.tipo === 'servicio' && (
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setItemParaProfesional(item);
+                                        setShowProfessionalModal(true);
+                                      }}
+                                      className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium transition-colors border ${
+                                        item.profesionalNombre
+                                          ? 'bg-blue-900/40 border-blue-600 text-blue-300 hover:bg-blue-900/60'
+                                          : 'bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                                      }`}
+                                    >
+                                      <span>👨</span>
+                                      <span className="truncate">
+                                        {item.profesionalNombre || 'Asignar Profesional'}
+                                      </span>
+                                    </button>
+                                    
+                                    {/* Botón productos (comentado, descomentar si se necesita) */}
+                                    {/*
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenProductosModal(item);
+                                      }}
+                                      className="flex items-center justify-center gap-1 px-3 py-2 bg-purple-900/30 border border-purple-700 rounded-lg text-xs text-purple-300 hover:bg-purple-900/50 transition-colors"
+                                    >
+                                      <span>📦</span>
+                                      <span>{item.productosAsociados.length}</span>
+                                    </button>
+                                    */}
+                                  </div>
+                                )}
+                                
+                                {/* Botón Colapsar (redundante pero útil) */}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setExpandedItemId(null);
+                                  }}
+                                  className="w-full py-1.5 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded transition-colors flex items-center justify-center gap-1"
+                                >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                  </svg>
+                                  Colapsar
+                                </button>
                               </div>
-                            
-                            {/* Botones compactos */}
-                            <div className="flex gap-1">
-                              {item.tipo === 'servicio' && (
-                               <button
-                                onClick={() => {
-                                  setItemParaProfesional(item);
-                                  setShowProfessionalModal(true);
-                                }}
-                                className="flex-1 flex items-center justify-center px-1 py-0.5 bg-blue-900/30 border border-blue-700 rounded text-[10px] text-blue-300 hover:bg-blue-900/50"
-                              >
-                                👨 {item.profesionalNombre ? '✓' : 'Profesinal'}
-                              </button>
-                              )}
-                             {/* <button
-                                onClick={() => handleOpenProductosModal(item)}
-                                className="flex-1 flex items-center justify-center px-1 py-0.5 bg-purple-900/30 border border-purple-700 rounded text-[10px] text-purple-300 hover:bg-purple-900/50"
-                              >
-                                📦 {item.productosAsociados.length}
-                              </button>*/}
-                            </div>
+                            )}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -1375,11 +1533,11 @@ const handleCrearRecibo = async () => {
                     type="number"
                     min="0"
                     step="1000"
-                    value={propinaTotal === 0 ? '' : propinaTotal}  /* ← Mostrar vacío si es 0 */
-                    onFocus={handlePropinaFocus}                     /* ← Seleccionar todo al focus */
-                    onBlur={handlePropinaBlur}                       /* ← Restaurar 0 al blur si vacío */
+                    value={propinaTotal === 0 ? '' : propinaTotal}
+                    onFocus={handlePropinaFocus}
+                    onBlur={handlePropinaBlur}
                     onChange={handlePropinaChange}
-                    className="w-full pl-5 pr-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-xs focus:border-purple-500 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-full pl-5 pr-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-xs focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     placeholder="0"
                   />
                 </div>
