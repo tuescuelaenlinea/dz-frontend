@@ -274,10 +274,15 @@ const [profesionalParaHorario, setProfesionalParaHorario] = useState<any>(null);
         setCategorias(categoriasList);
         
         const [serviciosData, productosData, profsData] = await Promise.all([
-          api.getAllServicios ? api.getAllServicios() : api.getServicios(),
+          // ← ← ← CAMBIO CLAVE: Agregar incluir_solo_caja=true ← ← ←
+          fetch(`${apiUrl}/servicios/?ordering=nombre&page_size=1000&incluir_solo_caja=true&incluir_inactivos=true`, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+          }).then(res => res.ok ? res.json() : { results: [] }),
+          
           fetch(`${apiUrl}/productos/?activo=true&limit=20`, {
             headers: token ? { 'Authorization': `Bearer ${token}` } : {}
           }).then(res => res.ok ? res.json() : { results: [] }),
+          
           api.getProfesionales(),
         ]);
         

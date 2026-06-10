@@ -35,6 +35,10 @@ interface Servicio {
   imagen: string | null;
   imagen_url: string | null;
   profesionales_count?: number;
+  // ← ← ← NUEVOS CAMPOS DE VISIBILIDAD ← ← ←
+  visibilidad: 'publico' | 'solo_caja' | 'oculto';
+  visibilidad_display: string;
+  es_solo_caja: boolean;
 }
 
 export default function AdminServiciosPage() {
@@ -49,6 +53,8 @@ export default function AdminServiciosPage() {
   const [filtroDisponible, setFiltroDisponible] = useState<string>('todos');
   const [busqueda, setBusqueda] = useState<string>('');
   const [mostrarInactivos, setMostrarInactivos] = useState(true);
+  const [filtroVisibilidad, setFiltroVisibilidad] = useState<string>('todas');
+
   
   // Modal
   const [modalAbierto, setModalAbierto] = useState(false);
@@ -76,6 +82,7 @@ export default function AdminServiciosPage() {
     adicional_domicilio: '0',
     destacado: false,
     disponible: true,
+    visibilidad: 'publico',  // ← ← ← NUEVO
   });
 
   const [modalProductosAbierto, setModalProductosAbierto] = useState(false);
@@ -94,7 +101,7 @@ export default function AdminServiciosPage() {
   const [imagenFile, setImagenFile] = useState<File | null>(null);
   const [imagenPreview, setImagenPreview] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
-
+  
   // Paginación
   const [paginaActual, setPaginaActual] = useState(1);
   const [serviciosPorPagina, setServiciosPorPagina] = useState(20);
@@ -118,9 +125,9 @@ export default function AdminServiciosPage() {
         router.push('/admin/login');
         return;
       }
-      
       let todosLosServicios: Servicio[] = [];
-      let url: string = `${apiUrl}/servicios/?ordering=nombre&page_size=1000`;
+      // ← ← ← CAMBIO CLAVE: Agregar incluir_solo_caja=true e incluir_ocultos=true ← ← ←
+      let url: string = `${apiUrl}/servicios/?ordering=nombre&page_size=1000&incluir_solo_caja=true&incluir_ocultos=true`;
       if (mostrarInactivos) {
         url += '&incluir_inactivos=true';
       }
@@ -218,6 +225,7 @@ export default function AdminServiciosPage() {
       adicional_domicilio: '0',
       destacado: false,
       disponible: true,
+      visibilidad: 'publico',
     });
     setImagenFile(null);
     setImagenPreview(null);
@@ -246,6 +254,7 @@ export default function AdminServiciosPage() {
       adicional_domicilio: servicio.adicional_domicilio ?? '0',
       destacado: servicio.destacado ?? false,
       disponible: servicio.disponible ?? true,
+      visibilidad: servicio.visibilidad ?? 'publico',
     });
     
     setImagenPreview(servicio.imagen_url ?? null);
@@ -270,14 +279,14 @@ export default function AdminServiciosPage() {
   };
 
   const getCorrectImageUrl = (url: string | null | undefined): string | null => {
-    if (!url) return null;
-    const API_DOMAIN = 'https://api.dzsalon.com';
-    const IP_PATTERN = /https:\/\/179\.43\.112\.64/;
-    if (IP_PATTERN.test(url)) {
-      return url.replace(IP_PATTERN, API_DOMAIN);
-    }
-    return url;
-  };
+  if (!url) return null;
+  const API_DOMAIN = 'https://api.dzsalon.com';
+  const IP_PATTERN = /https:\/\/179\.43\.112\.64/;
+  if (IP_PATTERN.test(url)) {
+    return url.replace(IP_PATTERN, API_DOMAIN);
+  }
+  return url;
+};
 
   const guardarServicio = async () => {
     if (!formData.nombre?.trim()) {
@@ -402,7 +411,10 @@ export default function AdminServiciosPage() {
         return false;
       }
     }
-    
+    // ← ← ← NUEVO: Filtro por visibilidad ← ← ←
+    if (filtroVisibilidad !== 'todas' && servicio.visibilidad !== filtroVisibilidad) {
+      return false;
+    }
     return true;
   });
 
@@ -450,7 +462,7 @@ export default function AdminServiciosPage() {
 
       {/* Filtros */}
       <div className="bg-white rounded-xl shadow-lg p-4 lg:p-6 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">🔍 Buscar</label>
             <input
@@ -476,8 +488,21 @@ export default function AdminServiciosPage() {
                 </option>
               ))}
             </select>
+            
           </div>
-
+          <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Visibilidad</label>
+              <select
+                value={filtroVisibilidad}
+                onChange={(e) => setFiltroVisibilidad(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="todas">Todas</option>
+                <option value="publico">🌐 Públicos</option>
+                <option value="solo_caja">🏪 Solo Caja</option>
+                <option value="oculto">🚫 Ocultos</option>
+              </select>
+            </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Estado</label>
             <select
@@ -555,6 +580,17 @@ export default function AdminServiciosPage() {
                     {servicio.es_medico && (
                       <span className="px-2 py-0.5 bg-purple-500 text-white text-[10px] font-bold rounded-full">🩺</span>
                     )}
+
+                    {servicio.visibilidad === 'solo_caja' && (
+                      <span className="px-2 py-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-full" title="Solo visible en caja">
+                        🏪
+                      </span>
+                    )}
+                    {servicio.visibilidad === 'oculto' && (
+                      <span className="px-2 py-0.5 bg-gray-500 text-white text-[10px] font-bold rounded-full" title="Oculto">
+                        🚫
+                      </span>
+                    )}
                   </div>
                   
                   <div className="space-y-1">
@@ -607,7 +643,7 @@ export default function AdminServiciosPage() {
                   👥 {servicio.profesionales_count ?? 0}
                 </button>
                 
-                <button
+               {/* <button
                   onClick={(e) => {
                     e.stopPropagation();
                     abrirModalEditar(servicio);
@@ -616,7 +652,7 @@ export default function AdminServiciosPage() {
                   title="Editar"
                 >
                   ✏️
-                </button>
+                </button>*/}
                 <button
                     type="button"
                     onClick={(e) => {
@@ -846,7 +882,25 @@ export default function AdminServiciosPage() {
                       placeholder="Descripción detallada"
                     />
                   </div>
-                  
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-700 mb-1">
+                      👁️ Visibilidad
+                    </label>
+                    <select
+                      value={formData.visibilidad ?? 'publico'}
+                      onChange={(e) => handleInputChange('visibilidad', e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value="publico">🌐 Público (Reservas + Caja)</option>
+                      <option value="solo_caja">🏪 Solo Caja (No en reservas)</option>
+                      <option value="oculto">🚫 Oculto (Ningún lado)</option>
+                    </select>
+                    <p className="text-[9px] text-gray-500 mt-0.5">
+                      {formData.visibilidad === 'publico' && 'Visible para clientes y en caja'}
+                      {formData.visibilidad === 'solo_caja' && 'Solo disponible al crear recibos en caja'}
+                      {formData.visibilidad === 'oculto' && 'No aparece en ningún lado (mantener historial)'}
+                    </p>
+                  </div>
                   {/* Checkboxes compactos */}
                   <div className="grid grid-cols-2 gap-2 pt-2">
                     <label className="flex items-center gap-1.5">
