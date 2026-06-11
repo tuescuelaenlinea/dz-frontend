@@ -211,6 +211,10 @@ export default function CajaPage() {
   const [modalEditarReciboOpen, setModalEditarReciboOpen] = useState(false);
   const [reciboEditarId, setReciboEditarId] = useState<number | null>(null);
 
+  // ← ← ← NUEVO: Modal de selección de tipo de recibo ← ← ←
+  const [modalSeleccionTipoOpen, setModalSeleccionTipoOpen] = useState(false);
+  const [tipoReciboSeleccionado, setTipoReciboSeleccionado] = useState<'venta' | 'entrada'>('venta');
+
   // ← ← ← AGREGAR: Para almacenar el ID del recibo borrador recién creado
   const [nuevoReciboDraftId, setNuevoReciboDraftId] = useState<number | null>(null);
 
@@ -221,7 +225,8 @@ export default function CajaPage() {
   // ← ← ← NUEVO: Estado para modal de comisiones ← ← ←
   const [modalComisionesOpen, setModalComisionesOpen] = useState(false);
   const [profesionalSeleccionado, setProfesionalSeleccionado] = useState<number | null>(null);
-
+  // ← ← ← NUEVO: Modal de selección Comisiones vs Salidas ← ← ←
+  const [modalSeleccionComisionSalidaOpen, setModalSeleccionComisionSalidaOpen] = useState(false);
   // ← ← ← NUEVOS ESTADOS PARA ACORDEÓN DE DETALLE ← ← ←
   const [reciboExpandido, setReciboExpandido] = useState<number | null>(null);
   const [detalleRecibo, setDetalleRecibo] = useState<ReciboCaja | null>(null);
@@ -355,6 +360,7 @@ const cargarAbonosRecibo = async (reciboId: number) => {
     setAbonos([]);
   }
 };
+
 
 const handleVerReciboImpresion = async (recibo: ReciboCaja) => {
   if (recibo.estado !== 'publicado') {
@@ -1331,52 +1337,123 @@ const crearRecibosParaHuerfanas = async () => {
   }
 };
 
-// ← ← ← NUEVA FUNCIÓN: Crea borrador en BD y abre modal en modo edición
-const handleCrearYAbrirRecibo = async () => {
-    if (!sessionActiva) {
-      alert('⚠️ Debes tener una sesión de caja abierta para crear un recibo');
-      return;
-    }
-    try {
-      // ← ← ← CLAVE: Obtener fecha/hora actual de Colombia ← ← ←
-      const fechaColombia = getColombiaDateTime();  // "2026-06-05T14:30:00"
-      
-      const res = await fetch(`${apiUrl}/caja/recibos/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          tipo: 'venta',
-          estado: 'borrador',
-          session_caja: sessionActiva.id,
-          cliente_nombre: 'Cliente',
-          cliente_telefono: 'No proporcionado',
-          cliente_email: 'no@proporcionado.com',
-          notas: '',
-          metodo_pago: 'bold',
-          subtotal: 0,
-          descuento: 0,
-          total: 0,
-          propina_total: 0,
-          items_data: [],
-          // ← ← ← AGREGAR ESTE CAMPO ← ← ←
-          //fecha: new Date().toISOString(),
-        })
-      });
-      
-      if (!res.ok) throw new Error('Error creando recibo borrador');
-      const data = await res.json();
-      setNuevoReciboDraftId(data.id);
-      setModalNuevoReciboOpen(true);
-      console.log(`✅ Recibo borrador creado: ${data.codigo_recibo} (ID: ${data.id}) | Fecha: ${fechaColombia}`);
-    } catch (err: any) {
-      console.error('❌ Error creando recibo borrador:', err);
-      alert(`⚠️ No se pudo crear el recibo: ${err.message}`);
-    }
-  };
+// ← ← ← NUEVA FUNCIÓN: Abrir modal de selección de tipo ← ← ←
+const handleAbrirSeleccionTipo = () => {
+  if (!sessionActiva) {
+    alert('⚠️ Debes tener una sesión de caja abierta para crear un recibo');
+    return;
+  }
+  setModalSeleccionTipoOpen(true);
+};
 
+// ← ← ← NUEVA FUNCIÓN: Crear recibo con tipo específico ← ← ←
+const handleCrearReciboConTipo = async (tipo: 'venta' | 'entrada') => {
+  // ← ← ← VALIDACIÓN CRÍTICA: Verificar que sessionActiva no sea null ← ← ←
+  if (!sessionActiva) {
+    alert('⚠️ Debes tener una sesión de caja abierta para crear un recibo');
+    return;
+  }
+  setTipoReciboSeleccionado(tipo);
+  setModalSeleccionTipoOpen(false);
+  
+  try {
+    const fechaColombia = getColombiaDateTime();
+    const res = await fetch(`${apiUrl}/caja/recibos/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        tipo: tipo,  // ← ← ← USAR EL TIPO SELECCIONADO
+        estado: 'borrador',
+        session_caja: sessionActiva.id,
+        cliente_nombre: tipo === 'venta' ? 'Cliente' : 'Ingreso Operativo',
+        cliente_telefono: tipo === 'venta' ? 'No proporcionado' : '',
+        cliente_email: tipo === 'venta' ? 'no@proporcionado.com' : '',
+        notas: '',
+        metodo_pago: 'bold',
+        subtotal: 0,
+        descuento: 0,
+        total: 0,
+        propina_total: 0,
+        items_data: [],
+      })
+    });
+    
+    if (!res.ok) throw new Error('Error creando recibo borrador');
+    
+    const data = await res.json();
+    setNuevoReciboDraftId(data.id);
+    setModalNuevoReciboOpen(true);
+    console.log(`✅ Recibo ${tipo} borrador creado: ${data.codigo_recibo} (ID: ${data.id}) | Fecha: ${fechaColombia}`);
+  } catch (err: any) {
+    console.error('❌ Error creando recibo:', err);
+    alert(`⚠️ No se pudo crear el recibo: ${err.message}`);
+  }
+};
+// ← ← ← NUEVA FUNCIÓN: Abrir modal de selección Comisiones/Salidas ← ← ←
+const handleAbrirSeleccionComisionSalida = () => {
+  if (!sessionActiva) {
+    alert('⚠️ Debes tener una sesión de caja abierta');
+    return;
+  }
+  setModalSeleccionComisionSalidaOpen(true);
+};
+
+// ← ← ← NUEVA FUNCIÓN: Crear recibo de tipo SALIDA (gasto) ← ← ←
+const handleCrearReciboSalida = async () => {
+  // ← ← ← VALIDACIÓN CRÍTICA: Verificar que sessionActiva no sea null ← ← ←
+  if (!sessionActiva) {
+    alert('⚠️ Debes tener una sesión de caja abierta');
+    return;
+  }
+  setModalSeleccionComisionSalidaOpen(false);
+  
+  try {
+    const fechaColombia = getColombiaDateTime();
+    const res = await fetch(`${apiUrl}/caja/recibos/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        tipo: 'salida',  // ← ← ← CLAVE: tipo 'salida' para gastos
+        estado: 'borrador',
+        session_caja: sessionActiva.id,
+        cliente_nombre: 'Gasto Operativo',
+        cliente_telefono: '',
+        cliente_email: '',
+        notas: '',
+        metodo_pago: 'efectivo',
+        subtotal: 0,
+        descuento: 0,
+        total: 0,
+        propina_total: 0,
+        items_data: [],
+      })
+    });
+    
+    if (!res.ok) throw new Error('Error creando recibo de salida');
+    
+    const data = await res.json();
+    setNuevoReciboDraftId(data.id);
+    setModalEditarReciboOpen(true);
+    setReciboEditarId(data.id);
+    console.log(`✅ Recibo SALIDA borrador creado: ${data.codigo_recibo} (ID: ${data.id}) | Fecha: ${fechaColombia}`);
+  } catch (err: any) {
+    console.error('❌ Error creando recibo de salida:', err);
+    alert(`⚠️ No se pudo crear el recibo: ${err.message}`);
+  }
+};
+
+// ← ← ← NUEVA FUNCIÓN: Abrir modal de Comisiones ← ← ←
+const handleAbrirModalComisiones = () => {
+  setModalSeleccionComisionSalidaOpen(false);
+  setProfesionalSeleccionado(null);
+  setModalComisionesOpen(true);
+};
 
   // ← ← ← NUEVA FUNCIÓN: Publicar recibo con validaciones ← ← ←
   const handlePublicarRecibo = async (reciboId: number) => {
@@ -2575,10 +2652,7 @@ const formatDate = (dateStr: string): string => {
                 </span>
               </h3>
               <button
-                onClick={() => {
-                  setProfesionalSeleccionado(null);
-                  setModalComisionesOpen(true);
-                }}
+                onClick={handleAbrirSeleccionComisionSalida}
                 disabled={!sessionActiva}
                 className="text-xs text-orange-400 hover:text-orange-300 disabled:opacity-50 flex items-center gap-1"
               >
@@ -2653,16 +2727,16 @@ const formatDate = (dateStr: string): string => {
                   {recibosVentas.length}
                 </span>
               </h3>
-              <button
-                onClick={handleCrearYAbrirRecibo}
-                disabled={!sessionActiva}
-                className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50 flex items-center gap-1"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                Nueva Venta
-              </button>
+              <button                
+                  onClick={handleAbrirSeleccionTipo}
+                  disabled={!sessionActiva}
+                  className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50 flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Nuevo Recibo
+                </button>
             </div>
             
             <div className="p-4 max-h-[600px] overflow-y-auto space-y-2">
@@ -3022,7 +3096,149 @@ const formatDate = (dateStr: string): string => {
 
       </div>
 
+      {/* ← ← ← MODAL: SELECCIÓN COMISIONES vs SALIDAS ← ← ← */}
+{modalSeleccionComisionSalidaOpen && (
+  <div className="fixed inset-0 z-[85] bg-black/70 flex items-center justify-center p-4">
+    <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-gray-700">
+      {/* Header */}
+      <div className="p-6 border-b border-gray-700">
+        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+          💰 ¿Qué deseas registrar?
+        </h3>
+        <p className="text-sm text-gray-400 mt-1">
+          Selecciona el tipo de movimiento
+        </p>
+      </div>
+      
+      {/* Opciones */}
+      <div className="p-6 space-y-3">
+        {/* Opción 1: Comisiones */}
+        <button
+          onClick={handleAbrirModalComisiones}
+          className="w-full p-4 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 rounded-xl border-2 border-emerald-500/50 transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-emerald-500/30 text-left group"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+              👥
+            </div>
+            <div className="flex-1">
+              <h4 className="text-lg font-bold text-white">Comisiones</h4>
+              <p className="text-sm text-emerald-100 mt-0.5">
+                Pagar comisiones a empleados/profesionales
+              </p>
+            </div>
+            <svg className="w-6 h-6 text-white/70 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </button>
 
+        {/* Opción 2: Gastos/Salidas */}
+        <button
+          onClick={handleCrearReciboSalida}
+          className="w-full p-4 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700 rounded-xl border-2 border-orange-500/50 transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-orange-500/30 text-left group"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+              💸
+            </div>
+            <div className="flex-1">
+              <h4 className="text-lg font-bold text-white">Gasto / Salida</h4>
+              <p className="text-sm text-orange-100 mt-0.5">
+                Arriendo, servicios, compras, otros gastos
+              </p>
+            </div>
+            <svg className="w-6 h-6 text-white/70 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </button>
+      </div>
+      
+      {/* Footer */}
+      <div className="p-4 border-t border-gray-700">
+        <button
+          onClick={() => setModalSeleccionComisionSalidaOpen(false)}
+          className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{/* ← ← ← MODAL: SELECCIÓN DE TIPO DE RECIBO ← ← ← */}
+{modalSeleccionTipoOpen && (
+  <div className="fixed inset-0 z-[85] bg-black/70 flex items-center justify-center p-4">
+    <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-gray-700">
+      {/* Header */}
+      <div className="p-6 border-b border-gray-700">
+        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+          📋 ¿Qué deseas crear?
+        </h3>
+        <p className="text-sm text-gray-400 mt-1">
+          Selecciona el tipo de recibo que necesitas
+        </p>
+      </div>
+      
+      {/* Opciones */}
+      <div className="p-6 space-y-3">
+        {/* Opción 1: Venta */}
+        <button
+          onClick={() => handleCrearReciboConTipo('venta')}
+          className="w-full p-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl border-2 border-blue-500/50 transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-blue-500/30 text-left group"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+              🛒
+            </div>
+            <div className="flex-1">
+              <h4 className="text-lg font-bold text-white">Venta</h4>
+              <p className="text-sm text-blue-100 mt-0.5">
+                Servicios, productos y propinas para clientes
+              </p>
+            </div>
+            <svg className="w-6 h-6 text-white/70 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </button>
+
+        {/* Opción 2: Ingreso */}
+        <button
+          onClick={() => handleCrearReciboConTipo('entrada')}
+          className="w-full p-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 rounded-xl border-2 border-green-500/50 transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-green-500/30 text-left group"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+              💰
+            </div>
+            <div className="flex-1">
+              <h4 className="text-lg font-bold text-white">Ingreso</h4>
+              <p className="text-sm text-green-100 mt-0.5">
+                Entradas de dinero, ventas de activos, otros ingresos
+              </p>
+            </div>
+            <svg className="w-6 h-6 text-white/70 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </button>
+      </div>
+      
+      {/* Footer */}
+      <div className="p-4 border-t border-gray-700">
+        <button
+          onClick={() => setModalSeleccionTipoOpen(false)}
+          className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
       {/* ← ← ← MODAL: Abrir Caja ← ← ← */}
       {modalAbrirCajaOpen && (

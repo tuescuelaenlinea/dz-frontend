@@ -33,7 +33,7 @@ interface Profesional {
 
 interface ReciboItem {
   id: string;
-  tipo: 'servicio' | 'producto';
+  tipo: 'servicio' | 'producto' | 'otro';
   servicioId?: number;
   productoId?: number;
   descripcion: string;
@@ -171,6 +171,10 @@ export default function CajaReciboModal({
   const [searchResults, setSearchResults] = useState<(Servicio | Producto)[]>([]);
   const [loadingSearch, setLoadingSearch] = useState(false);
   
+  const [movimientoDescripcion, setMovimientoDescripcion] = useState('');
+  const [movimientoCantidad, setMovimientoCantidad] = useState(1);
+  const [movimientoPrecio, setMovimientoPrecio] = useState(0);
+
   // ← Estados para propinas
   const [showPropinaModal, setShowPropinaModal] = useState(false);
   const [propinaMetodo, setPropinaMetodo] = useState<'equitativa' | 'proporcional' | 'manual'>('proporcional');
@@ -189,6 +193,9 @@ export default function CajaReciboModal({
   const [loading, setLoading] = useState(false);
   const [estadoRecibo, setEstadoRecibo] = useState<'borrador' | 'publicado'>('borrador');
   
+  // ← ← ← NUEVO: Bandera para evitar lógica de cierre duplicada en movimientos operativos ← ← ←
+  const [movimientoOperativoRegistrado, setMovimientoOperativoRegistrado] = useState(false);
+  
   // ← Datos auxiliares
   const [profesionales, setProfesionales] = useState<Profesional[]>([]);
   const [citaSeleccionada, setCitaSeleccionada] = useState<number | null>(null);
@@ -202,6 +209,8 @@ export default function CajaReciboModal({
 
   const [itemToDelete, setItemToDelete] = useState<ReciboItem | null>(null);
 
+  // ← ← ← AGREGAR ESTE ESTADO ← ← ←
+  const [mostrarSelectorTipo, setMostrarSelectorTipo] = useState(true); 
 
   // ← ← ← AGREGAR ESTO junto a tus otros useState ← ← ←
 const [abonos, setAbonos] = useState<AbonoRecibo[]>([]);
@@ -244,16 +253,18 @@ const resumenAbonos = useMemo(() => {
 
 // ← ← ← AGREGAR ESTE useMemo PARA VALIDAR ITEMS SINCRONIZADOS ← ← ←
 const hayItemsNoSincronizados = useMemo(() => {
-  // Verificar si hay items con ID temporal (no numérico) o marcados como nuevos
   return items.some(item => {
-    // ID temporal: empieza con "new-", "cita-", "producto-", o no es numérico válido
-    const idEsTemporal = 
-      item.id.startsWith('new-') || 
-      item.id.startsWith('cita-') || 
-      item.id.startsWith('producto-') ||
-      !/^\d+$/.test(item.id);
+    // ← ← ← VALIDAR QUE ITEM.ID EXISTA ANTES DE USAR MÉTODOS DE STRING
+    if (!item.id || item.id === null || item.id === undefined) {
+      return true; // Si no tiene ID, se considera no sincronizado
+    }
     
-    // O está marcado explícitamente como nuevo en modo edición
+    const idEsTemporal =
+      item.id.startsWith('new-') ||
+      item.id.startsWith('cita-') ||
+      item.id.startsWith('producto-') ||
+      !/^\d+$/.test(String(item.id));
+    
     const esNuevoEnEdicion = modoEdicion && item.esNuevo === true;
     
     return idEsTemporal || esNuevoEnEdicion;
@@ -303,7 +314,183 @@ const cargarResumenAbonos = async (reciboId: number) => {
     setAbonos([]);  // Fallback: lista vacía
   }
 };
+const handleAgregarMovimiento = () => {
+  if (!movimientoDescripcion.trim()) {
+    alert('⚠️ Por favor ingresa una descripción para el movimiento.');
+    return;
+  }
+  if (movimientoPrecio <= 0) {
+    alert('⚠️ El precio unitario debe ser mayor a 0.');
+    return;
+  }
 
+  const newItem: ReciboItem = {
+    id: `new-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // ← ID temporal único
+    tipo: 'otro',
+    descripcion: movimientoDescripcion,
+    cantidad: movimientoCantidad,
+    precioUnitario: movimientoPrecio,
+    subtotal: movimientoCantidad * movimientoPrecio,
+    esNuevo: true,
+  };
+
+  setItems(prev => [...prev, newItem]);
+  
+  // Limpiar formulario de movimiento
+  setMovimientoDescripcion('');
+  setMovimientoCantidad(1);
+  setMovimientoPrecio(0);
+};
+
+// ← ← ← NUEVA FUNCIÓN: Registrar Movimiento Operativo (Entrada/Salida) ← ← ←
+const handleRegistrarMovimientoOperativo = async () => {
+    // ← ← ← VALIDACIONES ← ← ←
+    if (items.length === 0) {
+        alert('⚠️ Agrega al menos un concepto al movimiento.');
+        return;
+    }
+    if (!sessionCajaId) {
+        alert('⚠️ No hay sesión de caja activa. Por favor abre una sesión primero.');
+        return;
+    }
+    if (!metodoPago) {
+        alert('⚠️ Selecciona un método de pago/recepción.');
+        return;
+    }
+
+    // Confirmación antes de publicar
+    const confirmar = window.confirm(
+        `¿Confirmar registro de ${tipoRecibo === 'entrada' ? 'INGRESO' : 'GASTO'}?\n` +
+        `• Total: ${formatMoney(total)}\n` +
+        `• Método: ${metodoPago}\n` +
+        `• Items: ${items.length}\n` +
+        `Esta acción registrará el movimiento y descontará/sumará de la caja inmediatamente.`
+    );
+    if (!confirmar) return;
+
+    setLoading(true);
+    try {
+        // ← ← ← PREPARAR PAYLOAD ← ← ←
+        const payload: any = {
+            tipo: tipoRecibo,
+            estado: 'publicado',
+            subtotal: subtotal,
+            descuento: 0,
+            total: total,
+            propina_total: 0,
+            propina_metodo_distribucion: null,
+            metodo_pago: metodoPago,
+            session_caja: sessionCajaId,
+            cliente_nombre: tipoRecibo === 'entrada'
+                ? (clienteNombre?.trim() || 'Ingreso Operativo')
+                : (clienteNombre?.trim() || 'Gasto Operativo'),
+            cliente_telefono: '',
+            cliente_email: '',
+            notas: notas || `${tipoRecibo === 'entrada' ? 'Ingreso' : 'Gasto'} operativo registrado desde caja`,
+            items_data: items.map(item => ({
+                tipo_item: 'otro',
+                descripcion: item.descripcion,
+                cantidad: item.cantidad,
+                precio_unitario: item.precioUnitario,
+                subtotal: item.subtotal,
+            }))
+        };
+
+        let reciboCreado;
+
+        // ← ← ← CLAVE: Si ya existe un reciboId (borrador), hacer PATCH en lugar de POST ← ← ←
+        if (reciboId) {
+            console.log('🔄 [handleRegistrarMovimientoOperativo] Actualizando borrador existente ID:', reciboId, 'a publicado');
+            
+            const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+                const error = await res.json();
+                throw new Error(error.detail || JSON.stringify(error));
+            }
+
+            reciboCreado = await res.json();
+            console.log('✅ [handleRegistrarMovimientoOperativo] Borrador actualizado a publicado:', reciboCreado.codigo_recibo);
+        } else {
+            console.log('🆕 [handleRegistrarMovimientoOperativo] Creando nuevo recibo publicado');
+            
+            const res = await fetch(`${apiUrl}/caja/recibos/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+                const error = await res.json();
+                throw new Error(error.detail || JSON.stringify(error));
+            }
+
+            reciboCreado = await res.json();
+            console.log('✅ [handleRegistrarMovimientoOperativo] Recibo creado:', reciboCreado.codigo_recibo);
+        }
+
+        // ← ← ← ÉXITO ← ← ←
+        alert(`✅ ${tipoRecibo === 'entrada' ? 'Ingreso' : 'Gasto'} registrado exitosamente\nRecibo: ${reciboCreado.codigo_recibo}\nTotal: ${formatMoney(parseFloat(reciboCreado.total))}`);
+
+        // Disparar evento para refrescar la página de caja
+        window.dispatchEvent(new CustomEvent('reciboCreado', {
+            detail: { id: reciboCreado.id, codigo_recibo: reciboCreado.codigo_recibo }
+        }));
+
+        if (onReciboCreado) {
+            onReciboCreado(reciboCreado);
+        }
+
+        // ← ← ← Limpiar estados y cerrar ← ← ←
+        console.log('🧹 [handleRegistrarMovimientoOperativo] Limpiando estados...');
+        
+        setItems([]);
+        setDescuento(0);
+        setPropinaTotal(0);
+        setPropinaEditable('0');
+        setPropinaDistribucion([]);
+        setClienteNombre('');
+        setClienteTelefono('');
+        setClienteEmail('');
+        setNotas('');
+        setSearchTerm('');
+        setModoEdicion(false);
+        setReciboEditando(null);
+        setReciboId(null);
+        setTipoRecibo('venta');
+        setMetodoPago('bold');
+        setEstadoRecibo('borrador');
+        setPropinaMetodo('proporcional');
+        setShowProfessionalModal(false);
+        setItemParaProfesional(null);
+        setItemsQuitados([]);
+        setMovimientoOperativoRegistrado(false);
+        setMovimientoDescripcion('');
+        setMovimientoCantidad(1);
+        setMovimientoPrecio(0);
+        setMontoPagar(0);
+        montoPagarEditedRef.current = false;
+
+        console.log('🚪 [handleRegistrarMovimientoOperativo] Llamando a onClose() directamente');
+        onClose();
+
+    } catch (err: any) {
+        console.error('❌ Error registrando movimiento operativo:', err);
+        alert(`❌ Error: ${err.message}`);
+    } finally {
+        setLoading(false);
+    }
+};
 // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
 // ← ← ← WORKAROUND: Ajustar fecha para timezone Colombia (UTC-5) ← ← ←
 // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
@@ -1309,11 +1496,11 @@ const handleAbrirModalAbono = async () => {
                 subtotal: subtotal,
                 descuento: descuento,
                 total: total,
-                propina_total: propinaTotal,
-                propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
+                propina_total: tipoRecibo === 'venta' ? propinaTotal : 0,
+                propina_metodo_distribucion: tipoRecibo === 'venta' && propinaTotal > 0 ? propinaMetodo : null,
                 metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
                 session_caja: sessionCajaId,
-                cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : '',
+                cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : (clienteNombre?.trim() || 'Movimiento Operativo'),
                 cliente_telefono: tipoRecibo === 'venta' ? (clienteTelefono?.trim() || 'No proporcionado') : '',
                 cliente_email: tipoRecibo === 'venta' ? (clienteEmail?.trim() || 'No@proporcionado.com') : '',
                 notas: notas || '',
@@ -1375,8 +1562,8 @@ const handleAbrirModalAbono = async () => {
           subtotal: subtotal,
           descuento: descuento,
           total: total,
-          propina_total: propinaTotal,
-          propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
+          propina_total: tipoRecibo === 'venta' ? propinaTotal : 0,
+          propina_metodo_distribucion: tipoRecibo === 'venta' && propinaTotal > 0 ? propinaMetodo : null,
           metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
           // ← ← ← session_caja: puede ser undefined si no hay sesión activa (TypeScript lo acepta)
           session_caja: sessionCajaId,
@@ -1688,7 +1875,7 @@ if (metodoPago === 'pendiente') {
       return;
     }
 
-    if (estadoRecibo === 'publicado') {
+    if (estadoRecibo === 'publicado' && tipoRecibo === 'venta') {
       const validacion = validarServiciosConProfesional();
       if (!validacion.valido) {
         mostrarAlertaServiciosSinProfesional(validacion.serviciosSinProfesional);
@@ -1706,8 +1893,8 @@ if (metodoPago === 'pendiente') {
         subtotal: subtotal,
         descuento: descuento,
         total: total,
-        propina_total: propinaTotal,
-        propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
+        propina_total: tipoRecibo === 'venta' ? propinaTotal : 0,
+        propina_metodo_distribucion: tipoRecibo === 'venta' && propinaTotal > 0 ? propinaMetodo : null,
         metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
         // ← ← ← session_caja: requerido para creación, TypeScript acepta el valor
         session_caja: sessionCajaId,
@@ -1729,9 +1916,9 @@ if (metodoPago === 'pendiente') {
             ...(itemIdNum && { id: itemIdNum }),
             tipo_item: item.tipo,
             // ← ← ← CORREGIDO: Usar sufijo _id para FKs (coincidir con backend) ← ← ←
-            ...(item.servicioId && item.citaId && /^\d+$/.test(String(item.citaId)) && { cita_id: Number(item.citaId) }),
-            ...(item.servicioId && item.profesionalId && /^\d+$/.test(String(item.profesionalId)) && { profesional_id: Number(item.profesionalId) }),
-            ...(item.productoId && /^\d+$/.test(String(item.productoId)) && { producto_id: Number(item.productoId) }),
+            ...(item.tipo !== 'otro' && item.servicioId && item.citaId && /^\d+$/.test(String(item.citaId)) && { cita_id: Number(item.citaId) }),
+            ...(item.tipo !== 'otro' && item.servicioId && item.profesionalId && /^\d+$/.test(String(item.profesionalId)) && { profesional_id: Number(item.profesionalId) }),
+            ...(item.tipo !== 'otro' && item.productoId && /^\d+$/.test(String(item.productoId)) && { producto_id: Number(item.productoId) }),
             descripcion: item.descripcion,
             cantidad: item.cantidad,
             precio_unitario: item.precioUnitario,
@@ -1954,13 +2141,10 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                 if (item.citaId && /^\d+$/.test(String(item.citaId))) {
                     itemData.cita_id = Number(item.citaId);
                     console.debug(`🔗 [payload] cita_id=${itemData.cita_id} para item ${item.id}`);
-
                 }
                 if (item.profesionalId && /^\d+$/.test(String(item.profesionalId))) {
                     itemData.profesional_id = Number(item.profesionalId);
                 }
-            
-            // ← ← ← AGREGAR ESTE BLOQUE ← ← ←
             } else if (item.tipo === 'producto') {
                 if (item.productoId && /^\d+$/.test(String(item.productoId))) {
                     itemData.producto_id = Number(item.productoId);
@@ -1991,7 +2175,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
             propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
             metodo_pago: payloadBase.metodo_pago,
             session_caja: sessionCajaId,
-            cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : '',
+            cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : (clienteNombre?.trim() || 'Movimiento Operativo'),
             cliente_telefono: tipoRecibo === 'venta' ? (clienteTelefono?.trim() || 'No proporcionado') : '',
             cliente_email: tipoRecibo === 'venta' ? (clienteEmail?.trim() || 'No@proporcionado.com') : '',
             notas: notas?.trim() || '',
@@ -2096,6 +2280,40 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
 
  const handleClose = async () => {
   console.log('🔒 [handleClose] Cerrando modal...');
+
+  // ← ← ← NUEVO: Si el movimiento operativo ya fue registrado, limpiar y cerrar sin lógica adicional ← ← ←
+  if (movimientoOperativoRegistrado) {
+    console.log('⏭️ [handleClose] Movimiento operativo ya registrado, limpiando estados y cerrando...');
+    setMovimientoOperativoRegistrado(false); // Resetear bandera
+    
+    // Limpiar estados
+    setItems([]);
+    setDescuento(0);
+    setPropinaTotal(0);
+    setPropinaEditable('0');
+    setPropinaDistribucion([]);
+    setClienteNombre('');
+    setNotas('');
+    setSearchTerm('');
+    setModoEdicion(false);
+    setReciboEditando(null);
+    setReciboId(null);
+    setTipoRecibo('venta');
+    setMetodoPago('bold');
+    setEstadoRecibo('borrador');
+    setPropinaMetodo('proporcional');
+    setShowProfessionalModal(false);
+    setItemParaProfesional(null);
+    setItemsQuitados([]);
+
+    // ← ← ← NUEVO: Resetear bandera de movimiento operativo ← ← ←
+    setMovimientoOperativoRegistrado(false);
+    
+    console.log('🚪 [handleClose] Llamando a onClose()');
+    onClose();
+    return;
+  }
+  
   
   // ← ← ← VALIDACIÓN: Si es modo edición y hay reciboId ← ← ←
   if (modoEdicion && reciboId) {
@@ -2176,8 +2394,8 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
             subtotal: subtotal,
             descuento: descuento,
             total: total,
-            propina_total: propinaTotal,
-            propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
+            propina_total: tipoRecibo === 'venta' ? propinaTotal : 0,
+            propina_metodo_distribucion: tipoRecibo === 'venta' && propinaTotal > 0 ? propinaMetodo : null,
             metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
             session_caja: sessionCajaId,
             cliente_nombre: tipoRecibo === 'venta'
@@ -2231,6 +2449,9 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
   setShowProfessionalModal(false);
   setItemParaProfesional(null);
   setItemsQuitados([]);
+
+  // ← ← ← NUEVO: Resetear bandera de movimiento operativo ← ← ←
+  setMovimientoOperativoRegistrado(false);
   
   // ← ← ← CLAVE: Llamar onClose() DESPUÉS de todo ← ← ←
   console.log('🚪 [handleClose] Llamando a onClose()');
@@ -2254,7 +2475,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
           ? (tieneProfesional ? 'border-gray-700 cursor-pointer hover:border-blue-500' : 'border-red-500/50 cursor-pointer hover:border-red-500')
           : 'border-gray-700'
       }`}
-      onClick={() => item.tipo === 'servicio' && handleOpenProfessionalModal(item)}
+      onClick={() => item.tipo === 'servicio' && handleOpenProfessionalModal(item)} 
     >
       {/* ← ← ← FILA ÚNICA CON TODA LA INFORMACIÓN ← ← ← */}
       <div className="flex items-center justify-between gap-2 text-xs">
@@ -2286,8 +2507,8 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
         
         {/* Profesional con indicador visual (solo servicios) */}
         {item.tipo === 'servicio' && (
-          <span 
-            className={`text-[10px] truncate max-w-24 flex items-center gap-1 ${
+            <span
+              className={`text-[10px] truncate max-w-24 flex items-center gap-1 ${
               item.profesionalNombre ? 'text-blue-400' : 'text-red-400'
             }`}
             title={item.profesionalNombre || 'Click para asignar profesional'}
@@ -2466,35 +2687,60 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
             <div className="lg:col-span-1 space-y-5">
               
               {/* Tipo de Recibo 
-              <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
-                <label className="block text-sm font-semibold text-gray-300 mb-3">
-                  📋 Tipo de Recibo
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['entrada', 'salida', 'venta'] as const).map((tipo) => (
-                    <button
-                      key={tipo}
-                      onClick={() => !modoEdicion && setTipoRecibo(tipo)}
-                      disabled={modoEdicion}
-                      className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
-                        tipoRecibo === tipo
-                          ? tipo === 'entrada' ? 'bg-green-600 text-white'
-                          : tipo === 'salida' ? 'bg-orange-600 text-white'
-                          : 'bg-blue-600 text-white'
-                          : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                      }`}
-                    >
-                      {tipo === 'entrada' ? '💰' : tipo === 'salida' ? '💸' : '🛒'}
-                    </button>
-                  ))}
-                </div>
-              </div>*/}
-
-               {/* ← ← ← DATOS DEL CLIENTE: GRID COMPACTO EN UNA FILA ← ← ← */}
-              {tipoRecibo === 'venta' && (
+             
                 <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
                   <label className="block text-sm font-semibold text-gray-300 mb-3">
-                    👤 Datos del Cliente
+                    📋 Tipo de Movimiento
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['venta', 'entrada', 'salida'] as const).map((tipo) => (
+                      <button
+                        key={tipo}
+                        onClick={() => {
+                          // Limpiar items al cambiar de tipo para evitar basura
+                          if (tipo !== tipoRecibo && items.length > 0) {
+                            if (window.confirm('⚠️ Al cambiar el tipo se limpiarán los items actuales. ¿Continuar?')) {
+                              setItems([]);
+                              setTipoRecibo(tipo);
+                            }
+                          } else {
+                            setTipoRecibo(tipo);
+                          }
+                        }}
+                        className={`px-3 py-3 rounded-lg text-xs font-medium transition-all border-2 ${
+                          tipoRecibo === tipo
+                            ? tipo === 'entrada' 
+                              ? 'bg-green-600 border-green-400 text-white shadow-lg shadow-green-500/30'
+                              : tipo === 'salida' 
+                                ? 'bg-orange-600 border-orange-400 text-white shadow-lg shadow-orange-500/30'
+                                : 'bg-blue-600 border-blue-400 text-white shadow-lg shadow-blue-500/30'
+                            : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700 hover:border-gray-600'
+                        }`}
+                      >
+                        <div className="text-2xl mb-1">
+                          {tipo === 'entrada' ? '💰' : tipo === 'salida' ? '💸' : '🛒'}
+                        </div>
+                        <div className="font-bold">
+                          {tipo === 'entrada' ? 'Ingreso' : tipo === 'salida' ? 'Gasto' : 'Venta'}
+                        </div>
+                        <div className="text-[10px] opacity-75 mt-0.5">
+                          {tipo === 'entrada' ? 'Ej: Venta activo' : tipo === 'salida' ? 'Ej: Arriendo' : 'Servicios/Productos'}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>*/}
+             
+
+               {/* ← ← ← DATOS DEL CLIENTE: GRID COMPACTO EN UNA FILA ← ← ← */}
+              {tipoRecibo === 'venta' && (               
+                <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
+                  <label className="block text-sm font-semibold text-gray-300 mb-3">
+                    {tipoRecibo === 'venta' 
+                      ? '👤 Datos del Cliente' 
+                      : tipoRecibo === 'salida' 
+                        ? '🏢 Beneficiario / A quién se le paga (Opcional)' 
+                        : '💰 Origen / De quién se recibe (Opcional)'}
                   </label>
                   <div className="grid grid-cols-1 sm:grid-cols-1 gap-2">
                     <input
@@ -2522,8 +2768,8 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                 </div>
               )}
 
-              {/* Búsqueda de Items - ← ← ← AHORA SIEMPRE DISPONIBLE ← ← ← */}
-              {tipoRecibo !== 'entrada' && (
+              {/* Búsqueda de Items - CONDICIONAL PARA VENTAS VS MOVIMIENTOS */}
+              {tipoRecibo === 'venta' ? (
                 <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
                   <label className="block text-sm font-semibold text-gray-300 mb-3">
                     🔍 Agregar Items {modoEdicion && <span className="text-green-400">(✨ Nuevos)</span>}
@@ -2606,31 +2852,108 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                     </div>
                   )}
                 </div>
-              )}
+              ) : (              
+              // ← ← ← NUEVO: UI SIMPLIFICADA PARA ENTRADAS Y SALIDAS ← ← ←
+              <div className="bg-gray-900 rounded-xl p-4 border border-orange-700/50">
+                <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                  {tipoRecibo === 'entrada' ? '💰 Detalle del Ingreso' : '💸 Detalle del Gasto'}
+                </h3>
+                <div className="space-y-3">
+                  {/* ← ← ← LÍNEA 1: DESCRIPCIÓN (ancho completo) ← ← ← */}
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Descripción / Concepto</label>
+                    <input
+                      type="text"
+                      value={movimientoDescripcion}
+                      onChange={(e) => setMovimientoDescripcion(e.target.value)}
+                      onFocus={(e) => e.target.select()}  // ← ← ← AUTO-SELECT AL FOCUS
+                      placeholder="Ej: Pago arriendo mayo, Venta silla..."
+                      className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:ring-2 focus:ring-orange-500 outline-none"
+                    />
+                  </div>
+                  
+                  {/* ← ← ← LÍNEA 2: CANTIDAD Y MONTO/PRECIO ← ← ← */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Cantidad</label>
+                      <input
+                        type="number"
+                        min="0"  // ← ← ← CAMBIADO: De 1 a 0 para permitir borrar
+                        value={movimientoCantidad}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          // ← ← ← PERMITIR VACÍO: Si está vacío, dejar vacío, sino parsear
+                          if (val === '') {
+                            setMovimientoCantidad(0);
+                          } else {
+                            const parsed = parseInt(val);
+                            setMovimientoCantidad(isNaN(parsed) ? 0 : parsed);
+                          }
+                        }}
+                        onFocus={(e) => e.target.select()}  // ← ← ← AUTO-SELECT AL FOCUS
+                        className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:ring-2 focus:ring-orange-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Monto / Precio</label>
+                      <input
+                        type="number"
+                        min="0"  // ← ← ← CAMBIADO: De 0 a permitir vacío
+                        step="0.01"  // ← ← ← AGREGADO: Permitir decimales
+                        value={movimientoPrecio}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          // ← ← ← PERMITIR VACÍO: Si está vacío, dejar vacío, sino parsear
+                          if (val === '') {
+                            setMovimientoPrecio(0);
+                          } else {
+                            const parsed = parseFloat(val);
+                            setMovimientoPrecio(isNaN(parsed) ? 0 : parsed);
+                          }
+                        }}
+                        onFocus={(e) => e.target.select()}  // ← ← ← AUTO-SELECT AL FOCUS
+                        className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:ring-2 focus:ring-orange-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* ← ← ← LÍNEA 3: BOTÓN AGREGAR ← ← ← */}
+                  <button
+                    onClick={handleAgregarMovimiento}
+                    className={`w-full ${
+                      tipoRecibo === 'entrada' 
+                        ? 'bg-green-600 hover:bg-green-700' 
+                        : 'bg-orange-600 hover:bg-orange-700'
+                    } text-white font-bold py-2 px-4 rounded-lg transition-colors`}
+                  >
+                    + Agregar
+                  </button>
+                </div>
+              </div>
+            )}
 
              
 
-              {/* Método de Pago 
-              {tipoRecibo === 'venta' && (
+              {/* ← ← ← MÉTODO DE PAGO: SOLO PARA ENTRADAS Y SALIDAS ← ← ← */}
+              {(tipoRecibo === 'entrada' || tipoRecibo === 'salida') && (
                 <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
                   <label className="block text-sm font-semibold text-gray-300 mb-3">
-                    💳 Método de Pago
+                    💳 Método de {tipoRecibo === 'entrada' ? 'Recepción' : 'Pago'}
                   </label>
                   <select
                     value={metodoPago}
                     onChange={(e) => setMetodoPago(e.target.value)}
                     className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
                   >
-                    <option value="bold">Bold</option>
-                    <option value="efectivo">Efectivo</option>
-                    <option value="transferencia">Transferencia</option>
-                    <option value="nequi">Nequi</option>
-                    <option value="daviplata">Daviplata</option>
-                    <option value="tarjeta">Tarjeta</option>
-                    
+                    <option value="efectivo">💵 Efectivo</option>
+                    <option value="transferencia">🏦 Transferencia</option>
+                    <option value="nequi">📱 Nequi</option>
+                    <option value="daviplata">📱 Daviplata</option>
+                    <option value="bold">💳 Bold</option>
+                    <option value="tarjeta">💳 Tarjeta en sitio</option>
                   </select>
                 </div>
-              )}*/}
+              )}
 
               {/* ← ← ← SECCIÓN DE ABONOS REGISTRADOS (CORREGIDA) ← ← ← */}
         {modoEdicion && reciboId && estadoRecibo === 'borrador' && tipoRecibo === 'venta' && (
@@ -2921,8 +3244,8 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                       </div>
                     )}
                     
-                    {/* ← ← ← PROPINA: FORMATO UNIFICADO ← ← ← */}
-                    {propinaTotal > 0 && (
+                    {/* ← ← ← PROPINA: FORMATO UNIFICADO (SOLO VENTAS) ← ← ← */}
+                    {tipoRecibo === 'venta' && propinaTotal > 0 && (
                       <div className="flex justify-between">
                         <button
                           onClick={() => {
@@ -3085,9 +3408,8 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
           </div>
         )}*/}
 
-        {/* ← ← ← FOOTER CON BOTONES ACTUALIZADO ← ← ← */}
+        {/* ← ← ← FOOTER CON BOTONES CONDICIONALES ← ← ← */}
         <div className="sticky bottom-0 bg-gray-900 px-6 py-4 border-t border-gray-700 rounded-b-2xl flex gap-3">
-          
           {/* ← ← ← BOTÓN CANCELAR ← ← ← */}
           <button
             onClick={handleClose}
@@ -3097,135 +3419,136 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
             Cancelar
           </button>
           
-          {/* ← ← ← BOTÓN BORRADOR: Siempre visible para guardar sin publicar ← ← ← */}
-          {estadoRecibo === 'borrador' && !reciboId && !modoEdicion && (
+          {/* ← ← ← BOTONES PARA VENTAS (lógica existente con abonos) ← ← ← */}
+          {tipoRecibo === 'venta' && (
+            <>
+              {/* Botón Borrador para ventas nuevas */}
+              {estadoRecibo === 'borrador' && !reciboId && !modoEdicion && (
+                <button
+                  onClick={() => {
+                    setEstadoRecibo('borrador');
+                    handleGuardar();
+                  }}
+                  disabled={loading || items.length === 0}
+                  className="px-6 py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+                >
+                  {loading ? 'Guardando...' : ' Guardar Borrador'}
+                </button>
+              )}
+              
+              {/* Botón Actualizar para ventas en edición */}
+              {estadoRecibo === 'borrador' && modoEdicion && reciboId && (
+                <button
+                  onClick={() => {
+                    setEstadoRecibo('borrador');
+                    const payloadBase = {
+                      tipo: tipoRecibo,
+                      estado: 'borrador',
+                      subtotal: subtotal,
+                      descuento: descuento,
+                      total: total,
+                      propina_total: tipoRecibo === 'venta' ? propinaTotal : 0,
+                      propina_metodo_distribucion: tipoRecibo === 'venta' && propinaTotal > 0 ? propinaMetodo : null,
+                      metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
+                      session_caja: sessionCajaId,
+                      cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : '',
+                      cliente_telefono: tipoRecibo === 'venta' ? (clienteTelefono?.trim() || 'No proporcionado') : '',
+                      cliente_email: tipoRecibo === 'venta' ? (clienteEmail?.trim() || 'No@proporcionado.com') : '',
+                      notas: notas || '',
+                    };
+                    handleActualizarReciboConPayload(payloadBase);
+                  }}
+                  disabled={loading}
+                  className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+                >
+                  {loading ? 'Actualizando...' : '✏️ Actualizar Borrador'}
+                </button>
+              )}
+              
+              {/* Botón Publicar para ventas (con validación de abonos) */}
+              <button
+                onClick={async () => {
+                  if (!resumenAbonos?.puede_publicar) {
+                    alert(`⚠️ El recibo debe estar 100% abonado para publicar.\nActual: ${resumenAbonos?.porcentaje_abonado.toFixed(1)}%`);
+                    return;
+                  }
+                  const validacion = validarServiciosConProfesional();
+                  if (!validacion.valido) {
+                    mostrarAlertaServiciosSinProfesional(validacion.serviciosSinProfesional);
+                    return;
+                  }
+                  setEstadoRecibo('publicado');
+                  const payloadBase = {
+                    tipo: tipoRecibo,
+                    estado: 'publicado',
+                    subtotal: subtotal,
+                    descuento: descuento,
+                    total: total,
+                    propina_total: tipoRecibo === 'venta' ? propinaTotal : 0,
+                    propina_metodo_distribucion: tipoRecibo === 'venta' && propinaTotal > 0 ? propinaMetodo : null,
+                    metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
+                    session_caja: sessionCajaId,
+                    cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : '',
+                    cliente_telefono: tipoRecibo === 'venta' ? (clienteTelefono?.trim() || 'No proporcionado') : '',
+                    cliente_email: tipoRecibo === 'venta' ? (clienteEmail?.trim() || 'No@proporcionado.com') : '',
+                    notas: notas || '',
+                  };
+                  if (modoEdicion && reciboId) {
+                    await handleActualizarReciboConPayload(payloadBase);
+                  } else {
+                    await handleGuardarConPayload(payloadBase);
+                  }
+                }}
+                disabled={
+                  loading ||
+                  items.length === 0 ||
+                  !resumenAbonos?.puede_publicar
+                }
+                className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
+                  !resumenAbonos?.puede_publicar
+                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                    : 'bg-green-600 hover:bg-green-700 text-white'
+                }`}
+              >
+                {loading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Procesando...
+                  </>
+                ) : !resumenAbonos ? (
+                  ' Cargando abonos...'
+                ) : !resumenAbonos.puede_publicar ? (
+                  `⏳ ${resumenAbonos.porcentaje_abonado.toFixed(1)}% - Faltan ${formatMoney(resumenAbonos.saldo_pendiente)}`
+                ) : (
+                  '✅ Publicar Recibo'
+                )}
+              </button>
+            </>
+          )}
+          
+          {/* ← ← ← BOTÓN REGISTRAR MOVIMIENTO: Exclusivo para Entradas/Salidas ← ← ← */}
+          {(tipoRecibo === 'entrada' || tipoRecibo === 'salida') && (
             <button
-              onClick={() => {
-                setEstadoRecibo('borrador');
-                handleGuardar();  // ← Esto hace POST para crear nuevo recibo
-              }}
-              disabled={loading || (items.length === 0 && tipoRecibo !== 'entrada')}
-              className="px-6 py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+              onClick={handleRegistrarMovimientoOperativo}
+              disabled={loading || items.length === 0 || !metodoPago}
+              className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
+                tipoRecibo === 'entrada'
+                  ? 'bg-green-600 hover:bg-green-700 text-white'
+                  : 'bg-orange-600 hover:bg-orange-700 text-white'
+              }`}
             >
-              {loading ? 'Guardando...' : '💾 Guardar Borrador'}
+              {loading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Procesando...
+                </>
+              ) : (
+                <>
+                  {tipoRecibo === 'entrada' ? '💰 Registrar Ingreso' : '💸 Registrar Gasto'}
+                </>
+              )}
             </button>
           )}
-          {/* ← ← ← BOTÓN ACTUALIZAR: Solo para edición de borrador existente ← ← ← */}
-          {estadoRecibo === 'borrador' && modoEdicion && reciboId && (
-            <button
-              onClick={() => {
-                setEstadoRecibo('borrador');
-                // Usar la función de actualización con payload
-                // ← ← ← PREPARAR PAYLOAD ← ← ←
-                const payloadBase = {
-                  tipo: tipoRecibo,
-                  estado: 'borrador',  
-                  subtotal: subtotal,
-                  descuento: descuento,
-                  total: total,
-                  propina_total: propinaTotal,
-                  propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
-                  metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,  // ← ← ← AGREGAR ESTO
-                  session_caja: sessionCajaId,
-                  cliente_nombre: tipoRecibo === 'venta'
-                    ? (clienteNombre?.trim() || 'No proporcionado')
-                    : '',
-                  cliente_telefono: tipoRecibo === 'venta'
-                    ? (clienteTelefono?.trim() || 'No proporcionado')
-                    : '',
-                  cliente_email: tipoRecibo === 'venta'
-                    ? (clienteEmail?.trim() || 'No@proporcionado.com')
-                    : '',
-                  notas: notas || '',
-                };
-                handleActualizarReciboConPayload(payloadBase);  // ← Esto hace PATCH
-              }}
-              disabled={loading}
-              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
-            >
-              {loading ? 'Actualizando...' : '✏️ Actualizar Borrador'}
-            </button>
-          )}
-          {/* ← ← ← BOTÓN PUBLICAR: Solo habilitado si abonos = 100% ← ← ← */}
-          {/* ← ← ← BOTÓN PUBLICAR ACTUALIZADO ← ← ← */}
-  <button
-    onClick={async () => {
-      // ← ← ← VALIDACIÓN: Verificar 100% abonado ← ← ←
-      if (!resumenAbonos?.puede_publicar) {
-        alert(`⚠️ El recibo debe estar 100% abonado para publicar.\n\nActual: ${resumenAbonos?.porcentaje_abonado.toFixed(1)}% (${formatMoney(resumenAbonos?.total_abonado || 0)} / ${formatMoney(total)})`);
-        return;
-      }
-      
-      // ← ← ← VALIDACIÓN DE PROFESIONALES ← ← ←
-      const validacion = validarServiciosConProfesional();
-      if (!validacion.valido) {
-        mostrarAlertaServiciosSinProfesional(validacion.serviciosSinProfesional);
-        return;
-      }
-      
-      // ← ← ← VALIDAR MÉTODO DE PAGO (si aplica) ← ← ←
-      if (metodoPago === 'pendiente' && tipoRecibo === 'venta') {
-       setMetodoPago('bold');
-        console.log('🔄 Método de pago cambiado automáticamente: pendiente → bold');
-      }
-      
-      setEstadoRecibo('publicado');
-      
-      // ← ← ← PREPARAR PAYLOAD ← ← ←
-      const payloadBase = {
-        tipo: tipoRecibo,
-        estado: 'publicado',
-        subtotal: subtotal,
-        descuento: descuento,
-        total: total,
-        propina_total: propinaTotal,
-        propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
-        metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
-        session_caja: sessionCajaId,        
-        cliente_nombre: tipoRecibo === 'venta' 
-          ? (clienteNombre?.trim() || 'No proporcionado')   // ← Si es null/undefined/empty → ''
-          : '',          
-        cliente_telefono: tipoRecibo === 'venta' 
-          ? (clienteTelefono?.trim() || 'No proporcionado')  // ← CAMBIO CLAVE: '' en lugar de null
-          : '',          
-        cliente_email: tipoRecibo === 'venta' 
-          ? (clienteEmail?.trim() || 'No@proporcionado.com')     // ← CAMBIO CLAVE: '' en lugar de null
-          : '',    
-        notas: notas || '',
-      };
-      
-      console.log('🔍 [DEBUG] Payload para /publicar/:', payloadBase);
-      
-      if (modoEdicion && reciboId) {
-        await handleActualizarReciboConPayload(payloadBase);
-      } else {
-        await handleGuardarConPayload(payloadBase);
-      }
-    }}
-    disabled={
-      loading || 
-      (items.length === 0 && tipoRecibo !== 'entrada') || 
-      !resumenAbonos?.puede_publicar  // ← ← ← CLAVE: Solo habilitar si 100% abonado
-    }
-    className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
-      !resumenAbonos?.puede_publicar 
-        ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
-        : 'bg-green-600 hover:bg-green-700 text-white'
-    }`}
-  >
-    {loading ? (
-      <>
-        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-        Procesando...
-      </>
-    ) : !resumenAbonos ? (
-      '⏳ Cargando abonos...'
-    ) : !resumenAbonos.puede_publicar ? (
-      `⏳ ${resumenAbonos.porcentaje_abonado.toFixed(1)}% - Faltan ${formatMoney(resumenAbonos.saldo_pendiente)}`
-    ) : (
-      '✅ Publicar Recibo'
-    )}
-  </button>
         </div>
 
       </div>
