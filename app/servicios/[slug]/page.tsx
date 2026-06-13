@@ -30,7 +30,7 @@ interface Servicio {
 
 export default function ServicioDetallePage() {
   const params = useParams();
-  const router = useRouter();
+  const router = useRouter(); // ← ← ← USAR router PARA NAVEGACIÓN PROGRAMÁTICA
   const slug = params.slug as string;
 
   const [servicio, setServicio] = useState<Servicio | null>(null);
@@ -108,6 +108,24 @@ export default function ServicioDetallePage() {
   
   loadData();
 }, [slug]);
+
+  // ← ← ← FUNCIÓN PARA MANEJAR LA RESERVA CON VALORACIÓN ← ← ←
+  const handleReservarCita = () => {
+    if (!servicio) return;
+
+    // Construir URL con parámetros de consulta
+    const queryParams = new URLSearchParams({
+      servicio: servicio.id.toString(),
+      nombre: servicio.nombre,
+      precio: servicio.precio_min,
+      duracion: servicio.duracion || '60',
+      // Si requiere valoración, pasamos flag para activar modal en destino
+      ...(servicio.requiere_valoracion && { valoracion: 'true' })
+    });
+
+    // Redirigir al asistente de reservas
+    router.push(`/citas?${queryParams.toString()}`);
+  };
 
   if (loading) {
     return (
@@ -279,14 +297,16 @@ export default function ServicioDetallePage() {
               </div>
             </div>
 
-            {/* CTA Buttons */}
+            {/* CTA Buttons MODIFICADOS */}
             <div className="flex flex-col sm:flex-row gap-3">
-              <Link
-                href={`/citas?servicio=${servicio.id}`}  // ← AGREGAR ?servicio={id}
-                className="flex-1 text-center px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-full font-semibold shadow-lg hover:shadow-xl transition-all duration-300"
+              {/* ← ← ← CAMBIAR Link POR BUTTON PARA LÓGICA DINÁMICA ← ← ← */}
+              <button
+                onClick={handleReservarCita}
+                disabled={!servicio}
+                className="flex-1 text-center px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-full font-semibold shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 📅 Reservar Cita
-              </Link>
+              </button>
               
               <Link
                 href="/servicios"

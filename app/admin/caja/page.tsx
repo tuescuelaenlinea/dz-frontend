@@ -1711,53 +1711,57 @@ const cargarRecibosRecientes = async (
 // ← ← ← FUNCIÓN: Cargar vales (sesión + pendientes) ← ← ←
 // ← ← ← FUNCIÓN: Cargar vales (sesión + pendientes) ← ← ←
 // 🔁 Cambiar la función para aceptar sessionId explícito:
+// 🔁 REEMPLAZAR la función cargarVales completa:
 const cargarVales = async (sessionIdExplicito?: number | null) => {
   console.log('🔄 [cargarVales] Recibido sessionIdExplicito:', sessionIdExplicito);
-  
   setLoadingVales(true);
   try {
     // ← ← ← PRIORIDAD: Usar ID explícito si se proporciona
     const sessionId = sessionIdExplicito ?? sesionSeleccionada?.id ?? sessionActiva?.id;
-    
-    console.log('🔍 [cargarVales] sessionId final:', sessionId, '| sessionActiva:', sessionActiva?.id);
-    
-    // ← ← ← CARGAR VALES DE LA SESIÓN (si hay sessionId)
+    console.log('🔍 [cargarVales] sessionId final:', sessionId);
+
+    // ← ← ← CARGAR VALES DE LA SESIÓN ACTIVA/HISTÓRICA
     if (sessionId) {
-      const url = `${apiUrl}/caja/vales/?session_caja=${sessionId}&ordering=-fecha&limit=50`;
-      console.log('📡 Fetch vales de sesión:', url);
-      
-      const resSesion = await fetch(url, {
+      const urlSesion = `${apiUrl}/caja/vales/?session_caja=${sessionId}&ordering=-fecha&limit=50`;
+      console.log('📡 Fetch vales de sesión:', urlSesion);
+      const resSesion = await fetch(urlSesion, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
-      
       if (resSesion.ok) {
         const data = await resSesion.json();
-        const valesDeSesion = Array.isArray(data) ? data : (data.results || []);
-        
-        // ← ← ← LOG CRÍTICO: Verificar si vienen los campos de método de pago
-        console.log('📋 [DEBUG] Primer vale de sesión:', valesDeSesion[0] ? {
-          id: valesDeSesion[0].id,
-          codigo_vale: valesDeSesion[0].codigo_vale,
-          metodo_pago: valesDeSesion[0].metodo_pago,
-          metodo_pago_display: valesDeSesion[0].metodo_pago_display,
-          session_caja: valesDeSesion[0].session_caja
-        } : 'Sin vales');
-        
-        setValesSesion(valesDeSesion);
+        setValesSesion(Array.isArray(data) ? data : (data.results || []));
       } else {
-        const errorText = await resSesion.text().catch(() => 'N/A');
-        console.error('❌ Error cargando vales de sesión:', resSesion.status, errorText);
         setValesSesion([]);
       }
     } else {
-      console.log('ℹ️ No hay sessionId, limpiando valesSesion');
       setValesSesion([]);
     }
+
+    // ← ← ← NUEVO: CARGAR VALES PENDIENTES GLOBALES (estado='registrado')
+    // Esto asegura que cualquier vale pendiente aparezca aunque no tenga sesión asignada aún
+    const urlPendientes = `${apiUrl}/caja/vales/?estado=registrado&ordering=-fecha&limit=100`;
+    console.log('📡 Fetch vales pendientes globales:', urlPendientes);
+    const resPendientes = await fetch(urlPendientes, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
     
-    // ... resto de la función igual para vales pendientes ...
-    
+    if (resPendientes.ok) {
+      const data = await resPendientes.json();
+      const todosPendientes = Array.isArray(data) ? data : (data.results || []);
+      
+      // Filtrar solo los que NO están ya en valesSesion para evitar duplicados visuales
+      const idsEnSesion = new Set(valesSesion.map(v => v.id));
+      const pendientesFiltrados = todosPendientes.filter((v: ValeEmpleado) => !idsEnSesion.has(v.id));
+      
+      setValesPendientes(pendientesFiltrados);
+      console.log(`✅ Vales pendientes cargados: ${pendientesFiltrados.length} (total API: ${todosPendientes.length})`);
+    } else {
+      console.error('❌ Error cargando vales pendientes:', resPendientes.status);
+      setValesPendientes([]);
+    }
+
   } catch (err) {
-    console.error('❌ Error cargando vales:', err);
+    console.error('❌ Error general en cargarVales:', err);
     setValesSesion([]);
     setValesPendientes([]);
   } finally {
@@ -1902,7 +1906,8 @@ const cargarVales = async (sessionIdExplicito?: number | null) => {
 
       // Recargar recibos para mostrar el recibo de salida creado automáticamente
 if (sessionActiva?.id) {
-    await cargarRecibosRecientes(sessionActiva.id, true, Date.now());
+    await cargarRecibosRecientes(sessionActiva.id, true, Date.now());    
+    await cargarResumenSesion(sessionActiva.id);
 }
       setModalNuevoValeOpen(false);
       setNuevoVale({ 
@@ -2442,23 +2447,23 @@ const formatDate = (dateStr: string): string => {
       </div>
 
       
-      {/* ← Cards de Resumen ← ← ← CORREGIDO: Usar sesionActual ← ← ← */}
+      {/* ← Cards de Resumen UNIFICADAS CON EL RESUMEN DETALLADO ← ← ← */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Estado de Caja */}
         <div className={`rounded-xl p-4 border ${
           sesionActual
-          ? (sesionActual.estado === 'abierta' ? 'bg-green-900/30 border-green-700' : 'bg-blue-900/30 border-blue-700')
-          : 'bg-gray-800 border-gray-700'
+            ? (sesionActual.estado === 'abierta' ? 'bg-green-900/30 border-green-700' : 'bg-blue-900/30 border-blue-700')
+            : 'bg-gray-800 border-gray-700'
         }`}>
           <p className="text-sm text-gray-400">Estado de Caja</p>
           <p className={`text-lg font-bold ${
-            sesionActual 
-            ? (sesionActual.estado === 'abierta' ? 'text-green-400' : 'text-blue-400')
-            : 'text-gray-500'
+            sesionActual
+              ? (sesionActual.estado === 'abierta' ? 'text-green-400' : 'text-blue-400')
+              : 'text-gray-500'
           }`}>
-            {sesionActual 
-            ? (sesionActual.estado === 'abierta' ? '🟢 Abierta' : sesionActual.estado === 'cerrada' ? '🔵 Cerrada' : '🔴 Cancelada')
-            : '🔴 Cerrada'}
+            {sesionActual
+              ? (sesionActual.estado === 'abierta' ? '🟢 Abierta' : sesionActual.estado === 'cerrada' ? '🔵 Cerrada' : '🔴 Cancelada')
+              : '🔴 Cerrada'}
           </p>
           {sesionActual && (
             <p className="text-xs text-gray-400 mt-1">
@@ -2466,28 +2471,55 @@ const formatDate = (dateStr: string): string => {
             </p>
           )}
         </div>
-        
-        {/* Saldo Esperado */}
+
+        {/* Saldo Esperado (EFECTIVO) - USANDO RESUMEN DETALLADO */}
         <div className="bg-blue-900/30 rounded-xl p-4 border border-blue-700">
-          <p className="text-sm text-blue-300">Saldo Esperado</p>
+          <p className="text-sm text-blue-300">Saldo Esperado (Efectivo)</p>
           <p className="text-lg font-bold text-blue-400">
-            {sesionActual ? formatMoney(sesionActual.saldo_esperado || 0) : '$0'}
+            {(() => {
+              if (!sesionActual) return '$0';
+              
+              // Lógica idéntica al Resumen del Turno
+              const totalEntradasEfectivo = resumen?.total_entradas_efectivo
+                ? parseFloat(resumen.total_entradas_efectivo)
+                : (resumen?.desglose_entradas?.['efectivo']?.total
+                  ? parseFloat(resumen.desglose_entradas['efectivo'].total)
+                  : 0);
+                  
+              const totalSalidasEfectivo = resumen?.total_salidas_efectivo
+                ? parseFloat(resumen.total_salidas_efectivo)
+                : (resumen?.desglose_salidas?.['efectivo']?.total
+                  ? parseFloat(resumen.desglose_salidas['efectivo'].total)
+                  : 0);
+                  
+              const saldoInicial = parseFloat(sesionActual.saldo_inicial || '0');
+              const saldoEfectivoEsperado = saldoInicial + totalEntradasEfectivo - totalSalidasEfectivo;
+              
+              return formatMoney(saldoEfectivoEsperado);
+            })()}
           </p>
         </div>
-        
-        {/* Ventas del Turno */}
+
+        {/* Ventas Hoy (TODOS LOS MÉTODOS) - USANDO RESUMEN DETALLADO */}
         <div className="bg-purple-900/30 rounded-xl p-4 border border-purple-700">
           <p className="text-sm text-purple-300">Ventas Hoy</p>
           <p className="text-lg font-bold text-purple-400">
-            {sesionActual ? formatMoney(sesionActual.total_ventas || 0) : '$0'}
+            {sesionActual 
+              ? formatMoney(
+                  resumen?.total_ventas 
+                    ? parseFloat(resumen.total_ventas) 
+                    : parseFloat(sesionActual.total_ventas || '0')
+                )
+              : '$0'
+            }
           </p>
         </div>
-        
-        {/* Vales Pendientes */}
+
+        {/* Vales Pendientes - USANDO ESTADO REAL */}
         <div className="bg-orange-900/30 rounded-xl p-4 border border-orange-700">
           <p className="text-sm text-orange-300">Vales Pendientes</p>
           <p className="text-lg font-bold text-orange-400">
-            {valesPendientes.length}
+            {valesPendientes.filter(v => v.estado === 'registrado').length}
           </p>
         </div>
       </div>

@@ -234,7 +234,13 @@ export default function AdminPage() {
   const [notasCliente, setNotasCliente] = useState('');
 
   // ← ← ← NUEVO: Control de acordeón (solo un item expandido a la vez) ← ← ←
-const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+
+  // ← ← ← NUEVO: Estado para resultados de búsqueda desde backend ← ← ←
+  const [busquedaBackendServicios, setBusquedaBackendServicios] = useState<Servicio[]>([]);
+  const [loadingBusqueda, setLoadingBusqueda] = useState(false);
+
+ 
 
 // Función helper para toggle del acordeón
 const toggleItemExpanded = (itemId: string) => {
@@ -259,6 +265,39 @@ const [profesionalParaHorario, setProfesionalParaHorario] = useState<any>(null);
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
   const token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
 
+   // ← ← ← NUEVO: Efecto para buscar en backend con debounce ← ← ←
+useEffect(() => {
+  if (!serviceSearchTerm.trim()) {
+    setBusquedaBackendServicios([]);
+    return;
+  }
+
+  const timer = setTimeout(async () => {
+    setLoadingBusqueda(true);
+    try {
+      // El backend debe tener SearchFilter configurado en el viewset de Servicios
+      const res = await fetch(
+        `${apiUrl}/servicios/?search=${encodeURIComponent(serviceSearchTerm)}&activo=true&page_size=100`, 
+        {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        // Manejar tanto lista plana como paginada
+        const results = Array.isArray(data) ? data : (data.results || []);
+        setBusquedaBackendServicios(results);
+      }
+    } catch (err) {
+      console.error('❌ Error buscando servicios:', err);
+    } finally {
+      setLoadingBusqueda(false);
+    }
+  }, 400); // Debounce de 400ms
+
+  return () => clearTimeout(timer);
+}, [serviceSearchTerm, apiUrl, token]);
+  
   // ← ← ← CARGA DE DATOS INICIAL ← ← ←
   useEffect(() => {
     async function loadData() {
@@ -275,7 +314,8 @@ const [profesionalParaHorario, setProfesionalParaHorario] = useState<any>(null);
         
         const [serviciosData, productosData, profsData] = await Promise.all([
           // ← ← ← CAMBIO CLAVE: Agregar incluir_solo_caja=true ← ← ←
-          fetch(`${apiUrl}/servicios/?ordering=nombre&page_size=1000&incluir_solo_caja=true&incluir_inactivos=true`, {
+          // Usamos page_size=5000 para asegurar traer todos los servicios activos disponibles
+          fetch(`${apiUrl}/servicios/?activo=true&ordering=nombre&page_size=5000&incluir_solo_caja=true`, {
             headers: token ? { 'Authorization': `Bearer ${token}` } : {}
           }).then(res => res.ok ? res.json() : { results: [] }),
           
@@ -408,18 +448,13 @@ useEffect(() => {
   
 // ← ← ← FILTROS DE BÚSQUEDA (prioridad sobre categoría) ← ← ←
 const serviciosFiltrados = useMemo(() => {
-  if (!serviceSearchTerm.trim()) return serviciosPorCategoria;
-  
-  const searchTerm = serviceSearchTerm.toLowerCase();
-  
-  return servicios.filter(s => {
-    // ← ← ← VERIFICAR QUE LOS CAMPOS EXISTAN ANTES DE USAR toLowerCase ← ← ←
-    const nombre = s.nombre?.toLowerCase() || '';
-    const categoria = s.categoria_nombre?.toLowerCase() || '';
-    
-    return nombre.includes(searchTerm) || categoria.includes(searchTerm);
-  });
-}, [servicios, serviceSearchTerm, serviciosPorCategoria]);
+  // Si hay búsqueda activa, usamos los resultados del backend
+  if (serviceSearchTerm.trim()) {
+    return busquedaBackendServicios;
+  }
+  // Si no hay búsqueda, usamos el filtro por categoría local
+  return serviciosPorCategoria;
+}, [serviceSearchTerm, busquedaBackendServicios, serviciosPorCategoria]);
 
   const productosFiltrados = useMemo(() => {
   if (!productSearchTerm.trim()) return productos;
@@ -1126,6 +1161,15 @@ const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
                   <h3 className="text-sm font-semibold text-gray-300 mb-3 px-2">
                     🔍 Resultados para "{serviceSearchTerm || productSearchTerm}"
                   </h3>
+                  {loadingBusqueda && (
+                    <div className="flex items-center justify-center py-4 text-blue-400">
+                      <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                      </svg>
+                      Buscando servicios...
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                     
                     {/* Servicios filtrados por búsqueda */}

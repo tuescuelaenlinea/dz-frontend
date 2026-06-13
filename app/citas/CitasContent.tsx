@@ -137,6 +137,58 @@ export default function CitasContent() {
     return itemsReserva.reduce((total, item) => total + item.precio, 0);
   };
 
+    // ← ← ← EFECTO PARA PROCESAR PARÁMETROS DE SERVICIO PREDEFINIDO ← ← ←
+  useEffect(() => {
+    const servicioId = searchParams.get('servicio');
+    const servicioNombre = searchParams.get('nombre');
+    const servicioPrecio = searchParams.get('precio');
+    const servicioDuracion = searchParams.get('duracion');
+    const requiereValoracion = searchParams.get('valoracion') === 'true';
+    
+    if (servicioId && currentStep === 1) {
+      console.log('🎯 Servicio predefinido detectado:', servicioNombre);
+      
+      // ← ← ← CORRECCIÓN: Crear el objeto directamente desde los params ← ← ←
+      const servicioPredefinido: Servicio = {
+        id: parseInt(servicioId),
+        nombre: servicioNombre || 'Servicio',
+        slug: '',
+        precio_min: servicioPrecio || '0',
+        precio_max: null,
+        duracion: servicioDuracion || '60',
+        categoria: 0,
+        categoria_nombre: '',
+        imagen: null,
+        imagen_url: null,
+        disponible_salon: true,
+        disponible_domicilio: false,
+        adicional_domicilio: '0',
+        requiere_valoracion: requiereValoracion
+      };
+
+      // Configurar itemActual con el servicio
+      setItemActual(prev => ({
+        ...prev,
+        servicio: servicioPredefinido,
+        precio: parseInt(servicioPredefinido.precio_min) || 0
+      }));
+
+      // Si requiere valoración, abrir modal inmediatamente
+      if (requiereValoracion) {
+        console.log('⚠️ Activando modal de valoración...');
+        setModalValoracionOpen(true);
+        setRespuestasValoracion([]);
+        setPrecioCalculadoValoracion(null);
+      } else {
+        // Si NO requiere valoración, avanzar directamente al paso 2
+        setCurrentStep(2);
+      }
+
+      // Limpiar URL para evitar re-ejecuciones al recargar
+      router.replace('/citas', { scroll: false });
+    }
+  }, [searchParams, currentStep]); 
+
   // Cargar configuración de Bold
   useEffect(() => {
     async function loadConfig() {
