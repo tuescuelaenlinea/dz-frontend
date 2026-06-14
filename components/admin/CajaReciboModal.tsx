@@ -77,6 +77,34 @@ interface AbonoRecibo {
   notas?: string;
 }
 
+// ← ← ← AGREGAR A LAS INTERFACES EXISTENTES ← ← ←
+interface InfoAliado {
+  es_aliado: boolean;
+  porcentaje: number;
+  aliado_nombre: string;
+  convenio_id: number | null;
+  cliente_aliado_id: number | null;
+}
+
+// ← ← ← NUEVAS INTERFACES PARA BÚSQUEDA DE CLIENTES ← ← ←
+interface Cliente {
+  id: number;
+  nombre: string;
+  telefono: string;
+  email: string;
+  esRegistrado: boolean;
+  userId?: number;
+}
+
+interface NuevoClienteData {
+  nombre: string;
+  telefono: string;
+  email: string;
+}
+
+
+
+
 // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
 // ← ← ← HELPERS: Fechas con timezone Colombia (UTC-5) ← ← ←
 // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
@@ -153,6 +181,19 @@ export default function CajaReciboModal({
   const [montoPagar, setMontoPagar] = useState<number>(0);
   const montoPagarEditedRef = useRef(false);
   
+  // ← ← ← NUEVOS ESTADOS PARA BÚSQUEDA DE CLIENTES ← ← ←
+const [showClientModal, setShowClientModal] = useState(false);
+const [showRegisterModal, setShowRegisterModal] = useState(false);
+const [clientes, setClientes] = useState<Cliente[]>([]);
+const [clienteSearchTerm, setClienteSearchTerm] = useState('');
+const [clienteSeleccionadoId, setClienteSeleccionadoId] = useState<number | null>(null);
+const [nuevoClienteData, setNuevoClienteData] = useState<NuevoClienteData>({
+  nombre: '',
+  telefono: '',
+  email: ''
+});
+
+
   // ← ← ← NUEVOS ESTADOS PARA MODO EDICIÓN ← ← ←
   const [modoEdicion, setModoEdicion] = useState(false);
   const [reciboEditando, setReciboEditando] = useState<any | null>(null);
@@ -213,15 +254,39 @@ export default function CajaReciboModal({
   const [mostrarSelectorTipo, setMostrarSelectorTipo] = useState(true); 
 
   // ← ← ← AGREGAR ESTO junto a tus otros useState ← ← ←
-const [abonos, setAbonos] = useState<AbonoRecibo[]>([]);
-// ← ← ← CALCULAR TOTALES ← ← ←
 const subtotal = useMemo(() => {
-  return items.reduce((sum, item) => sum + item.subtotal, 0);
+  return items.reduce((sum, item) => {
+    const precio = Number(item.precioUnitario) || 0;
+    const cantidad = Number(item.cantidad) || 1;
+    return sum + (cantidad * precio);
+  }, 0);
 }, [items]);
 
+// ← ← ← AGREGAR ESTO ← ← ←
+const [abonos, setAbonos] = useState<AbonoRecibo[]>([]);
+
+
+// ← ← ← AGREGAR ESTOS ESTADOS junto a tus otros useState ← ← ←
+const [infoAliado, setInfoAliado] = useState<InfoAliado>({
+  es_aliado: false,
+  porcentaje: 0,
+  aliado_nombre: '',
+  convenio_id: null,
+  cliente_aliado_id: null
+});
+
+const [descuentoAliadoAutomatico, setDescuentoAliadoAutomatico] = useState<number>(0);
+
+// ← ← ← MODIFICAR: Incluir descuento de aliado en el total ← ← ←
+// ← ← ← REEMPLAZAR el useMemo de total por este:
 const total = useMemo(() => {
-  return subtotal - descuento + propinaTotal;
-}, [subtotal, descuento, propinaTotal]);
+  // Solo se aplica un descuento (el que esté en el campo descuento)
+  const descuentoAplicado = Number(descuento) || 0;
+  const totalCalculado = subtotal - descuentoAplicado + (tipoRecibo === 'venta' ? propinaTotal : 0);
+  // No permitir totales negativos
+  return Math.max(0, Math.round(totalCalculado * 100) / 100);
+}, [subtotal, descuento, propinaTotal, tipoRecibo]);
+
 
 // ← ← ← RESUMEN DE ABONOS (reactivo + detección de exceso de pago) ← ← ←
 const resumenAbonos = useMemo(() => {
@@ -314,6 +379,98 @@ const cargarResumenAbonos = async (reciboId: number) => {
     setAbonos([]);  // Fallback: lista vacía
   }
 };
+
+
+// ← ← ← NUEVA FUNCIÓN: Cargar clientes desde backend ← ← ←
+const loadClientes = async () => {
+  try {
+    // 1. Cargar usuarios registrados
+    const usuariosRes = await fetch(`${apiUrl}/usuarios/`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    
+    let usuariosRegistrados: Cliente[] = [];
+    if (usuariosRes.ok) {
+      const usuariosData = await usuariosRes.json();
+      const usuariosList = Array.isArray(usuariosData) ? usuariosData : (usuariosData.results || []);
+      
+      usuariosRegistrados = usuariosList.map((u: any) => ({
+        id: u.id,
+        nombre: [u.first_name, u.last_name, '-', u.username].filter(Boolean).join(' ').trim() || u.email?.split('@')[0] || 'Usuario',
+        telefono: u.perfil?.telefono || u.telefono || u.username || '',
+        email: u.email || '',
+        esRegistrado: true,
+        userId: u.id
+      }));
+    }
+    
+    // 2. Cargar clientes de citas (no registrados)
+    const citasRes = await fetch(`${apiUrl}/citas/`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    
+    let clientesNoRegistrados: Cliente[] = [];
+    if (citasRes.ok) {
+      const citasData = await citasRes.json();
+      const citasList = Array.isArray(citasData) ? citasData : (citasData.results || []);
+      
+      const clientesMap = new Map<string, Cliente>();
+      for (const cita of citasList) {
+        const nombre = cita.cliente_nombre?.trim();
+        const email = cita.cliente_email?.trim()?.toLowerCase();
+        const clienteId = cita.cliente;
+        
+        if (!nombre || clienteId) continue;
+        
+        const key = `${nombre.toLowerCase()}|${email || ''}`;
+        if (!clientesMap.has(key)) {
+          clientesMap.set(key, {
+            id: -Date.now() - Math.random() * 1000,
+            nombre: nombre,
+            telefono: cita.cliente_telefono || '',
+            email: email || '',
+            esRegistrado: false
+          });
+        }
+      }
+      clientesNoRegistrados = Array.from(clientesMap.values());
+    }
+    
+    // 3. Combinar y ordenar
+    const clientesCombinadosMap = new Map<number, Cliente>();
+    for (const usuario of usuariosRegistrados) clientesCombinadosMap.set(usuario.id, usuario);
+    for (const cliente of clientesNoRegistrados) clientesCombinadosMap.set(cliente.id, cliente);
+    
+    const todosClientes = Array.from(clientesCombinadosMap.values())
+      .sort((a, b) => {
+        if (a.esRegistrado && !b.esRegistrado) return -1;
+        if (!a.esRegistrado && b.esRegistrado) return 1;
+        return a.nombre.localeCompare(b.nombre);
+      });
+    
+    setClientes(todosClientes.slice(0, 300));
+  } catch (err) {
+    console.error('❌ Error cargando clientes:', err);
+  }
+};
+
+// ← ← ← NUEVO useEffect: Cargar clientes cuando se abre el modal ← ← ←
+useEffect(() => {
+  if (showClientModal) {
+    loadClientes();
+  }
+}, [showClientModal]);
+
+// ← ← ← NUEVO useMemo: Filtrar clientes ← ← ←
+const clientesFiltrados = useMemo(() => {
+  if (!clienteSearchTerm.trim()) return clientes;
+  return clientes.filter(c => 
+    c.nombre.toLowerCase().includes(clienteSearchTerm.toLowerCase()) ||
+    c.telefono.includes(clienteSearchTerm) ||
+    c.email.toLowerCase().includes(clienteSearchTerm.toLowerCase())
+  );
+}, [clientes, clienteSearchTerm]);
+
 const handleAgregarMovimiento = () => {
   if (!movimientoDescripcion.trim()) {
     alert('⚠️ Por favor ingresa una descripción para el movimiento.');
@@ -340,6 +497,100 @@ const handleAgregarMovimiento = () => {
   setMovimientoDescripcion('');
   setMovimientoCantidad(1);
   setMovimientoPrecio(0);
+};
+
+
+// ← ← ← NUEVA FUNCIÓN: Verificar si cliente es aliado ← ← ←
+const verificarClienteAliado = async (email: string, telefono: string, citaId?: number) => {
+  if (!email && !telefono && !citaId) {
+    setInfoAliado({
+      es_aliado: false,
+      porcentaje: 0,
+      aliado_nombre: '',
+      convenio_id: null,
+      cliente_aliado_id: null
+    });
+    return;
+  }
+
+  try {
+    const params = new URLSearchParams();
+    if (email) params.append('email', email);
+    if (telefono) params.append('telefono', telefono);
+    if (citaId) params.append('cita_id', String(citaId));
+
+    const res = await fetch(
+      `${apiUrl}/aliados/verificar-cliente/?${params.toString()}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      }
+    );
+
+    if (res.ok) {
+      const data = await res.json();
+      console.log('✅ [verificarClienteAliado] Respuesta:', data);
+      setInfoAliado({
+        es_aliado: data.es_aliado || false,
+        porcentaje: data.porcentaje || 0,
+        aliado_nombre: data.aliado_nombre || '',
+        convenio_id: data.convenio_id || null,
+        cliente_aliado_id: data.cliente_aliado_id || null
+      });
+    } else {
+      console.warn('⚠️ [verificarClienteAliado] No se pudo verificar:', res.status);
+      setInfoAliado({
+        es_aliado: false,
+        porcentaje: 0,
+        aliado_nombre: '',
+        convenio_id: null,
+        cliente_aliado_id: null
+      });
+    }
+  } catch (error) {
+    console.error('❌ [verificarClienteAliado] Error:', error);
+    setInfoAliado({
+      es_aliado: false,
+      porcentaje: 0,
+      aliado_nombre: '',
+      convenio_id: null,
+      cliente_aliado_id: null
+    });
+  }
+};
+
+
+// ← ← ← NUEVAS FUNCIONES: Selección de cliente ← ← ←
+const handleClienteSelect = (cliente: Cliente) => {
+  setClienteNombre(cliente.nombre);
+  setClienteTelefono(cliente.telefono);
+  setClienteEmail(cliente.email);
+  setClienteSeleccionadoId(cliente.esRegistrado ? cliente.userId || null : null);
+  setShowClientModal(false);
+  setClienteSearchTerm(''); // Limpiar búsqueda
+};
+
+const handleNuevoCliente = () => {
+  setNuevoClienteData({ nombre: '', telefono: '', email: '' });
+  setShowRegisterModal(true);
+};
+
+const handleGuardarNuevoCliente = () => {
+  if (!nuevoClienteData.nombre.trim()) {
+    alert('⚠️ El nombre es requerido');
+    return;
+  }
+  
+  setClienteNombre(nuevoClienteData.nombre);
+  setClienteTelefono(nuevoClienteData.telefono);
+  setClienteEmail(nuevoClienteData.email);
+  setClienteSeleccionadoId(null);
+  setShowRegisterModal(false);
+  setShowClientModal(false);
+  alert(`✅ Cliente "${nuevoClienteData.nombre}" agregado`);
 };
 
 // ← ← ← NUEVA FUNCIÓN: Registrar Movimiento Operativo (Entrada/Salida) ← ← ←
@@ -517,6 +768,38 @@ const getTimeForColombia = (date: Date): string => {
 };
 
 
+// ← ← ← NUEVO useEffect: Verificar aliado cuando cambian datos del cliente ← ← ←
+useEffect(() => {
+  // Solo verificar en modo venta y si hay datos del cliente
+  if (tipoRecibo !== 'venta') {
+    setInfoAliado({
+      es_aliado: false,
+      porcentaje: 0,
+      aliado_nombre: '',
+      convenio_id: null,
+      cliente_aliado_id: null
+    });
+    return;
+  }
+
+  // Buscar la primera cita de servicio para obtener el cliente
+  const primeraCitaServicio = items.find(i => i.tipo === 'servicio' && i.citaId);
+  
+  if (clienteEmail || clienteTelefono || primeraCitaServicio?.citaId) {
+    // Debounce para no hacer muchas llamadas mientras se escribe
+    const timeoutId = setTimeout(() => {
+      verificarClienteAliado(
+        clienteEmail, 
+        clienteTelefono, 
+        primeraCitaServicio?.citaId
+      );
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }
+}, [clienteEmail, clienteTelefono, items, tipoRecibo]);
+
+
   // ← ← ← REEMPLAZAR el useEffect existente por este ← ← ←
 useEffect(() => {
   // Solo sincronizar si el usuario NO ha editado manualmente
@@ -641,7 +924,41 @@ const registrarAbonoEnCitas = async (montoAbono: number, metodoPago: string) => 
       setReciboEditando(recibo);
       setReciboId(recibo.id);
       setTipoRecibo(recibo.tipo);
-      setDescuento(parseFloat(recibo.descuento) || 0);
+      // ← ← ← CLAVE: Separar descuento manual del descuento de aliado ← ← ←
+      const descuentoTotalGuardado = parseFloat(recibo.descuento) || 0;
+      let descuentoManual = descuentoTotalGuardado;
+      
+      // Si el recibo tiene info de aliado, calcular el descuento de aliado y restarlo
+      if (recibo.cliente_aliado_id && recibo.convenio_id) {
+        // Obtener porcentaje del aliado desde las notas o calcularlo
+        const notasMatch = recibo.notas?.match(/\[(\d+(?:\.\d+)?)%\]/);
+        const porcentajeAliado = notasMatch ? parseFloat(notasMatch[1]) : 0;
+        
+        if (porcentajeAliado > 0) {
+          // Calcular subtotal de servicios del recibo cargado
+          const subtotalServicios = recibo.items
+            .filter((item: any) => item.tipo_item === 'servicio')
+            .reduce((sum: number, item: any) => sum + parseFloat(item.subtotal), 0);
+          
+          const descuentoAliadoCalculado = (subtotalServicios * porcentajeAliado) / 100;
+          
+          // El descuento manual es el total menos el de aliado
+          descuentoManual = Math.max(0, descuentoTotalGuardado - descuentoAliadoCalculado);
+          
+          // Actualizar infoAliado para que se muestre correctamente
+          setInfoAliado({
+            es_aliado: true,
+            porcentaje: porcentajeAliado,
+            aliado_nombre: recibo.cliente_nombre?.split('-')[0]?.trim() || 'Aliado',
+            convenio_id: recibo.convenio_id,
+            cliente_aliado_id: recibo.cliente_aliado_id
+          });
+          
+          console.log(`🔍 Descuento total: ${descuentoTotalGuardado}, Aliado: ${descuentoAliadoCalculado}, Manual: ${descuentoManual}`);
+        }
+      }
+      
+      setDescuento(descuentoManual);
       setPropinaTotal(parseFloat(recibo.propina_total) || 0);
       setPropinaEditable(String(recibo.propina_total || 0));
       setMetodoPago(recibo.metodo_pago || 'bold');
@@ -958,24 +1275,66 @@ const registrarAbonoEnCitas = async (montoAbono: number, metodoPago: string) => 
     }
   };
 
-  // ← ← ← PREVENIR CIERRE ACCIDENTAL DEL MODAL ← ← ←
-useEffect(() => {
-  const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-    // Solo mostrar advertencia si hay items en el recibo
-    if (items.length > 0 && modoEdicion && reciboId) {
-      const message = 'Tienes un recibo en edición con items. ¿Seguro que deseas salir?';
-      e.preventDefault();
-      e.returnValue = message;
-      return message;
+  // ← ← ← NUEVO useMemo: Calcular descuento automático de aliado ← ← ←
+  const descuentoAliadoCalculado = useMemo(() => {
+    // Si no es aliado, no hay descuento
+    if (!infoAliado.es_aliado || infoAliado.porcentaje <= 0) {
+      return 0;
     }
-  };
-  
-  window.addEventListener('beforeunload', handleBeforeUnload);
-  
-  return () => {
-    window.removeEventListener('beforeunload', handleBeforeUnload);
-  };
-}, [items.length, modoEdicion, reciboId]);
+
+    // Solo calcular sobre SERVICIOS (no productos)
+    const subtotalServicios = items
+      .filter(item => item.tipo === 'servicio')
+      .reduce((sum, item) => {
+        const cantidad = Number(item.cantidad) || 1;
+        const precio = Number(item.precioUnitario) || 0;        
+        return sum + (cantidad * precio);
+      }, 0);
+
+console.log(`🧮 [descuentoAliadoCalculado] Subtotal servicios: $${subtotalServicios} | Items servicios: ${items.filter(i => i.tipo === 'servicio').length}`);
+
+
+    if (subtotalServicios <= 0) return 0;
+
+    // Calcular descuento proporcional
+    const descuento = (subtotalServicios * infoAliado.porcentaje) / 100;
+    
+    // Redondear a 2 decimales
+    const resultado = Math.round(descuento * 100) / 100;
+    console.log(`💰 [descuentoAliadoCalculado] Descuento calculado: $${resultado} (${infoAliado.porcentaje}%)`);
+    return resultado;
+    }, [items, infoAliado.es_aliado, infoAliado.porcentaje]);
+
+  // ← ← ← ACTUALIZAR ESTADO cuando cambia el cálculo ← ← ←
+  /*useEffect(() => {
+    setDescuentoAliadoAutomatico(descuentoAliadoCalculado);
+  }, [descuentoAliadoCalculado]);*/
+
+  useEffect(() => {
+  // Si hay descuento de aliado, actualizar el descuento automáticamente
+  if (infoAliado.es_aliado && infoAliado.porcentaje > 0 && descuentoAliadoCalculado > 0) {
+    setDescuento(descuentoAliadoCalculado);
+  }
+}, [descuentoAliadoCalculado, infoAliado.es_aliado, infoAliado.porcentaje]);
+
+    // ← ← ← PREVENIR CIERRE ACCIDENTAL DEL MODAL ← ← ←
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Solo mostrar advertencia si hay items en el recibo
+      if (items.length > 0 && modoEdicion && reciboId) {
+        const message = 'Tienes un recibo en edición con items. ¿Seguro que deseas salir?';
+        e.preventDefault();
+        e.returnValue = message;
+        return message;
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [items.length, modoEdicion, reciboId]);
 
   // ← Cargar profesionales para propinas
   useEffect(() => {
@@ -1153,6 +1512,8 @@ useEffect(() => {
       setLoading(false);
     }
   };
+
+
 
 // ← ← ← ACTUALIZAR CANTIDAD + SINCRONIZAR CON BACKEND ← ← ←
 const actualizarCantidadItem = async (itemId: string, nuevaCantidad: number) => {
@@ -1427,6 +1788,9 @@ const removerItem = async (itemId: string) => {
   // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
   // ← ← ← NUEVO ESTADO: Para rastrear items quitados en modo edición ← ← ←
 const [itemsQuitados, setItemsQuitados] = useState<string[]>([]);
+
+
+
 
 // ← ← ← UBICACIÓN: Función quitarItemDelRecibo en CajaReciboModal.tsx
 const quitarItemDelRecibo = (itemId: string) => {
@@ -1891,7 +2255,9 @@ if (metodoPago === 'pendiente') {
         estado: estadoRecibo,
         //fecha: getColombiaDateTime(),  // Ej: "2026-05-19T19:30:00"
         subtotal: subtotal,
-        descuento: descuento,
+
+        // ← ← ← CLAVE: Sumar descuento manual + descuento aliado automático ← ← ←
+        descuento: Math.round((Number(descuento) || 0) * 100) / 100,
         total: total,
         propina_total: tipoRecibo === 'venta' ? propinaTotal : 0,
         propina_metodo_distribucion: tipoRecibo === 'venta' && propinaTotal > 0 ? propinaMetodo : null,
@@ -1907,7 +2273,12 @@ if (metodoPago === 'pendiente') {
         cliente_email: tipoRecibo === 'venta' 
           ? (clienteEmail?.trim() || 'No@proporcionado.com')     // ← CAMBIO CLAVE: '' en lugar de null
           : '',
-        notas: notas || '',
+        // ← ← ← AGREGAR: Información del aliado para trazabilidad ← ← ←
+          ...(infoAliado.es_aliado && {
+            cliente_aliado_id: infoAliado.cliente_aliado_id,
+            convenio_id: infoAliado.convenio_id,
+            notas: `${notas || ''}\n[ALIADO] ${infoAliado.aliado_nombre} - ${infoAliado.porcentaje}% descuento`.trim()
+          }),
         items_data: items.map(item => {
           // ← ← ← VALIDACIÓN MEJORADA DE ID ← ← ←
           const itemIdNum = item.id && !isNaN(Number(item.id)) ? Number(item.id) : null;
@@ -2169,7 +2540,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
             tipo: payloadBase.tipo,
             estado: payloadBase.estado,
             subtotal: Math.round(subtotal * 100) / 100,
-            descuento: Math.round(descuento * 100) / 100,
+            descuento: Math.round((Number(descuento) || 0) * 100) / 100,
             total: Math.round(total * 100) / 100,
             propina_total: Math.round(propinaTotal * 100) / 100,
             propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
@@ -2733,23 +3104,48 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
              
 
                {/* ← ← ← DATOS DEL CLIENTE: GRID COMPACTO EN UNA FILA ← ← ← */}
-              {tipoRecibo === 'venta' && (               
+              {tipoRecibo === 'venta' && (
                 <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
-                  <label className="block text-sm font-semibold text-gray-300 mb-3">
-                    {tipoRecibo === 'venta' 
-                      ? '👤 Datos del Cliente' 
-                      : tipoRecibo === 'salida' 
-                        ? '🏢 Beneficiario / A quién se le paga (Opcional)' 
-                        : '💰 Origen / De quién se recibe (Opcional)'}
+                  <label className="block text-sm font-semibold text-gray-300 mb-3 flex items-center justify-between">
+                    <span>👤 Datos del Cliente</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowClientModal(true)}
+                      className="text-blue-400 hover:text-blue-300 text-xs flex items-center gap-1"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      Buscar
+                    </button>
                   </label>
                   <div className="grid grid-cols-1 sm:grid-cols-1 gap-2">
-                    <input
-                      type="text"
-                      value={clienteNombre}
-                      onChange={(e) => setClienteNombre(e.target.value)}
-                      placeholder="👤 Nombre"
-                      className="px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
-                    />
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={clienteNombre}
+                        onChange={(e) => setClienteNombre(e.target.value)}
+                        placeholder="👤 Nombre del cliente"
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none pr-8"
+                      />
+                      {clienteSeleccionadoId && (
+                        <button
+                          onClick={() => {
+                            setClienteSeleccionadoId(null);
+                            setClienteNombre('');
+                            setClienteTelefono('');
+                            setClienteEmail('');
+                          }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-400"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+
+
                     <input
                       type="tel"
                       value={clienteTelefono}
@@ -3236,14 +3632,38 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                       <span className="text-gray-400">Subtotal:</span>
                       <span className="text-white">{formatMoney(subtotal)}</span>
                     </div>
+                    {/* ← ← ← AGREGAR ESTE BLOQUE en la sección de totales ← ← ← */}
+                      {infoAliado.es_aliado && infoAliado.porcentaje > 0 && (
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-3">
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2">
+                              <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                              <span className="font-medium text-green-800">
+                                Descuento Aliado: {infoAliado.aliado_nombre} ({infoAliado.porcentaje}%)
+                              </span>
+                            </div>
+                             {descuentoAliadoCalculado > 0 && (
+                            <span className="font-semibold text-green-700">
+                              {formatMoney(descuentoAliadoCalculado)} 
+                            </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-green-600 mt-1">
+                            Aplica solo sobre servicios. Productos sin descuento.
+                          </p>
+
+                        </div>
+                      )}                                      
                     
-                    {descuento > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Descuento:</span>
-                        <span className="text-orange-400">-{formatMoney(descuento)}</span>
-                      </div>
-                    )}
-                    
+
+                      {Number(descuento) > 0 && (
+                        <div className="flex justify-between text-sm text-orange-600">
+                          <span>Descuento Manual:</span>
+                          <span>-{formatMoney(descuento)}</span>
+                        </div>
+                      )}
                     {/* ← ← ← PROPINA: FORMATO UNIFICADO (SOLO VENTAS) ← ← ← */}
                     {tipoRecibo === 'venta' && propinaTotal > 0 && (
                       <div className="flex justify-between">
@@ -3741,16 +4161,18 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                 <label className="block text-sm font-semibold text-gray-300 mb-2">
                   Método de pago del abono
                 </label>
+                {/* ← ← ← AGREGAR autoFocus AQUÍ ← ← ← */}
                 <select
                   value={metodoPagoAbono}
                   onChange={(e) => setMetodoPagoAbono(e.target.value)}
                   className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-green-500 focus:outline-none"
+                  autoFocus  // ← ← ← ESTO HACE QUE EL SELECT TENGA EL FOCO AL ABRIR
                 >
                   <option value="bold">💳 Bold</option>
                   <option value="efectivo">💵 Efectivo</option>
                   <option value="transferencia">🏦 Transferencia</option>
                   <option value="nequi">📱 Nequi</option>
-                  <option value="daviplata">📱 Daviplata</option>                  
+                  <option value="daviplata">📱 Daviplata</option>
                   <option value="tarjeta">💳 Tarjeta en sitio</option>
                 </select>
               </div>
@@ -3766,6 +4188,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                   onChange={(e) => setReferenciaExterna(e.target.value)}
                   placeholder="Ej: ID transacción, número de transferencia..."
                   className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-green-500 focus:outline-none"
+                  // NO agregar autoFocus aquí
                 />
               </div>
 
@@ -4140,7 +4563,125 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
     </div>
   </div>
 )}
-      
+      {/* ← ← ← MODAL DE BÚSQUEDA DE CLIENTES ← ← ← */}
+{showClientModal && (
+  <div className="fixed inset-0 z-[95] bg-black/70 flex items-center justify-center p-4" onClick={() => setShowClientModal(false)}>
+    <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden border-2 border-gray-700" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center justify-between p-4 border-b border-gray-700">
+        <h3 className="text-lg font-bold text-white">👥 Seleccionar Cliente</h3>
+        <button onClick={() => setShowClientModal(false)} className="text-gray-400 hover:text-white">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div className="p-4 border-b border-gray-700">
+        <input
+          type="text"
+          placeholder="🔍 Buscar por nombre, teléfono o email..."
+          value={clienteSearchTerm}
+          onChange={(e) => setClienteSearchTerm(e.target.value)}
+          className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+          autoFocus
+        />
+      </div>
+      <div className="overflow-y-auto max-h-96 p-2">
+        <button
+          onClick={handleNuevoCliente}
+          className="w-full p-4 mb-2 bg-green-900/50 border-2 border-green-700 rounded-xl text-left hover:bg-green-800/50 transition-colors flex items-center gap-3"
+        >
+          <div className="w-10 h-10 bg-green-700 rounded-full flex items-center justify-center">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </div>
+          <div>
+            <p className="font-semibold text-white">➕ Nuevo Cliente</p>
+            <p className="text-xs text-gray-400">Registrar cliente nuevo</p>
+          </div>
+        </button>
+        {clientesFiltrados.map((cliente) => (
+          <button
+            key={`${cliente.esRegistrado ? 'reg' : 'no'}-${cliente.id}`}
+            onClick={() => handleClienteSelect(cliente)}
+            className="w-full p-4 mb-2 bg-gray-900 border border-gray-700 rounded-xl text-left hover:bg-gray-700 hover:border-blue-500 transition-all flex items-center gap-3"
+          >
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold ${cliente.esRegistrado ? 'bg-blue-900' : 'bg-gray-700'}`}>
+              {cliente.nombre.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-white truncate">
+                {cliente.nombre} {cliente.esRegistrado && cliente.userId && `(${cliente.userId})`}
+              </p>
+              <p className="text-xs text-gray-400 truncate">{cliente.telefono || 'Sin teléfono'}</p>
+              {cliente.email && <p className="text-xs text-gray-500 truncate">{cliente.email}</p>}
+            </div>
+            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        ))}
+      </div>
+    </div>
+  </div>
+)}
+
+{/* ← ← ← MODAL DE NUEVO CLIENTE ← ← ← */}
+{showRegisterModal && (
+  <div className="fixed inset-0 z-[96] bg-black/70 flex items-center justify-center p-4" onClick={() => setShowRegisterModal(false)}>
+    <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border-2 border-gray-700" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center justify-between p-4 border-b border-gray-700">
+        <h3 className="text-lg font-bold text-white">➕ Nuevo Cliente</h3>
+        <button onClick={() => setShowRegisterModal(false)} className="text-gray-400 hover:text-white">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div className="p-4 space-y-4">
+        <div>
+          <label className="block text-xs font-semibold text-gray-400 mb-1">Nombre completo *</label>
+          <input
+            type="text"
+            value={nuevoClienteData.nombre}
+            onChange={(e) => setNuevoClienteData(prev => ({ ...prev, nombre: e.target.value }))}
+            className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
+            placeholder="Ej: Wilmer Quijano"
+            autoFocus
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-400 mb-1">Teléfono</label>
+          <input
+            type="tel"
+            value={nuevoClienteData.telefono}
+            onChange={(e) => setNuevoClienteData(prev => ({ ...prev, telefono: e.target.value }))}
+            className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
+            placeholder="Ej: 300 123 4567"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-400 mb-1">Email</label>
+          <input
+            type="email"
+            value={nuevoClienteData.email}
+            onChange={(e) => setNuevoClienteData(prev => ({ ...prev, email: e.target.value }))}
+            className="w-full px-3 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
+            placeholder="Ej: cliente@email.com"
+          />
+        </div>
+      </div>
+      <div className="p-4 border-t border-gray-700 flex gap-3">
+        <button onClick={() => setShowRegisterModal(false)} className="flex-1 py-3 bg-gray-700 text-white rounded-lg font-semibold hover:bg-gray-600 transition-colors">
+          Cancelar
+        </button>
+        <button onClick={handleGuardarNuevoCliente} className="flex-1 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors">
+          ✅ Agregar
+        </button>
+      </div>
+    </div>
+  </div>
+)}
       {/* ← ← ← MODAL DE PROFESIONAL ← ← ← NUEVO ← ← ← */}
       {showProfessionalModal && itemParaProfesional && (
         <ProfessionalModal

@@ -1,5 +1,4 @@
 // app/auth/register/page.tsx
-// app/auth/register/page.tsx
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -12,16 +11,32 @@ interface Configuracion {
   hero_imagen_url: string | null;
 }
 
+interface ValidacionConvenio {
+  valido: boolean;
+  empresa?: string;
+  porcentaje?: number;
+  mensaje?: string;
+}
+
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
     username: '',
     email: '',
-    telefono: '',  // ← NUEVO: Campo de teléfono
+    telefono: '',
     password: '',
     confirmPassword: '',
     first_name: '',
     last_name: '',
   });
+  
+  // ← ← ← NUEVOS ESTADOS PARA ALIADOS ← ← ←
+  const [esAliado, setEsAliado] = useState(false);
+  const [codigoConvenio, setCodigoConvenio] = useState('');
+  const [validacionConvenio, setValidacionConvenio] = useState<ValidacionConvenio | null>(null);
+  const [validandoCodigo, setValidandoCodigo] = useState(false);
+  const [numeroIdentificacion, setNumeroIdentificacion] = useState('');
+  const [cargo, setCargo] = useState('');
+  
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
@@ -30,7 +45,7 @@ export default function RegisterPage() {
   
   const { register } = useAuth();
 
-  // Cargar configuración (logo y hero)
+  // Cargar configuración
   useEffect(() => {
     api.getConfiguracion()
       .then(data => {
@@ -44,6 +59,57 @@ export default function RegisterPage() {
       });
   }, []);
 
+  // ← ← ← VALIDACIÓN EN TIEMPO REAL DEL CÓDIGO DE CONVENIO ← ← ←
+useEffect(() => {
+  if (!esAliado || !codigoConvenio.trim()) {
+    setValidacionConvenio(null);
+    return;
+  }
+
+  // Debounce de 500ms
+  const timer = setTimeout(async () => {
+    setValidandoCodigo(true);
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api'}/verificar-codigo-convenio/?codigo=${encodeURIComponent(codigoConvenio.trim())}`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      const data = await res.json();
+      
+      // ← ← ← CLAVE: Verificar el campo 'valido' de la respuesta ← ← ←
+      if (res.ok && data.valido === true) {
+        setValidacionConvenio({
+          valido: true,
+          empresa: data.aliado_nombre,
+          porcentaje: data.porcentaje,
+          mensaje: `✅ Código válido - ${data.aliado_nombre} (${data.porcentaje}% descuento)`
+        });
+      } else {
+        setValidacionConvenio({
+          valido: false,
+          mensaje: data.mensaje || '❌ Código inválido o vencido'
+        });
+      }
+    } catch (err) {
+      console.error('Error validando código:', err);
+      setValidacionConvenio({
+        valido: false,
+        mensaje: '❌ Error al validar el código'
+      });
+    } finally {
+      setValidandoCodigo(false);
+    }
+  }, 500);
+
+  return () => clearTimeout(timer);
+}, [codigoConvenio, esAliado]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
@@ -52,7 +118,7 @@ export default function RegisterPage() {
     e.preventDefault();
     setError('');
     
-    // Validaciones
+    // Validaciones básicas
     if (formData.password !== formData.confirmPassword) {
       setError('Las contraseñas no coinciden');
       return;
@@ -61,22 +127,78 @@ export default function RegisterPage() {
       setError('La contraseña debe tener al menos 8 caracteres');
       return;
     }
-    if (!formData.telefono.trim()) {  // ← NUEVO: Validar teléfono
+    if (!formData.telefono.trim()) {
       setError('El teléfono es requerido para confirmar tus reservas');
       return;
+    }
+    
+    // ← ← ← VALIDACIONES ADICIONALES PARA ALIADOS ← ← ←
+    if (esAliado) {
+      if (!validacionConvenio?.valido) {
+        setError('El código de convenio no es válido');
+        return;
+      }
+      if (!numeroIdentificacion.trim()) {
+        setError('El número de identificación es requerido para empleados aliados');
+        return;
+      }
     }
     
     setLoading(true);
     
     try {
-      await register({
-        username: formData.username,
-        email: formData.email,
-        telefono: formData.telefono.trim(),  // ← NUEVO: Enviar teléfono
-        password: formData.password,
-        first_name: formData.first_name,
-        last_name: formData.last_name,
-      });
+      // ← ← ← LLAMAR AL ENDPOINT CORRECTO SEGÚN EL TIPO DE REGISTRO ← ← ←
+      if (esAliado) {
+        // Registro como aliado
+        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api'}/register-aliado/`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({
+              username: formData.username,
+              email: formData.email,
+              telefono: formData.telefono.trim(),
+              password: formData.password,
+              first_name: formData.first_name,
+              last_name: formData.last_name,
+              codigo_convenio: codigoConvenio.trim(),
+              numero_identificacion: numeroIdentificacion.trim(),
+              cargo: cargo.trim()
+            })
+          }
+        );
+        
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.detail || errorData.error || 'Error al registrar como aliado');
+        }
+        
+        const data = await res.json();
+        
+        // Guardar tokens
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('token', data.access);
+          localStorage.setItem('refreshToken', data.refresh);
+        }
+        
+        // Redirigir al perfil
+        window.location.href = '/perfil';
+      } else {
+        // Registro normal
+        await register({
+          username: formData.username,
+          email: formData.email,
+          telefono: formData.telefono.trim(),
+          password: formData.password,
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+        });
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -84,9 +206,8 @@ export default function RegisterPage() {
     }
   };
 
-  // ✅ DESPUÉS (agregar ?? null):
-const heroImageUrl = api.getImageUrl(configuracion?.hero_imagen ?? null, configuracion?.hero_imagen_url ?? null);
-const logoUrl = api.getImageUrl(configuracion?.logo_url ?? null, configuracion?.logo_url ?? null);
+  const heroImageUrl = api.getImageUrl(configuracion?.hero_imagen ?? null, configuracion?.hero_imagen_url ?? null);
+  const logoUrl = api.getImageUrl(configuracion?.logo_url ?? null, configuracion?.logo_url ?? null);
 
   return (
     <div className="min-h-screen relative flex items-center justify-center py-12 px-4">
@@ -130,6 +251,71 @@ const logoUrl = api.getImageUrl(configuracion?.logo_url ?? null, configuracion?.
             </div>
           )}
           
+          {/* ← ← ← CHECKBOX: ¿ERES EMPLEADO DE EMPRESA ALIADA? ← ← ← */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={esAliado}
+                onChange={(e) => {
+                  setEsAliado(e.target.checked);
+                  if (!e.target.checked) {
+                    setCodigoConvenio('');
+                    setValidacionConvenio(null);
+                    setNumeroIdentificacion('');
+                    setCargo('');
+                  }
+                }}
+                className="mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <div className="flex-1">
+                <span className="text-sm font-semibold text-blue-900">
+                  ¿Eres empleado de una empresa aliada?
+                </span>
+                <p className="text-xs text-blue-700 mt-1">
+                  Obtén descuentos exclusivos en todos nuestros servicios
+                </p>
+              </div>
+            </label>
+          </div>
+
+          {/* ← ← ← CAMPO DE CÓDIGO DE CONVENIO (CONDICIONAL) ← ← ← */}
+          {esAliado && (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Código de Convenio *
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={codigoConvenio}
+                  onChange={(e) => setCodigoConvenio(e.target.value)}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 ${
+                    validacionConvenio?.valido
+                      ? 'border-green-500 bg-green-50'
+                      : validacionConvenio && !validacionConvenio.valido
+                      ? 'border-red-500 bg-red-50'
+                      : 'border-gray-300'
+                  }`}
+                  placeholder="Ingresa tu código de convenio"
+                  disabled={loading}
+                />
+                {validandoCodigo && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-500 border-t-transparent"></div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Feedback de validación */}
+              {validacionConvenio && (
+                <p className={`text-xs ${validacionConvenio.valido ? 'text-green-600' : 'text-red-600'}`}>
+                  {validacionConvenio.mensaje}
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
@@ -185,7 +371,6 @@ const logoUrl = api.getImageUrl(configuracion?.logo_url ?? null, configuracion?.
             />
           </div>
           
-          {/* ← NUEVO: Campo de Teléfono */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Teléfono para reservas *
@@ -205,6 +390,43 @@ const logoUrl = api.getImageUrl(configuracion?.logo_url ?? null, configuracion?.
               Lo usaremos para confirmarte tus citas por WhatsApp
             </p>
           </div>
+
+          {/* ← ← ← CAMPOS ADICIONALES PARA ALIADOS ← ← ← */}
+          {esAliado && validacionConvenio?.valido && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Número de Identificación *
+                </label>
+                <input
+                  type="text"
+                  value={numeroIdentificacion}
+                  onChange={(e) => setNumeroIdentificacion(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Cédula o documento de identidad"
+                  required
+                  disabled={loading}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Requerido para validar tu identidad como empleado
+                </p>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Cargo (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={cargo}
+                  onChange={(e) => setCargo(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Ej: Desarrollador, Gerente, etc."
+                  disabled={loading}
+                />
+              </div>
+            </>
+          )}
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña *</label>
@@ -292,16 +514,23 @@ const logoUrl = api.getImageUrl(configuracion?.logo_url ?? null, configuracion?.
             </div>
           </div>
           
+          {/* ← ← ← BOTÓN DINÁMICO SEGÚN EL TIPO DE REGISTRO ← ← ← */}
           <button
             type="submit"
-            disabled={loading}
-            className="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-300 disabled:opacity-50"
+            disabled={loading || (esAliado && !validacionConvenio?.valido)}
+            className={`w-full py-3 px-4 font-semibold rounded-lg transition-all duration-300 disabled:opacity-50 ${
+              esAliado
+                ? 'bg-gradient-to-r from-green-600 to-green-700 text-white hover:from-green-700 hover:to-green-800'
+                : 'bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800'
+            }`}
           >
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
                 Creando cuenta...
               </span>
+            ) : esAliado ? (
+              '🎉 Registrarse como Aliado'
             ) : (
               'Crear Cuenta'
             )}
