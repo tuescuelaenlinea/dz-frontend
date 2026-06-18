@@ -92,6 +92,7 @@ interface ValeEmpleado {
   metodo_pago?: string;
   metodo_pago_display?: string;
   session_caja?: number | null;  // ← ← ← AGREGAR ESTA LÍNEA
+   notas?: string;
 }
 
 interface CajaCategoria {
@@ -278,6 +279,9 @@ export default function CajaPage() {
   // ... dentro del componente:
   const [recibos, setRecibos] = useState<any[]>([]);
   const [refreshTrigger, setRefreshTrigger] = useState(0); // ← Para forzar re-render
+
+  // ← ← ← NUEVO: Estado para controlar qué vale está expandido en el acordeón ← ← ←
+  const [valeExpandido, setValeExpandido] = useState<number | null>(null);
 
   // ← ← ← CONSTANTE: Opciones de método de pago para vales ← ← ←
   const METODOS_PAGO_VALE = [
@@ -2846,76 +2850,252 @@ const formatDate = (dateStr: string): string => {
               ) : (
                 <div className="space-y-4">
                   
-                  {/* ← ← ← SECCIÓN: VALES DE LA SESIÓN ACTUAL ← ← ← */}
-                  {valesSesion.length > 0 && (
-                    <div>
-                      <h4 className="text-xs font-semibold text-cyan-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                        <span className="w-2 h-2 bg-cyan-400 rounded-full"></span>
-                        {sesionSeleccionada 
-                        ? `De sesión #${sesionSeleccionada.id}`  // ← ← ← Dinámico para histórica
-                        : 'De esta sesión'
-                        } ({valesSesion.length})
-                      </h4>
-                      <div className="space-y-2">
-                        {valesSesion.map((vale) => (
-                          <ValeCard 
-                            key={vale.id} 
-                            vale={vale} 
-                            onPagar={handlePagarVale}
-                            onCancelar={handleCancelarVale}
-                            onNotificar={handleNotificarVale}
-                            formatMoney={formatMoney}
-                            apiUrl={apiUrl}              // ← ← ← AGREGAR
-                            token={token}                // ← ← ← AGREGAR
-                            onValeActualizado={(valeActualizado) => {  // ← ← ← AGREGAR
-                              // Actualizar en valesSesion si existe
-                              setValesSesion(prev => prev.map(v => 
-                                v.id === valeActualizado.id ? { ...v, metodo_pago: valeActualizado.metodo_pago } : v
-                              ));
-                              // Actualizar en valesPendientes si existe
-                              setValesPendientes(prev => prev.map(v => 
-                                v.id === valeActualizado.id ? { ...v, metodo_pago: valeActualizado.metodo_pago } : v
-                              ));
-                            }}
-                          />
-                        ))}
-                      </div>
+                  {/* ← ← ← SECCIÓN: VALES DE LA SESIÓN ACTUAL (ACORDEÓN) ← ← ← */}
+{valesSesion.length > 0 && (
+  <div>
+    <h4 className="text-xs font-semibold text-cyan-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+      <span className="w-2 h-2 bg-cyan-400 rounded-full"></span>
+      {sesionSeleccionada
+        ? `De sesión #${sesionSeleccionada?.id || sesionSeleccionada.id}`  // ← ← ← CORREGIDO
+        : 'De esta sesión'
+      } ({valesSesion.length})
+    </h4>
+    <div className="space-y-2">
+      {valesSesion.map((vale) => {
+        const isExpanded = valeExpandido === vale.id;
+        return (
+          <div key={vale.id} className="border border-gray-700 rounded-lg overflow-hidden bg-gray-900">
+            {/* Encabezado del Acordeón */}
+            <div
+              onClick={() => setValeExpandido(isExpanded ? null : vale.id)}
+              className="p-3 cursor-pointer hover:bg-gray-800 transition-colors flex items-center justify-between"
+            >
+              <div className="flex items-center gap-3 flex-1">
+                {/* Icono de expansión */}
+                <svg
+                  className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+                {/* Nombre del profesional */}
+                <span className="font-medium text-white text-sm truncate">
+                  {vale.profesional_nombre}
+                </span>
+              </div>
+              {/* Valor del vale */}
+              <span className="text-sm font-bold text-cyan-400">
+                {formatMoney(vale.monto)}
+              </span>
+            </div>
+
+            {/* Contenido Expandido */}
+            {isExpanded && (
+              <div className="p-3 bg-gray-800/50 border-t border-gray-700 space-y-3">
+                {/* Información detallada */}
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Código:</span>
+                    <span className="text-white font-mono">{vale.codigo_vale}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Sesión:</span>
+                    <span className="text-cyan-300">
+                      #{vale.session_caja || 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Método:</span>
+                    <span className="text-white">{vale.metodo_pago_display || vale.metodo_pago}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Fecha:</span>
+                    <span className="text-white">
+                      {new Date(vale.fecha).toLocaleDateString('es-CO', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-start">
+                    <span className="text-gray-400">Estado:</span>
+                    <span className={`px-2 py-0.5 rounded text-xs ${
+                      vale.estado === 'registrado'
+                        ? 'bg-yellow-900/50 text-yellow-400 border border-yellow-700'
+                        : vale.estado === 'pagado'
+                        ? 'bg-green-900/50 text-green-400 border border-green-700'
+                        : 'bg-red-900/50 text-red-400 border border-red-700'
+                    }`}>
+                      {vale.estado === 'registrado' ? 'Registrado' :
+                       vale.estado === 'pagado' ? '✅ Pagado' : '❌ Cancelado'}
+                    </span>
+                  </div>
+                  {vale.notas && (
+                    <div className="pt-2 border-t border-gray-700">
+                      <span className="text-gray-400 block mb-1">Notas:</span>
+                      <span className="text-gray-300 text-xs">{vale.notas}</span>
                     </div>
                   )}
-                  
-                  {/* ← ← ← SECCIÓN: VALES PENDIENTES GLOBALES ← ← ← */}
-                  {valesPendientes.length > 0 && (
-                    <div>
-                      <h4 className="text-xs font-semibold text-yellow-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                        <span className="w-2 h-2 bg-yellow-400 rounded-full"></span>
-                        Pendientes globales ({valesPendientes.length})
-                      </h4>
-                      <div className="space-y-2">
-                        {valesPendientes.map((vale) => (
-                          <ValeCard 
-                            key={vale.id} 
-                            vale={vale} 
-                            onPagar={handlePagarVale}
-                            onCancelar={handleCancelarVale}
-                            onNotificar={handleNotificarVale}
-                            formatMoney={formatMoney}
-                            apiUrl={apiUrl}              // ← ← ← AGREGAR
-                            token={token}                // ← ← ← AGREGAR
-                            onValeActualizado={(valeActualizado) => {  // ← ← ← AGREGAR
-                              // Actualizar en valesSesion si existe
-                              setValesSesion(prev => prev.map(v => 
-                                v.id === valeActualizado.id ? { ...v, metodo_pago: valeActualizado.metodo_pago } : v
-                              ));
-                              // Actualizar en valesPendientes si existe
-                              setValesPendientes(prev => prev.map(v => 
-                                v.id === valeActualizado.id ? { ...v, metodo_pago: valeActualizado.metodo_pago } : v
-                              ));
-                            }}
-                          />
-                        ))}
-                      </div>
+                </div>
+
+                {/* Botones de acción */}
+                {vale.estado === 'registrado' && (
+                  <div className="flex gap-2 pt-2 border-t border-gray-700">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handlePagarVale(vale);
+                      }}
+                      className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-medium transition-colors"
+                    >
+                      💰 Pagar
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCancelarVale(vale);
+                      }}
+                      className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-medium transition-colors"
+                    >
+                      ❌ Cancelar
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  </div>
+)}
+
+{/* ← ← ← SECCIÓN: VALES PENDIENTES GLOBALES (ACORDEÓN) ← ← ← */}
+{valesPendientes.length > 0 && (
+  <div>
+    <h4 className="text-xs font-semibold text-yellow-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+      <span className="w-2 h-2 bg-yellow-400 rounded-full"></span>
+      Pendientes globales ({valesPendientes.length})
+    </h4>
+    <div className="space-y-2">
+      {valesPendientes.map((vale) => {
+        const isExpanded = valeExpandido === vale.id;
+        return (
+          <div key={vale.id} className="border border-gray-700 rounded-lg overflow-hidden bg-gray-900">
+            {/* Encabezado del Acordeón */}
+            <div
+              onClick={() => setValeExpandido(isExpanded ? null : vale.id)}
+              className="p-3 cursor-pointer hover:bg-gray-800 transition-colors flex items-center justify-between"
+            >
+              <div className="flex items-center gap-3 flex-1">
+                {/* Icono de expansión */}
+                <svg
+                  className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+                {/* Nombre del profesional */}
+                <span className="font-medium text-white text-sm truncate">
+                  {vale.profesional_nombre}
+                </span>
+              </div>
+              {/* Valor del vale */}
+              <span className="text-sm font-bold text-yellow-400">
+                {formatMoney(vale.monto)}
+              </span>
+            </div>
+
+            {/* Contenido Expandido */}
+            {isExpanded && (
+              <div className="p-3 bg-gray-800/50 border-t border-gray-700 space-y-3">
+                {/* Información detallada */}
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Código:</span>
+                    <span className="text-white font-mono">{vale.codigo_vale}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Sesión:</span>
+                    <span className="text-yellow-300">
+                      #{vale.session_caja || 'Sin sesión'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Método:</span>
+                    <span className="text-white">{vale.metodo_pago_display || vale.metodo_pago}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Fecha:</span>
+                    <span className="text-white">
+                      {new Date(vale.fecha).toLocaleDateString('es-CO', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-start">
+                    <span className="text-gray-400">Estado:</span>
+                    <span className={`px-2 py-0.5 rounded text-xs ${
+                      vale.estado === 'registrado'
+                        ? 'bg-yellow-900/50 text-yellow-400 border border-yellow-700'
+                        : vale.estado === 'pagado'
+                        ? 'bg-green-900/50 text-green-400 border border-green-700'
+                        : 'bg-red-900/50 text-red-400 border border-red-700'
+                    }`}>
+                      {vale.estado === 'registrado' ? 'Registrado' :
+                       vale.estado === 'pagado' ? '✅ Pagado' : '❌ Cancelado'}
+                    </span>
+                  </div>
+                  {vale.notas && (
+                    <div className="pt-2 border-t border-gray-700">
+                      <span className="text-gray-400 block mb-1">Notas:</span>
+                      <span className="text-gray-300 text-xs">{vale.notas}</span>
                     </div>
                   )}
+                </div>
+
+                {/* Botones de acción */}
+                {vale.estado === 'registrado' && (
+                  <div className="flex gap-2 pt-2 border-t border-gray-700">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handlePagarVale(vale);
+                      }}
+                      className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-medium transition-colors"
+                    >
+                      💰 Pagar
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCancelarVale(vale);
+                      }}
+                      className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-medium transition-colors"
+                    >
+                      ❌ Cancelar
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  </div>
+)}
                   
                 </div>
               )}

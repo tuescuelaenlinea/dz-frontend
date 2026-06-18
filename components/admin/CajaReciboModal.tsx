@@ -102,7 +102,39 @@ interface NuevoClienteData {
   email: string;
 }
 
+// ← ← ← NUEVAS INTERFACES PARA PLAN DE REFERIDOS ← ← ←
+interface ComisionReferido {
+  id: number;
+  cliente_referente: number;
+  referente_nombre: string;
+  cliente_referido: number;
+  referido_nombre: string;
+  recibo_referido: number | null;
+  recibo_referido_codigo?: string;
+  valor_recibo_referido: string;
+  porcentaje_comision: string;
+  recibo_aplicado: number | null;
+  recibo_aplicado_codigo?: string;
+  item_aplicado: number | null;
+  item_descripcion?: string;
+  valor_descuento_aplicado: string;
+  fecha_aplicacion: string | null;
+  estado: 'pendiente' | 'aplicada' | 'cancelada' | 'expirada';
+  estado_display: string;
+  notas: string;
+  fecha_creacion: string;
+  creado_por: number;
+}
 
+interface PlanReferidoBadge {
+  planId: number;
+  porcentaje: number;
+  referenteNombre: string;
+  referidoNombre: string;
+  montoDescuento: number;
+  itemId?: number;
+  itemDescripcion?: string;
+}
 
 
 // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
@@ -187,6 +219,8 @@ const [showRegisterModal, setShowRegisterModal] = useState(false);
 const [clientes, setClientes] = useState<Cliente[]>([]);
 const [clienteSearchTerm, setClienteSearchTerm] = useState('');
 const [clienteSeleccionadoId, setClienteSeleccionadoId] = useState<number | null>(null);
+// ← ← ← NUEVO: Bandera para diferenciar búsqueda de cliente referente vs cliente del recibo ← ← ←
+const [buscandoClienteReferente, setBuscandoClienteReferente] = useState(false);
 const [nuevoClienteData, setNuevoClienteData] = useState<NuevoClienteData>({
   nombre: '',
   telefono: '',
@@ -277,15 +311,37 @@ const [infoAliado, setInfoAliado] = useState<InfoAliado>({
 
 const [descuentoAliadoAutomatico, setDescuentoAliadoAutomatico] = useState<number>(0);
 
+// ← ← ← NUEVOS ESTADOS PARA PLAN DE REFERIDOS ← ← ←
+const [showPlanReferidoModal, setShowPlanReferidoModal] = useState(false);
+const [showReferidoPorModal, setShowReferidoPorModal] = useState(false);
+const [showComisionesPendientesModal, setShowComisionesPendientesModal] = useState(false);
+const [showSeleccionServicioModal, setShowSeleccionServicioModal] = useState(false);
+const [comisionesPendientes, setComisionesPendientes] = useState<ComisionReferido[]>([]);
+const [porcentajeComision, setPorcentajeComision] = useState<number>(10);
+const [clienteReferenteSeleccionado, setClienteReferenteSeleccionado] = useState<Cliente | null>(null);
+const [comisionSeleccionada, setComisionSeleccionada] = useState<ComisionReferido | null>(null);
+const [servicioSeleccionadoParaAplicar, setServicioSeleccionadoParaAplicar] = useState<ReciboItem | null>(null);
+const [badgesReferido, setBadgesReferido] = useState<PlanReferidoBadge[]>([]);
+const [loadingReferido, setLoadingReferido] = useState(false);
+
 // ← ← ← MODIFICAR: Incluir descuento de aliado en el total ← ← ←
 // ← ← ← REEMPLAZAR el useMemo de total por este:
 const total = useMemo(() => {
-  // Solo se aplica un descuento (el que esté en el campo descuento)
-  const descuentoAplicado = Number(descuento) || 0;
-  const totalCalculado = subtotal - descuentoAplicado + (tipoRecibo === 'venta' ? propinaTotal : 0);
+  // ← ← ← CLAVE: Incluir descuento de referido en el cálculo ← ← ←
+  const descuentoManual = Number(descuento) || 0;
+  const descuentoReferidoTotal = badgesReferido.reduce(
+    (sum, badge) => sum + (Number(badge.montoDescuento) || 0), 
+    0
+  );
+  const descuentoTotal = descuentoManual + descuentoReferidoTotal;
+  
+  const totalCalculado = subtotal - descuentoTotal + (tipoRecibo === 'venta' ? propinaTotal : 0);
+  
+  console.log(`🧮 [total] Subtotal=${subtotal} - DescuentoManual=${descuentoManual} - DescuentoReferido=${descuentoReferidoTotal} + Propina=${propinaTotal} = Total=${totalCalculado}`);
+  
   // No permitir totales negativos
   return Math.max(0, Math.round(totalCalculado * 100) / 100);
-}, [subtotal, descuento, propinaTotal, tipoRecibo]);
+}, [subtotal, descuento, propinaTotal, tipoRecibo, badgesReferido]);
 
 
 // ← ← ← RESUMEN DE ABONOS (reactivo + detección de exceso de pago) ← ← ←
@@ -499,7 +555,352 @@ const handleAgregarMovimiento = () => {
   setMovimientoPrecio(0);
 };
 
+// ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+// ← ← ← FUNCIONES: PLAN DE REFERIDOS ← ← ←
+// ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
 
+/**
+ * Carga las comisiones pendientes de un cliente referente.
+ * Usado en el FLUJO B para mostrar opciones disponibles.
+ */
+const cargarComisionesPendientes = async (clienteId: number) => {
+  if (!clienteId) return;
+  setLoadingReferido(true);
+  try {
+    let url = `${apiUrl}/plan-referido/mis-comisiones/?cliente_id=${clienteId}`;
+    if (reciboId) {
+      url += `&recibo_actual_id=${reciboId}`;
+    }
+    console.log('🔍 [cargarComisiones] Fetching:', url);
+
+    const res = await fetch(url, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      const comisionesRaw = data.comisiones || [];
+      
+      // ← ← ← FILTRO DE SEGURIDAD FRONTEND: Doble validación contra badgesReferido
+      const comisionesDisponibles = comisionesRaw.filter((c: ComisionReferido) => {
+        const yaEnUsoLocal = badgesReferido.some(b => b.planId === c.id);
+        if (yaEnUsoLocal) {
+          console.log(`⛔ [Frontend Filter] Excluyendo comisión ${c.id} (ya tiene badge aplicado)`);
+        }
+        return !yaEnUsoLocal;
+      });
+
+      setComisionesPendientes(comisionesDisponibles);
+      console.log(`✅ [PlanReferido] ${comisionesDisponibles.length} comisiones listas para usar`);
+    } else {
+      console.error('❌ Error cargando comisiones:', await res.text());
+      setComisionesPendientes([]);
+    }
+  } catch (err) {
+    console.error('❌ Error cargando comisiones:', err);
+    setComisionesPendientes([]);
+  } finally {
+    setLoadingReferido(false);
+  }
+};
+
+/**
+ * FLUJO A: Crear una nueva relación de referido (genera comisión).
+ * Se ejecuta cuando el admin selecciona "Referido por" y configura el %.
+ */
+const handleCrearNuevaComision = async () => {
+  if (!clienteReferenteSeleccionado) {
+    alert('⚠️ Debes seleccionar un cliente referente');
+    return;
+  }
+  if (!clienteSeleccionadoId) {
+    alert('⚠️ El recibo debe tener un cliente seleccionado (el referido)');
+    return;
+  }
+  if (porcentajeComision < 1 || porcentajeComision > 30) {
+    alert('⚠️ El porcentaje debe estar entre 1% y 30%');
+    return;
+  }
+
+  setLoadingReferido(true);
+  try {
+    const payload = {
+      cliente_referente: clienteReferenteSeleccionado.userId || clienteReferenteSeleccionado.id,
+      cliente_referido: clienteSeleccionadoId,
+      porcentaje_comision: porcentajeComision,
+      valor_recibo_referido: total,
+      ...(reciboId && { recibo_referido: reciboId }),
+    };
+
+    const res = await fetch(`${apiUrl}/plan-referido/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.detail || error.cliente_referido?.[0] || 'Error creando comisión');
+    }
+
+    const nuevaComision = await res.json();
+    console.log('✅ [PlanReferido] Comisión creada:', nuevaComision);
+
+    alert(
+      `✅ Comisión de referido creada exitosamente\n` +
+      `• Referente: ${nuevaComision.referente_nombre}\n` +
+      `• Referido: ${nuevaComision.referido_nombre}\n` +
+      `• % Comisión: ${nuevaComision.porcentaje_comision}%\n` +
+      `• Valor recibo: ${formatMoney(parseFloat(nuevaComision.valor_recibo_referido))}`
+    );
+
+    // Cerrar modales
+    setShowReferidoPorModal(false);
+    setShowPlanReferidoModal(false);
+    setClienteReferenteSeleccionado(null);
+    setPorcentajeComision(10);
+  } catch (err: any) {
+    console.error('❌ Error creando comisión:', err);
+    alert(`❌ Error: ${err.message}`);
+  } finally {
+    setLoadingReferido(false);
+  }
+};
+
+/**
+ * FLUJO B: Aplica una comisión pendiente a un servicio específico.
+ * Se ejecuta cuando el admin selecciona una comisión y un servicio.
+ */
+const handleAplicarComisionAServicio = async () => {
+  if (!comisionSeleccionada) {
+    alert('⚠️ Debes seleccionar una comisión');
+    return;
+  }
+  if (!servicioSeleccionadoParaAplicar) {
+    alert('⚠️ Debes seleccionar un servicio');
+    return;
+  }
+  if (!reciboId) {
+    alert('⚠️ Primero debes guardar el recibo antes de aplicar comisiones.\n\nHaz clic en "Guardar Borrador" o "Publicar" primero.');
+    return;
+  }
+
+  // ← ← ← NUEVA VALIDACIÓN: Verificar que el item tenga ID numérico válido ← ← ←
+  const itemIdNum = Number(servicioSeleccionadoParaAplicar.id);
+  if (isNaN(itemIdNum) || itemIdNum <= 0) {
+    alert(
+      '⚠️ Este servicio aún no está guardado en la base de datos.\n\n' +
+      'Primero debes guardar el recibo (como borrador o publicado) para poder aplicar comisiones.\n\n' +
+      'Haz clic en "Guardar Borrador" y luego intenta aplicar la comisión nuevamente.'
+    );
+    return;
+  }
+
+  setLoadingReferido(true);
+  try {
+    const payload = {
+      item_id: itemIdNum,  // ← ← ← AHORA USA EL ID NUMÉRICO VALIDADO
+      recibo_aplicado_id: reciboId,
+    };
+
+    console.log('📦 [handleAplicarComisionAServicio] Payload:', payload);
+
+    const res = await fetch(
+      `${apiUrl}/plan-referido/${comisionSeleccionada.id}/aplicar/`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(payload)
+      }
+    );
+
+    if (!res.ok) {
+      const error = await res.json();
+      console.error('❌ Error del backend:', error);
+      throw new Error(error.error || 'Error aplicando comisión');
+    }
+
+    const resultado = await res.json();
+    console.log('✅ [PlanReferido] Comisión aplicada:', resultado);
+
+    // Agregar badge visual al item
+    const nuevoBadge: PlanReferidoBadge = {
+      planId: comisionSeleccionada.id,
+      porcentaje: parseFloat(comisionSeleccionada.porcentaje_comision),
+      referenteNombre: comisionSeleccionada.referente_nombre,
+      referidoNombre: comisionSeleccionada.referido_nombre,
+      montoDescuento: resultado.descuento_calculado,
+      itemId: itemIdNum,  // ← ← ← USAR EL ID NUMÉRICO
+      itemDescripcion: servicioSeleccionadoParaAplicar.descripcion,
+    };
+
+    setBadgesReferido(prev => [...prev, nuevoBadge]);
+
+    alert(
+      `✅ Comisión aplicada exitosamente\n` +
+      `• ${nuevoBadge.porcentaje}% sobre "${servicioSeleccionadoParaAplicar.descripcion}"\n` +
+      `• Descuento: ${formatMoney(resultado.descuento_calculado)}\n` +
+      `• Nuevo total del recibo: ${formatMoney(resultado.recibo_actualizado.total)}`
+    );
+
+    // Recargar el recibo para actualizar totales
+    if (reciboId) {
+      await cargarReciboParaEditar();
+    }
+
+    // ← ← ← NUEVO: Limpiar selección y recargar comisiones para el siguiente uso ← ← ←
+    const clienteIdParaRecargar = clienteSeleccionadoId;
+    setComisionSeleccionada(null);
+    setServicioSeleccionadoParaAplicar(null);
+    setShowSeleccionServicioModal(false);
+    
+    // Cerrar modales de comisiones y plan referido
+    setShowComisionesPendientesModal(false);
+    setShowPlanReferidoModal(false);
+    
+    // ← ← ← NUEVO: Recargar badges desde el backend para sincronizar estado ← ← ←
+    if (reciboId) {
+      await cargarBadgesReferido(reciboId);
+    }
+    
+    // ← ← ← NUEVO: Si el usuario quiere aplicar otra comisión, recargar lista ← ← ←
+    // (esto asegura que las comisiones ya aplicadas no aparezcan más)
+    if (clienteIdParaRecargar) {
+      await cargarComisionesPendientes(clienteIdParaRecargar);
+    }
+  } catch (err: any) {
+    console.error('❌ Error aplicando comisión:', err);
+    alert(`❌ Error: ${err.message}`);
+  } finally {
+    setLoadingReferido(false);
+  }
+};
+
+/**
+ * Libera una comisión que estaba aplicada (quita el descuento).
+ */
+const handleLiberarComision = async (planId: number) => {
+  if (!reciboId) return;
+  
+  const confirmar = window.confirm(
+    '⚠️ ¿Liberar esta comisión?\n' +
+    'El descuento se restará del recibo y la comisión volverá a estar disponible.'
+  );
+  if (!confirmar) return;
+
+  setLoadingReferido(true);
+  try {
+    const res = await fetch(
+      `${apiUrl}/plan-referido/${planId}/liberar/`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      }
+    );
+
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Error liberando comisión');
+    }
+
+    const resultado = await res.json();
+    console.log('✅ [PlanReferido] Comisión liberada:', resultado);
+
+    // Quitar badge
+    setBadgesReferido(prev => prev.filter(b => b.planId !== planId));
+
+    alert(`✅ Comisión liberada\n• Descuento restado: ${formatMoney(resultado.descuento_restituido)}`);
+
+    // Recargar el recibo
+    if (reciboId) {
+      await cargarReciboParaEditar();
+    }
+  } catch (err: any) {
+    console.error('❌ Error liberando comisión:', err);
+    alert(`❌ Error: ${err.message}`);
+  } finally {
+    setLoadingReferido(false);
+  }
+};
+
+/**
+ * Recalcula el descuento de una comisión cuando cambia el precio/cantidad del servicio.
+ */
+const handleRecalcularComision = async (planId: number) => {
+  try {
+    const res = await fetch(
+      `${apiUrl}/plan-referido/${planId}/recalcular/`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      }
+    );
+
+    if (res.ok) {
+      const resultado = await res.json();
+      console.log('🔄 [PlanReferido] Comisión recalculada:', resultado);
+      
+      // Actualizar badge
+      setBadgesReferido(prev => prev.map(b => 
+        b.planId === planId 
+          ? { ...b, montoDescuento: resultado.descuento_nuevo }
+          : b
+      ));
+
+      // Recargar recibo
+      if (reciboId) {
+        await cargarReciboParaEditar();
+      }
+    }
+  } catch (err) {
+    console.error('❌ Error recalculando comisión:', err);
+  }
+};
+
+/**
+ * Carga los badges de referido desde el backend al cargar un recibo.
+ */
+const cargarBadgesReferido = async (reciboIdParam: number) => {
+  try {
+    const res = await fetch(
+      `${apiUrl}/plan-referido/?recibo_aplicado=${reciboIdParam}`,
+      {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const resultados = data.results || [];
+      const nuevosBadges: PlanReferidoBadge[] = resultados
+        .filter((c: ComisionReferido) => c.item_aplicado && c.estado !== 'cancelada')
+        .map((c: ComisionReferido) => ({
+          planId: c.id,
+          porcentaje: parseFloat(c.porcentaje_comision),
+          referenteNombre: c.referente_nombre,
+          referidoNombre: c.referido_nombre,
+          montoDescuento: parseFloat(c.valor_descuento_aplicado),
+          itemId: c.item_aplicado || undefined,
+          itemDescripcion: c.item_descripcion,
+        }));
+      setBadgesReferido(nuevosBadges);
+      console.log(`🎯 [PlanReferido] ${nuevosBadges.length} badges cargados para recibo ${reciboIdParam}`);
+    }
+  } catch (err) {
+    console.error('❌ Error cargando badges de referido:', err);
+  }
+};
 // ← ← ← NUEVA FUNCIÓN: Verificar si cliente es aliado ← ← ←
 const verificarClienteAliado = async (email: string, telefono: string, citaId?: number) => {
   if (!email && !telefono && !citaId) {
@@ -520,7 +921,7 @@ const verificarClienteAliado = async (email: string, telefono: string, citaId?: 
     if (citaId) params.append('cita_id', String(citaId));
 
     const res = await fetch(
-      `${apiUrl}/aliados/verificar-cliente/?${params.toString()}`,
+      `${apiUrl}/verificar-cliente-aliado/?${params.toString()}`,
       {
         method: 'GET',
         headers: {
@@ -565,12 +966,29 @@ const verificarClienteAliado = async (email: string, telefono: string, citaId?: 
 
 // ← ← ← NUEVAS FUNCIONES: Selección de cliente ← ← ←
 const handleClienteSelect = (cliente: Cliente) => {
-  setClienteNombre(cliente.nombre);
-  setClienteTelefono(cliente.telefono);
-  setClienteEmail(cliente.email);
-  setClienteSeleccionadoId(cliente.esRegistrado ? cliente.userId || null : null);
-  setShowClientModal(false);
-  setClienteSearchTerm(''); // Limpiar búsqueda
+  // ← ← ← CORRECCIÓN: Verificar si estamos buscando cliente referente ← ← ←
+  if (buscandoClienteReferente) {
+    // Estamos buscando el cliente referente (quien refirió)
+    console.log('✅ [handleClienteSelect] Cliente referente seleccionado:', cliente);
+    setClienteReferenteSeleccionado(cliente);
+    setBuscandoClienteReferente(false); // Resetear bandera
+    setShowClientModal(false);
+    setClienteSearchTerm('');
+    
+    // Volver a abrir el modal de "Referido por"
+    setTimeout(() => {
+      setShowReferidoPorModal(true);
+    }, 100);
+  } else {
+    // Estamos buscando el cliente del recibo (el referido)
+    console.log('✅ [handleClienteSelect] Cliente del recibo seleccionado:', cliente);
+    setClienteNombre(cliente.nombre);
+    setClienteTelefono(cliente.telefono);
+    setClienteEmail(cliente.email);
+    setClienteSeleccionadoId(cliente.esRegistrado ? cliente.userId || null : null);
+    setShowClientModal(false);
+    setClienteSearchTerm('');
+  }
 };
 
 const handleNuevoCliente = () => {
@@ -924,47 +1342,114 @@ const registrarAbonoEnCitas = async (montoAbono: number, metodoPago: string) => 
       setReciboEditando(recibo);
       setReciboId(recibo.id);
       setTipoRecibo(recibo.tipo);
-      // ← ← ← CLAVE: Separar descuento manual del descuento de aliado ← ← ←
+      // ← ← ← CLAVE: Separar descuento manual del descuento de aliado Y de referido ← ← ←
       const descuentoTotalGuardado = parseFloat(recibo.descuento) || 0;
       let descuentoManual = descuentoTotalGuardado;
-      
+
+      // ← ← ← NUEVO: Calcular descuento de referido desde los badges ← ← ←
+      let descuentoReferidoTotal = 0;
+      try {
+          const resRef = await fetch(
+              `${apiUrl}/plan-referido/?recibo_aplicado=${recibo.id}&estado=pendiente`,
+              { headers: token ? { 'Authorization': `Bearer ${token}` } : {} }
+          );
+          if (resRef.ok) {
+              const dataRef = await resRef.json();
+              const resultados = dataRef.results || [];
+              descuentoReferidoTotal = resultados.reduce(
+                  (sum: number, c: any) => sum + (parseFloat(c.valor_descuento_aplicado) || 0),
+                  0
+              );
+              console.log(`🎯 [cargarRecibo] Descuento de referido detectado: $${descuentoReferidoTotal}`);
+          }
+      } catch (err) {
+          console.warn('⚠️ No se pudo calcular descuento de referido:', err);
+      }
+
       // Si el recibo tiene info de aliado, calcular el descuento de aliado y restarlo
       if (recibo.cliente_aliado_id && recibo.convenio_id) {
-        // Obtener porcentaje del aliado desde las notas o calcularlo
-        const notasMatch = recibo.notas?.match(/\[(\d+(?:\.\d+)?)%\]/);
-        const porcentajeAliado = notasMatch ? parseFloat(notasMatch[1]) : 0;
-        
-        if (porcentajeAliado > 0) {
-          // Calcular subtotal de servicios del recibo cargado
-          const subtotalServicios = recibo.items
-            .filter((item: any) => item.tipo_item === 'servicio')
-            .reduce((sum: number, item: any) => sum + parseFloat(item.subtotal), 0);
-          
-          const descuentoAliadoCalculado = (subtotalServicios * porcentajeAliado) / 100;
-          
-          // El descuento manual es el total menos el de aliado
-          descuentoManual = Math.max(0, descuentoTotalGuardado - descuentoAliadoCalculado);
-          
-          // Actualizar infoAliado para que se muestre correctamente
-          setInfoAliado({
-            es_aliado: true,
-            porcentaje: porcentajeAliado,
-            aliado_nombre: recibo.cliente_nombre?.split('-')[0]?.trim() || 'Aliado',
-            convenio_id: recibo.convenio_id,
-            cliente_aliado_id: recibo.cliente_aliado_id
-          });
-          
-          console.log(`🔍 Descuento total: ${descuentoTotalGuardado}, Aliado: ${descuentoAliadoCalculado}, Manual: ${descuentoManual}`);
-        }
+          const notasMatch = recibo.notas?.match(/\[(\d+(?:\.\d+)?)%\]/);
+          const porcentajeAliado = notasMatch ? parseFloat(notasMatch[1]) : 0;
+
+          if (porcentajeAliado > 0) {
+              const subtotalServicios = recibo.items
+                  .filter((item: any) => item.tipo_item === 'servicio')
+                  .reduce((sum: number, item: any) => sum + parseFloat(item.subtotal), 0);
+
+              const descuentoAliadoCalculado = (subtotalServicios * porcentajeAliado) / 100;
+
+              // ← ← ← CLAVE: Restar AMBOS descuentos (aliado + referido) del total ← ← ←
+              descuentoManual = Math.max(
+                  0,
+                  descuentoTotalGuardado - descuentoAliadoCalculado - descuentoReferidoTotal
+              );
+
+              setInfoAliado({
+                  es_aliado: true,
+                  porcentaje: porcentajeAliado,
+                  aliado_nombre: recibo.cliente_nombre?.split('-')[0]?.trim() || 'Aliado',
+                  convenio_id: recibo.convenio_id,
+                  cliente_aliado_id: recibo.cliente_aliado_id
+              });
+
+              console.log(
+                  `🔍 Descuento total: ${descuentoTotalGuardado}, ` +
+                  `Aliado: ${descuentoAliadoCalculado}, ` +
+                  `Referido: ${descuentoReferidoTotal}, ` +
+                  `Manual: ${descuentoManual}`
+              );
+          } else {
+              descuentoManual = Math.max(0, descuentoTotalGuardado - descuentoReferidoTotal);
+              console.log(`🔍 Descuento total: ${descuentoTotalGuardado}, Referido: ${descuentoReferidoTotal}, Manual: ${descuentoManual}`);
+          }
+      } else {
+          // No es aliado, solo restar descuento de referido
+          descuentoManual = Math.max(0, descuentoTotalGuardado - descuentoReferidoTotal);
+          console.log(`🔍 (No aliado) Descuento total: ${descuentoTotalGuardado}, Referido: ${descuentoReferidoTotal}, Manual: ${descuentoManual}`);
       }
-      
+
       setDescuento(descuentoManual);
+
+
+
       setPropinaTotal(parseFloat(recibo.propina_total) || 0);
       setPropinaEditable(String(recibo.propina_total || 0));
       setMetodoPago(recibo.metodo_pago || 'bold');
       setClienteNombre(recibo.cliente_nombre || 'No proporcionado com');
       setClienteTelefono(recibo.cliente_telefono || 'No proporcionado com');
       setClienteEmail(recibo.cliente_email || 'No@proporcionado.com');
+
+      // ← ← ← NUEVO: Buscar y establecer clienteSeleccionadoId si el cliente existe ← ← ←
+if (recibo.cliente_email && recibo.cliente_email !== 'No@proporcionado.com') {
+  try {
+    // Buscar usuario por email
+    const usuariosRes = await fetch(
+      `${apiUrl}/usuarios/?search=${encodeURIComponent(recibo.cliente_email)}`,
+      {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      }
+    );
+    
+    if (usuariosRes.ok) {
+      const usuariosData = await usuariosRes.json();
+      const usuariosList = Array.isArray(usuariosData) ? usuariosData : (usuariosData.results || []);
+      
+      // Buscar el usuario que coincida con el email del recibo
+      const usuarioEncontrado = usuariosList.find(
+        (u: any) => u.email?.toLowerCase() === recibo.cliente_email?.toLowerCase()
+      );
+      
+      if (usuarioEncontrado) {
+        setClienteSeleccionadoId(usuarioEncontrado.id);
+        console.log(`✅ [cargarRecibo] Cliente encontrado y establecido: ID=${usuarioEncontrado.id}`);
+      } else {
+        console.log(`ℹ️ [cargarRecibo] Cliente no encontrado en usuarios registrados`);
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ [cargarRecibo] No se pudo buscar el cliente:', err);
+  }
+}
       setNotas(recibo.notas || '');
       setEstadoRecibo(recibo.estado);
       setMontoPagar(parseFloat(recibo.total) || 0);
@@ -1130,6 +1615,8 @@ const registrarAbonoEnCitas = async (montoAbono: number, metodoPago: string) => 
       if (recibo.id) {
         await cargarResumenAbonos(recibo.id);
       }
+      // ← ← ← NUEVO: Cargar badges de referido ← ← ←
+      await cargarBadgesReferido(recibo.id);
       
     } catch (err) {
       console.error('❌ [CajaReciboModal] Error cargando recibo:', err);
@@ -1593,13 +2080,29 @@ const actualizarPrecioItem = async (itemId: string, nuevoPrecio: number, esServi
       console.error('❌ Error actualizando precio de cita:', err);
     }
   }
+  // ← ← ← NUEVO: Recalcular comisiones de referido si este item tiene una ← ← ←
+  const badgeReferido = badgesReferido.find(b => b.itemId === Number(itemId));
+  if (badgeReferido) {
+    await handleRecalcularComision(badgeReferido.planId);
+  }
 };
+
+
 
 // ← ← ← FUNCIÓN REMOVER ITEM CORREGIDA ← ← ←
 const removerItem = async (itemId: string) => {
   const item = items.find(i => i.id === itemId);
   
   if (!item) return;
+  // ← ← ← NUEVO: Si el item tiene una comisión de referido, liberarla primero ← ← ←
+const badgeReferido = badgesReferido.find(b => b.itemId === Number(itemId));
+if (badgeReferido) {
+  try {
+    await handleLiberarComision(badgeReferido.planId);
+  } catch (err) {
+    console.error('❌ Error liberando comisión al eliminar item:', err);
+  }
+}
   
   // Si es modo edición y el item tiene cita asociada, confirmar eliminación
   if (modoEdicion && item.tipo === 'servicio' && item.citaId) {
@@ -1686,7 +2189,8 @@ const removerItem = async (itemId: string) => {
   
   console.log(`✅ Item eliminado: ${item.descripcion}${item.citaId ? ` + Cita #${item.citaId}` : ''} | itemsQuitados:`, itemsQuitados);
 };
-   
+  
+
 
   // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
   // ← ← ← NUEVAS FUNCIONES PARA PROPINA Y DISTRIBUCIÓN ← ← ←
@@ -1842,6 +2346,51 @@ useEffect(() => {
     cargarResumenAbonos(reciboId);
   }
 }, [isOpen, reciboId, modoEdicion]);
+
+// ← ← ← NUEVA FUNCIÓN: Abrir modal de Plan de Referidos con auto-guardado ← ← ←
+const handleAbrirPlanReferidos = async () => {
+  // 1. Verificar si hay items no sincronizados (temporales)
+  const hayCambios = hayItemsNoSincronizados;
+  
+  if (hayCambios) {
+    console.log("🔄 [PlanReferido] Detectados items no sincronizados, guardando borrador silenciosamente...");
+    try {
+      // Preparar payload base
+      const payloadBase = {
+        tipo: tipoRecibo,
+        estado: 'borrador',
+        subtotal: subtotal,
+        descuento: descuento,
+        total: total,
+        propina_total: tipoRecibo === 'venta' ? propinaTotal : 0,
+        propina_metodo_distribucion: tipoRecibo === 'venta' && propinaTotal > 0 ? propinaMetodo : null,
+        metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
+        session_caja: sessionCajaId,
+        cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : (clienteNombre?.trim() || 'Movimiento Operativo'),
+        cliente_telefono: tipoRecibo === 'venta' ? (clienteTelefono?.trim() || 'No proporcionado') : '',
+        cliente_email: tipoRecibo === 'venta' ? (clienteEmail?.trim() || 'No@proporcionado.com') : '',
+        notas: notas || '',
+      };
+
+      // Guardar en MODO SILENCIOSO (true)
+      await handleActualizarReciboConPayload(payloadBase, true);
+      console.log("✅ [PlanReferido] Guardado exitoso, abriendo modal...");
+    } catch (error: any) {
+      console.error("❌ [PlanReferido] Falló el guardado automático:", error);
+      alert("⚠️ No se pudieron guardar los cambios automáticamente.\n\nPor favor guarda el recibo manualmente (como borrador) antes de usar el Plan de Referidos.");
+      return; // Detener si falla
+    }
+  }
+
+  // 2. Verificar que ahora tengamos reciboId
+  if (!reciboId) {
+    alert("⚠️ Primero debes guardar el recibo (como borrador) antes de usar el Plan de Referidos.\n\nHaz clic en 'Guardar Borrador' e intenta nuevamente.");
+    return;
+  }
+
+  // 3. Abrir el modal de Plan de Referidos
+  setShowPlanReferidoModal(true);
+};
 
 // ← ← ← NUEVA FUNCIÓN: Auto-Guardado + Abrir Modal de Abono ← ← ←
 // ← ← ← FUNCIÓN NUEVA: Auto-Guardado + Abrir Modal ← ← ←
@@ -2536,25 +3085,34 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
 
 
         // 2. PAYLOAD BASE
+        // ← ← ← CLAVE: Calcular descuento TOTAL (manual + referido) ← ← ←
+        const descuentoReferidoTotal = badgesReferido.reduce(
+          (sum, badge) => sum + (Number(badge.montoDescuento) || 0), 
+          0
+        );
+        const descuentoTotal = (Number(descuento) || 0) + descuentoReferidoTotal;
+
         const payloadToSanitize = {
-            tipo: payloadBase.tipo,
-            estado: payloadBase.estado,
-            subtotal: Math.round(subtotal * 100) / 100,
-            descuento: Math.round((Number(descuento) || 0) * 100) / 100,
-            total: Math.round(total * 100) / 100,
-            propina_total: Math.round(propinaTotal * 100) / 100,
-            propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
-            metodo_pago: payloadBase.metodo_pago,
-            session_caja: sessionCajaId,
-            cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : (clienteNombre?.trim() || 'Movimiento Operativo'),
-            cliente_telefono: tipoRecibo === 'venta' ? (clienteTelefono?.trim() || 'No proporcionado') : '',
-            cliente_email: tipoRecibo === 'venta' ? (clienteEmail?.trim() || 'No@proporcionado.com') : '',
-            notas: notas?.trim() || '',
-            items_data: itemsData,
-            ...(modoEdicion && itemsQuitados.length > 0 && {
-                items_a_eliminar: itemsQuitados.map(id => Number(id)).filter(id => !isNaN(id) && id > 0)
-            })
+          tipo: payloadBase.tipo,
+          estado: payloadBase.estado,
+          subtotal: Math.round(subtotal * 100) / 100,
+          descuento: Math.round(descuentoTotal * 100) / 100,  // ← ← ← AHORA USA EL DESCUENTO TOTAL
+          total: Math.round(total * 100) / 100,
+          propina_total: Math.round(propinaTotal * 100) / 100,
+          propina_metodo_distribucion: propinaTotal > 0 ? propinaMetodo : null,
+          metodo_pago: payloadBase.metodo_pago,
+          session_caja: sessionCajaId,
+          cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : (clienteNombre?.trim() || 'Movimiento Operativo'),
+          cliente_telefono: tipoRecibo === 'venta' ? (clienteTelefono?.trim() || 'No proporcionado') : '',
+          cliente_email: tipoRecibo === 'venta' ? (clienteEmail?.trim() || 'No@proporcionado.com') : '',
+          notas: notas?.trim() || '',
+          items_data: itemsData,
+          ...(modoEdicion && itemsQuitados.length > 0 && {
+            items_a_eliminar: itemsQuitados.map(id => Number(id)).filter(id => !isNaN(id) && id > 0)
+          })
         };
+
+        console.log(`💰 [handleActualizar] Descuento calculado: Manual=${descuento} + Referido=${descuentoReferidoTotal} = Total=${descuentoTotal}`);
 
         // 3. SANITIZACIÓN INLINE (Evita ReferenceError con funciones externas)
         const sanitize = (val: any): any => {
@@ -3002,7 +3560,43 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
       </div>
 </div>
 
-      
+      {/* ← ← ← BADGE DE DESCUENTO DE REFERIDO (si aplica) ← ← ← */}
+{(() => {
+  const badge = badgesReferido.find(b => b.itemId === Number(item.id));
+  if (!badge) return null;
+  return (
+    <div className="mt-2 bg-gradient-to-r from-purple-900/40 to-indigo-900/40 border border-purple-700/50 rounded-lg p-2 flex items-center justify-between">
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        <span className="text-lg">🎯</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-purple-300 font-semibold truncate">
+            {badge.porcentaje}% referido por {badge.referenteNombre}
+          </p>
+          <p className="text-[10px] text-gray-400 truncate">
+            Ref: {badge.referidoNombre}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0 ml-2">
+        <span className="text-sm font-bold text-green-400">
+          -{formatMoney(badge.montoDescuento)}
+        </span>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleLiberarComision(badge.planId);
+          }}
+          className="text-red-400 hover:text-red-300 p-1 hover:bg-red-900/30 rounded transition-colors"
+          title="Liberar comisión (quitar descuento)"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+})()}
       {/* Segunda fila: Info adicional */}
       <div className="flex items-center gap-3 mt-1 text-[10px] text-gray-500">
         {item.tipo === 'servicio' && !item.citaId && (
@@ -3655,12 +4249,39 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                           </p>
 
                         </div>
+                      )}
+
+                      {/* ← ← ← BADGE RESUMEN: COMISIONES DE REFERIDO APLICADAS ← ← ← */}
+                      {badgesReferido.length > 0 && (
+                        <div className="bg-gradient-to-r from-purple-900/30 to-indigo-900/30 border border-purple-700/50 rounded-lg p-3 mb-3">
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xl">🎯</span>
+                              <span className="font-medium text-purple-300">
+                                {badgesReferido.length} {badgesReferido.length === 1 ? 'comisión' : 'comisiones'} de referente aplicada(s)
+                              </span>
+                            </div>
+                            <span className="font-bold text-green-400">
+                              -{formatMoney(badgesReferido.reduce((sum, b) => sum + b.montoDescuento, 0))}
+                            </span>
+                          </div>
+                          <div className="mt-2 space-y-1">
+                            {badgesReferido.map((badge, idx) => (
+                              <div key={badge.planId} className="flex items-center justify-between text-xs text-gray-400">
+                                <span>
+                                  {idx + 1}. {badge.porcentaje}% sobre "{badge.itemDescripcion || 'Servicio'}"
+                                </span>
+                                <span className="text-purple-300">-{formatMoney(badge.montoDescuento)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       )}                                      
                     
 
                       {Number(descuento) > 0 && (
                         <div className="flex justify-between text-sm text-orange-600">
-                          <span>Descuento Manual:</span>
+                          <span>Descuento:</span>
                           <span>-{formatMoney(descuento)}</span>
                         </div>
                       )}
@@ -3714,8 +4335,24 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
 
                   {/* Inputs de Descuento y Propina */}
                   <div className="grid grid-cols-2 gap-3 mt-4">
+
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Descuento ($)</label>
+
+                      <label className="block text-xs text-gray-500 mb-1">Descuento ($)
+                        <button
+                          type="button"
+                          onClick={handleAbrirPlanReferidos}
+                          disabled={loading}
+                          className="text-purple-400 hover:text-purple-300 text-xs  gap-1 px-2  bg-purple-900/30 hover:bg-purple-900/50 transition-colors"
+                          title="Plan de Referidos"
+                        >{loading ? (
+                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-purple-400"></div>
+                        ) : (
+                          <>🎯 Referidos</>
+                        )}
+                        </button>
+                      </label>
+
                       <input
                         type="number"
                         min="0"
@@ -3729,6 +4366,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                         className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm disabled:opacity-50"
                         placeholder="0"
                       />
+
                     </div>
                     {tipoRecibo === 'venta' && (
                       <div>
@@ -3759,6 +4397,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
 
 
               </div>
+              
                
                {/* Notas */}
                 <div className="mt-6">
@@ -3773,6 +4412,8 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                     placeholder="Notas adicionales para este recibo..."
                   />
                 </div>
+
+
 
               </div>
             </div>
@@ -4497,6 +5138,596 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
           token={token}
         />
       )}
+
+      {/* ← ← ← MODAL PRINCIPAL: PLAN DE REFERIDOS (2 OPCIONES) ← ← ← */}
+{showPlanReferidoModal && (
+  <div 
+    className="fixed inset-0 z-[100] bg-black/70 flex items-center justify-center p-4"
+    onClick={() => setShowPlanReferidoModal(false)}
+  >
+    <div 
+      className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg border-2 border-purple-700"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="p-6 border-b border-gray-700 flex items-center justify-between">
+        <div>
+          <h3 className="text-xl font-bold text-white flex items-center gap-2">
+            🎯 Plan de Referidos
+          </h3>
+          <p className="text-sm text-gray-400 mt-1">
+            Gestiona comisiones de referidos para este recibo
+          </p>
+        </div>
+        <button 
+          onClick={() => setShowPlanReferidoModal(false)}
+          className="text-gray-400 hover:text-white"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Body: 2 opciones */}
+      <div className="p-6 space-y-4">
+        {/* OPCIÓN 1: Referido por (FLUJO A) */}
+        <button
+          onClick={() => {
+            if (!clienteSeleccionadoId) {
+              alert('⚠️ Primero debes seleccionar un cliente para este recibo (el cliente referido).\n\nUsa el botón "Buscar" en la sección "Datos del Cliente".');
+              return;
+            }
+            setShowPlanReferidoModal(false);
+            setShowReferidoPorModal(true);
+          }}
+          className="w-full p-5 bg-gradient-to-r from-blue-900/50 to-indigo-900/50 border-2 border-blue-700 rounded-xl text-left hover:border-blue-500 hover:scale-[1.02] transition-all group"
+        >
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-2xl shrink-0">
+              👤
+            </div>
+            <div className="flex-1">
+              <h4 className="text-lg font-bold text-white group-hover:text-blue-300">
+                Referido por...
+              </h4>
+              <p className="text-sm text-gray-400 mt-1">
+                Este cliente fue referido por otro. Registra la relación y genera una comisión para el referente.
+              </p>
+              <div className="mt-2 text-xs text-blue-400 flex items-center gap-1">
+                <span>📌</span>
+                <span>Genera comisión del {porcentajeComision}% (default) sobre el primer servicio</span>
+              </div>
+            </div>
+            <svg className="w-6 h-6 text-blue-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </button>
+     
+        {/* OPCIÓN 2: Comisión de referente (FLUJO B) */}
+        <button
+          onClick={async () => {
+            if (!clienteSeleccionadoId) {
+              alert('⚠️ Primero debes seleccionar un cliente para este recibo (el referente).');
+              return;
+            }
+            // ← ← ← NUEVO: Verificar que haya servicios disponibles antes de abrir ← ← ←
+            const serviciosDisponibles = items.filter(
+              i => {
+                const itemIdNum = Number(i.id);
+                return i.tipo === 'servicio' && 
+                       !isNaN(itemIdNum) && 
+                       itemIdNum > 0 && 
+                       !badgesReferido.some(b => b.itemId === itemIdNum);
+              }
+            );
+            
+            if (serviciosDisponibles.length === 0) {
+              alert(
+                '⚠️ No hay servicios disponibles para aplicar comisiones.\n\n' +
+                'Posibles razones:\n' +
+                '• No hay servicios en el recibo\n' +
+                '• Todos los servicios ya tienen un descuento de referido aplicado\n\n' +
+                'Agrega más servicios al recibo o verifica los descuentos aplicados.'
+              );
+              return;
+            }
+            
+            setShowPlanReferidoModal(false);
+            // ← ← ← NUEVO: Recargar comisiones (ya filtra las aplicadas gracias al backend) ← ← ←
+            await cargarComisionesPendientes(clienteSeleccionadoId);
+            setShowComisionesPendientesModal(true);
+          }}
+          className="w-full p-5 bg-gradient-to-r from-green-900/50 to-emerald-900/50 border-2 border-green-700 rounded-xl text-left hover:border-green-500 hover:scale-[1.02] transition-all group"
+        >
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-green-600 rounded-full flex items-center justify-center text-2xl shrink-0">
+              💰
+            </div>
+            <div className="flex-1">
+              <h4 className="text-lg font-bold text-white group-hover:text-green-300">
+                Comisión de referente
+              </h4>
+              <p className="text-sm text-gray-400 mt-1">
+                Este cliente es referente. Aplica una de sus comisiones pendientes como descuento en este recibo.
+              </p>
+              <div className="mt-2 text-xs text-green-400 flex items-center gap-1">
+                <span>💡</span>
+                <span>Usa comisiones acumuladas de referidos anteriores</span>
+              </div>
+            </div>
+            <svg className="w-6 h-6 text-green-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </button>
+
+        {/* Info adicional */}
+        <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700 text-xs text-gray-400">
+          <p className="font-semibold text-gray-300 mb-1">ℹ️ Reglas del plan:</p>
+          <ul className="space-y-1 list-disc list-inside">
+            <li>El descuento solo aplica a <strong>servicios</strong> (no productos)</li>
+            <li>Cada comisión se aplica a <strong>UN servicio específico</strong></li>
+            <li>Puedes aplicar múltiples comisiones si hay múltiples servicios</li>
+            <li>El % de comisión es entre 1% y 30%</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+
+{/* ← ← ← MODAL FLUJO A: REFERIDO POR (Configurar nueva comisión) ← ← ← */}
+{showReferidoPorModal && (
+  <div 
+    className="fixed inset-0 z-[105] bg-black/80 flex items-center justify-center p-4"
+    onClick={() => setShowReferidoPorModal(false)}
+  >
+    <div 
+      className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden border-2 border-blue-700 flex flex-col"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="p-5 border-b border-gray-700 flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            👤 Registrar "Referido por"
+          </h3>
+          <p className="text-xs text-gray-400 mt-1">
+            Cliente actual (referido): <span className="text-blue-400 font-semibold">{clienteNombre}</span>
+          </p>
+        </div>
+        <button 
+          onClick={() => setShowReferidoPorModal(false)}
+          className="text-gray-400 hover:text-white"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="p-5 overflow-y-auto flex-1 space-y-4">
+        {/* Paso 1: Seleccionar referente */}
+        <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
+          <label className="block text-sm font-semibold text-gray-300 mb-2">
+            Paso 1: Seleccionar cliente referente *
+          </label>
+          {clienteReferenteSeleccionado ? (
+            <div className="flex items-center justify-between bg-blue-900/30 border border-blue-700 rounded-lg p-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold">
+                  {clienteReferenteSeleccionado.nombre.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <p className="font-semibold text-white">{clienteReferenteSeleccionado.nombre}</p>
+                  <p className="text-xs text-gray-400">{clienteReferenteSeleccionado.telefono}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setClienteReferenteSeleccionado(null)}
+                className="text-red-400 hover:text-red-300"
+                title="Cambiar referente"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => {
+                // ← ← ← CORRECCIÓN: Activar bandera de búsqueda de referente ← ← ←
+                setBuscandoClienteReferente(true);
+                setShowReferidoPorModal(false);
+                setShowClientModal(true);
+              }}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              Buscar cliente referente
+            </button>
+          )}
+        </div>
+
+        {/* Paso 2: Configurar % de comisión */}
+        <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
+          <label className="block text-sm font-semibold text-gray-300 mb-2">
+            Paso 2: Porcentaje de comisión *
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min="1"
+              max="30"
+              step="0.5"
+              value={porcentajeComision}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value) || 10;
+                setPorcentajeComision(Math.min(30, Math.max(1, val)));
+              }}
+              className="flex-1 px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg text-white text-lg font-bold focus:border-blue-500 focus:outline-none"
+            />
+            <span className="text-2xl text-gray-400">%</span>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Rango válido: 1% - 30%. Default: 10%
+          </p>
+          {/* Presets rápidos */}
+          <div className="flex gap-2 mt-3">
+            {[5, 10, 15, 20, 25, 30].map(p => (
+              <button
+                key={p}
+                onClick={() => setPorcentajeComision(p)}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                  porcentajeComision === p
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                }`}
+              >
+                {p}%
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Resumen */}
+        {clienteReferenteSeleccionado && (
+          <div className="bg-gradient-to-r from-blue-900/30 to-indigo-900/30 rounded-lg p-4 border border-blue-700/50">
+            <p className="text-sm font-semibold text-white mb-2">📋 Resumen:</p>
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-400">Cliente referido:</span>
+                <span className="text-blue-400 font-medium">{clienteNombre}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">Referente (gana comisión):</span>
+                <span className="text-green-400 font-medium">{clienteReferenteSeleccionado.nombre}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">Porcentaje de comisión:</span>
+                <span className="text-yellow-400 font-bold">{porcentajeComision}%</span>
+              </div>
+              <div className="flex justify-between border-t border-gray-700 pt-1 mt-1">
+                <span className="text-gray-400">Valor recibo actual:</span>
+                <span className="text-white font-bold">{formatMoney(total)}</span>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-3 italic">
+              💡 La comisión quedará pendiente y el referente podrá usarla en sus propios recibos.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="p-5 border-t border-gray-700 flex gap-3">
+        <button
+          onClick={() => setShowReferidoPorModal(false)}
+          className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+        >
+          Cancelar
+        </button>
+        <button
+          onClick={handleCrearNuevaComision}
+          disabled={loadingReferido || !clienteReferenteSeleccionado}
+          className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          {loadingReferido ? (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              Creando...
+            </>
+          ) : (
+            <>✅ Crear Comisión</>
+          )}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{/* ← ← ← MODAL FLUJO B: COMISIONES PENDIENTES DEL REFERENTE ← ← ← */}
+{showComisionesPendientesModal && (
+  <div 
+    className="fixed inset-0 z-[105] bg-black/80 flex items-center justify-center p-4"
+    onClick={() => setShowComisionesPendientesModal(false)}
+  >
+    <div 
+      className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden border-2 border-green-700 flex flex-col"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="p-5 border-b border-gray-700 flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            💰 Comisiones Pendientes
+          </h3>
+          <p className="text-xs text-gray-400 mt-1">
+            Cliente: <span className="text-green-400 font-semibold">{clienteNombre}</span>
+            {comisionesPendientes.length > 0 && (
+              <span className="ml-2 px-2 py-0.5 bg-green-900/50 text-green-300 rounded-full text-xs">
+                {comisionesPendientes.length} disponible(s)
+              </span>
+            )}
+          </p>
+        </div>
+        <button 
+          onClick={() => setShowComisionesPendientesModal(false)}
+          className="text-gray-400 hover:text-white"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="p-5 overflow-y-auto flex-1">
+        {loadingReferido ? (
+          <div className="text-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500 mx-auto"></div>
+            <p className="text-gray-400 mt-3">Cargando comisiones...</p>
+          </div>
+        ) : comisionesPendientes.length === 0 ? (
+          <div className="text-center py-12">
+            <div className="text-6xl mb-3">📭</div>
+            <p className="text-gray-400 font-medium">Este cliente no tiene comisiones pendientes</p>
+            <p className="text-xs text-gray-500 mt-2">
+              Las comisiones se generan cuando este cliente refiere a otros.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-400 mb-2">
+              💡 Selecciona una comisión para aplicarla como descuento a un servicio de este recibo.
+            </p>
+            {comisionesPendientes.map((comision) => (
+              <button
+                key={comision.id}
+                onClick={() => {
+                  // Validar que haya servicios en el recibo
+                  const serviciosDisponibles = items.filter(
+                    i => i.tipo === 'servicio' && 
+                    !badgesReferido.some(b => b.itemId === Number(i.id))
+                  );
+                  if (serviciosDisponibles.length === 0) {
+                    alert('⚠️ No hay servicios disponibles para aplicar esta comisión.\n\nAgrega servicios al recibo o verifica que no todos tengan ya un descuento de referido.');
+                    return;
+                  }
+                  setComisionSeleccionada(comision);
+                  setShowComisionesPendientesModal(false);
+                  setShowSeleccionServicioModal(true);
+                }}
+                className="w-full p-4 bg-gradient-to-r from-green-900/30 to-emerald-900/30 border border-green-700 rounded-xl text-left hover:border-green-500 hover:scale-[1.01] transition-all group"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 flex-1">
+                    <div className="w-12 h-12 bg-green-600 rounded-full flex items-center justify-center text-white font-bold text-lg shrink-0">
+                      {comision.porcentaje_comision}%
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-white">
+                        Ref: <span className="text-green-300">{comision.referido_nombre}</span>
+                      </p>
+                      <p className="text-xs text-gray-400 truncate">
+                        {comision.recibo_referido_codigo 
+                          ? `Recibo: ${comision.recibo_referido_codigo}`
+                          : `Valor recibo: ${formatMoney(parseFloat(comision.valor_recibo_referido))}`
+                        }
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {new Date(comision.fecha_creacion).toLocaleDateString('es-CO', {
+                          day: '2-digit', month: 'short', year: 'numeric'
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                  <svg className="w-6 h-6 text-green-400 group-hover:translate-x-1 transition-transform shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="p-5 border-t border-gray-700">
+        <button
+          onClick={() => setShowComisionesPendientesModal(false)}
+          className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+        >
+          Cerrar
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{/* ← ← ← MODAL FLUJO B: SELECCIONAR SERVICIO PARA APLICAR COMISIÓN ← ← ← */}
+{showSeleccionServicioModal && comisionSeleccionada && (
+  <div 
+    className="fixed inset-0 z-[110] bg-black/80 flex items-center justify-center p-4"
+    onClick={() => setShowSeleccionServicioModal(false)}
+  >
+    <div 
+      className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden border-2 border-yellow-700 flex flex-col"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="p-5 border-b border-gray-700 flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            🎯 Aplicar {comisionSeleccionada.porcentaje_comision}% de descuento
+          </h3>
+          <p className="text-xs text-gray-400 mt-1">
+            Comisión por referir a: <span className="text-yellow-400 font-semibold">{comisionSeleccionada.referido_nombre}</span>
+          </p>
+          {/* ← ← ← NUEVO: Advertencia si el recibo no está guardado ← ← ← */}
+          {!reciboId && (
+            <p className="text-xs text-red-400 mt-1 font-semibold">
+              ⚠️ Debes guardar el recibo primero antes de aplicar comisiones
+            </p>
+          )}
+        </div>
+        <button 
+          onClick={() => setShowSeleccionServicioModal(false)}
+          className="text-gray-400 hover:text-white"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Body: Lista de servicios disponibles */}
+<div className="p-5 overflow-y-auto flex-1">
+  <p className="text-xs text-gray-400 mb-3">
+    Selecciona el servicio al que se aplicará el descuento del {comisionSeleccionada.porcentaje_comision}%:
+  </p>
+  
+  {/* ← ← ← NUEVO: Calcular servicios disponibles UNA SOLA VEZ ← ← ← */}
+  {(() => {
+    const serviciosDisponibles = items.filter(i => {
+      if (i.tipo !== 'servicio') return false;
+      const itemIdNum = Number(i.id);
+      if (isNaN(itemIdNum) || itemIdNum <= 0) return false;
+      // ← ← ← CLAVE: Filtrar por badge O por comisión en proceso ← ← ←
+      if (badgesReferido.some(b => b.itemId === itemIdNum)) return false;
+      return true;
+    });
+
+    // Si no hay servicios disponibles, mostrar mensaje
+    if (serviciosDisponibles.length === 0) {
+      return (
+        <div className="bg-orange-900/30 border border-orange-700 rounded-lg p-6 text-center">
+          <div className="text-4xl mb-3">⚠️</div>
+          <p className="text-orange-300 font-semibold mb-2">
+            No hay servicios disponibles
+          </p>
+          <p className="text-xs text-gray-400">
+            Todos los servicios del recibo ya tienen un descuento de referido aplicado o el recibo aún no está guardado.
+          </p>
+          <button
+            onClick={() => {
+              setShowSeleccionServicioModal(false);
+              setShowComisionesPendientesModal(true);
+              setServicioSeleccionadoParaAplicar(null);
+            }}
+            className="mt-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm"
+          >
+            ← Volver a comisiones
+          </button>
+        </div>
+      );
+    }
+
+    // Si hay servicios, renderizar la lista
+    return (
+      <div className="space-y-2">
+        {serviciosDisponibles.map((item) => {
+          const porcentaje = parseFloat(comisionSeleccionada?.porcentaje_comision || '0');
+          const descuentoCalculado = (item.subtotal * porcentaje) / 100;
+          const isSelected = servicioSeleccionadoParaAplicar?.id === item.id;
+          
+          return (
+            <button
+              key={item.id}
+              onClick={() => setServicioSeleccionadoParaAplicar(item)}
+              className={`w-full p-4 rounded-xl text-left transition-all border-2 ${
+                isSelected
+                  ? 'bg-yellow-900/40 border-yellow-500 scale-[1.02]'
+                  : 'bg-gray-900 border-gray-700 hover:border-yellow-700'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 flex-1">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shrink-0 ${
+                    isSelected ? 'bg-yellow-600' : 'bg-gray-700'
+                  }`}>
+                    {isSelected ? '✓' : '🛠️'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-white truncate">{item.descripcion}</p>
+                    {item.codigoReserva && (
+                      <p className="text-xs text-blue-400 font-mono">{item.codigoReserva}</p>
+                    )}
+                    <p className="text-xs text-gray-400">
+                      Precio: {formatMoney(item.subtotal)}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right shrink-0 ml-2">
+                  <p className="text-xs text-gray-500">Descuento:</p>
+                  <p className="text-lg font-bold text-yellow-400">
+                    {formatMoney(descuentoCalculado)}
+                  </p>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
+  })()}
+</div>
+
+      {/* Footer */}
+      <div className="p-5 border-t border-gray-700 flex gap-3">
+        <button
+          onClick={() => {
+            setShowSeleccionServicioModal(false);
+            setShowComisionesPendientesModal(true);
+            setServicioSeleccionadoParaAplicar(null);
+          }}
+          className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+        >
+          ← Volver
+        </button>
+        <button
+          onClick={handleAplicarComisionAServicio}
+          disabled={loadingReferido || !servicioSeleccionadoParaAplicar}
+          className="flex-1 py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          {loadingReferido ? (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              Aplicando...
+            </>
+          ) : (
+            <>✅ Aplicar Descuento</>
+          )}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
       {/* ← ← ← MODAL DE CONFIRMACIÓN DE ELIMINACIÓN (UNIFICADO) ← ← ← */}
 {itemToDelete && (
   <div className="fixed inset-0 z-[110] bg-black/70 flex items-center justify-center p-4">
@@ -4564,12 +5795,26 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
   </div>
 )}
       {/* ← ← ← MODAL DE BÚSQUEDA DE CLIENTES ← ← ← */}
-{showClientModal && (
-  <div className="fixed inset-0 z-[95] bg-black/70 flex items-center justify-center p-4" onClick={() => setShowClientModal(false)}>
+      {showClientModal && (
+        <div 
+          className="fixed inset-0 z-[95] bg-black/70 flex items-center justify-center p-4" 
+          onClick={() => {
+            setShowClientModal(false);
+            // ← ← ← NUEVO: Resetear bandera al cerrar ← ← ←
+            setBuscandoClienteReferente(false);
+          }}
+        >
     <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden border-2 border-gray-700" onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center justify-between p-4 border-b border-gray-700">
         <h3 className="text-lg font-bold text-white">👥 Seleccionar Cliente</h3>
-        <button onClick={() => setShowClientModal(false)} className="text-gray-400 hover:text-white">
+        <button 
+          onClick={() => {
+            setShowClientModal(false);
+            // ← ← ← NUEVO: Resetear bandera al cerrar ← ← ←
+            setBuscandoClienteReferente(false);
+          }} 
+          className="text-gray-400 hover:text-white"
+        >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
