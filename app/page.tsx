@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import PublicidadModal from '@/components/admin/PublicidadModal';
 
 interface Categoria {
   id: number;
@@ -198,6 +199,16 @@ const formatPrice = (value: string | number | null | undefined): string => {
 
   return (
     <div className="min-h-screen bg-white">
+      
+      {/* ← ← ← MODAL DE PUBLICIDAD ← ← ← */}
+<PublicidadModal 
+  token={typeof window !== 'undefined' ? (
+    localStorage.getItem('user_token') || 
+    localStorage.getItem('admin_token') || 
+    localStorage.getItem('token') || 
+    undefined
+  ) : undefined}
+/>
       {/* Hero Section */}
       <section className="relative h-screen min-h-[600px] overflow-hidden">
         {/* Imagen de fondo */}

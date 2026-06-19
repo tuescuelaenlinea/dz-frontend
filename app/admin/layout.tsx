@@ -51,6 +51,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const menuItems = [    
     { href: '/admin', label: 'Dashboard', icon: '📊' },
+    { href: '/admin/publicidad', label: 'Publicidades',icon: '📢' },
     { href: '/admin/citas', label: ' Citas', icon: '📅' },
     { href: '/admin/aliados', label: 'Aliados', icon: '🤝' },  // ← ← ← NUEVO: Módulo de Aliados
     { href: '/admin/clientes', label: ' Clientes', icon: '👥' },
