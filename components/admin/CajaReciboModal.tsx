@@ -324,24 +324,69 @@ const [servicioSeleccionadoParaAplicar, setServicioSeleccionadoParaAplicar] = us
 const [badgesReferido, setBadgesReferido] = useState<PlanReferidoBadge[]>([]);
 const [loadingReferido, setLoadingReferido] = useState(false);
 
+
+// ← ← ← NUEVO useMemo: Calcular descuento automático de aliado ← ← ←
+  const descuentoAliadoCalculado = useMemo(() => {
+    // Si no es aliado, no hay descuento
+    if (!infoAliado.es_aliado || infoAliado.porcentaje <= 0) {
+      return 0;
+    }
+
+    // Solo calcular sobre SERVICIOS (no productos)
+    const subtotalServicios = items
+      .filter(item => item.tipo === 'servicio')
+      .reduce((sum, item) => {
+        const cantidad = Number(item.cantidad) || 1;
+        const precio = Number(item.precioUnitario) || 0;        
+        return sum + (cantidad * precio);
+      }, 0);
+
+console.log(`🧮 [descuentoAliadoCalculado] Subtotal servicios: $${subtotalServicios} | Items servicios: ${items.filter(i => i.tipo === 'servicio').length}`);
+
+
+    if (subtotalServicios <= 0) return 0;
+
+    // Calcular descuento proporcional
+    const descuento = (subtotalServicios * infoAliado.porcentaje) / 100;
+    
+    // Redondear a 2 decimales
+    const resultado = Math.round(descuento * 100) / 100;
+    console.log(`💰 [descuentoAliadoCalculado] Descuento calculado: $${resultado} (${infoAliado.porcentaje}%)`);
+    return resultado;
+    }, [items, infoAliado.es_aliado, infoAliado.porcentaje]);
+
+
 // ← ← ← MODIFICAR: Incluir descuento de aliado en el total ← ← ←
 // ← ← ← REEMPLAZAR el useMemo de total por este:
 const total = useMemo(() => {
-  // ← ← ← CLAVE: Incluir descuento de referido en el cálculo ← ← ←
-  const descuentoManual = Number(descuento) || 0;
-  const descuentoReferidoTotal = badgesReferido.reduce(
-    (sum, badge) => sum + (Number(badge.montoDescuento) || 0), 
-    0
-  );
-  const descuentoTotal = descuentoManual + descuentoReferidoTotal;
+    const descuentoManual = Number(descuento) || 0;
+    const descuentoAliado = descuentoAliadoCalculado;  // ← Solo cálculo, NO se suma si ya viene del backend
+    const descuentoReferidoTotal = badgesReferido.reduce(
+        (sum, badge) => sum + (Number(badge.montoDescuento) || 0),
+        0
+    );
+    
+    // ← ← ← CLAVE: El descuento total ya viene del backend
+    // Solo usamos los cálculos para mostrar en UI, NO para sumar
+    const descuentoTotal = descuentoManual + descuentoAliado + descuentoReferidoTotal;
+    
+    const totalCalculado = subtotal - descuentoTotal + (tipoRecibo === 'venta' ? propinaTotal : 0);
+    
+    console.log(
+        `🧮 [total] Cálculo:` +
+        `\n   Subtotal: $${subtotal}` +
+        `\n   Descuento Manual: $${descuentoManual}` +
+        `\n   Descuento Aliado: $${descuentoAliado}` +
+        `\n   Descuento Referido: $${descuentoReferidoTotal}` +
+        `\n   Descuento Total: $${descuentoTotal}` +
+        `\n   Propina: $${propinaTotal}` +
+        `\n   TOTAL: $${totalCalculado}`
+    );
+    
+    return Math.max(0, Math.round(totalCalculado * 100) / 100);
+}, [subtotal, descuento, descuentoAliadoCalculado, propinaTotal, tipoRecibo, badgesReferido]);
   
-  const totalCalculado = subtotal - descuentoTotal + (tipoRecibo === 'venta' ? propinaTotal : 0);
-  
-  console.log(`🧮 [total] Subtotal=${subtotal} - DescuentoManual=${descuentoManual} - DescuentoReferido=${descuentoReferidoTotal} + Propina=${propinaTotal} = Total=${totalCalculado}`);
-  
-  // No permitir totales negativos
-  return Math.max(0, Math.round(totalCalculado * 100) / 100);
-}, [subtotal, descuento, propinaTotal, tipoRecibo, badgesReferido]);
+ 
 
 
 // ← ← ← RESUMEN DE ABONOS (reactivo + detección de exceso de pago) ← ← ←
@@ -1342,74 +1387,116 @@ const registrarAbonoEnCitas = async (montoAbono: number, metodoPago: string) => 
       setReciboEditando(recibo);
       setReciboId(recibo.id);
       setTipoRecibo(recibo.tipo);
-      // ← ← ← CLAVE: Separar descuento manual del descuento de aliado Y de referido ← ← ←
-      const descuentoTotalGuardado = parseFloat(recibo.descuento) || 0;
-      let descuentoManual = descuentoTotalGuardado;
+      
+     // ← ← ← CLAVE: Calcular descuentos DESPUÉS de verificar cliente aliado ← ← ←
+const descuentoTotalGuardado = parseFloat(recibo.descuento) || 0;
+let descuentoReferidoTotal = 0;
+let descuentoAliadoCalculadoLocal = 0;
 
-      // ← ← ← NUEVO: Calcular descuento de referido desde los badges ← ← ←
-      let descuentoReferidoTotal = 0;
-      try {
-          const resRef = await fetch(
-              `${apiUrl}/plan-referido/?recibo_aplicado=${recibo.id}&estado=pendiente`,
-              { headers: token ? { 'Authorization': `Bearer ${token}` } : {} }
-          );
-          if (resRef.ok) {
-              const dataRef = await resRef.json();
-              const resultados = dataRef.results || [];
-              descuentoReferidoTotal = resultados.reduce(
-                  (sum: number, c: any) => sum + (parseFloat(c.valor_descuento_aplicado) || 0),
-                  0
-              );
-              console.log(`🎯 [cargarRecibo] Descuento de referido detectado: $${descuentoReferidoTotal}`);
-          }
-      } catch (err) {
-          console.warn('⚠️ No se pudo calcular descuento de referido:', err);
-      }
+// 1. Calcular descuento de referido desde badges
+try {
+    const resRef = await fetch(
+        `${apiUrl}/plan-referido/?recibo_aplicado=${recibo.id}&estado=pendiente`,
+        { headers: token ? { 'Authorization': `Bearer ${token}` } : {} }
+    );
+    if (resRef.ok) {
+        const dataRef = await resRef.json();
+        const resultados = dataRef.results || [];
+        descuentoReferidoTotal = resultados.reduce(
+            (sum: number, c: any) => sum + (parseFloat(c.valor_descuento_aplicado) || 0),
+            0
+        );
+    }
+} catch (err) {
+    console.warn('⚠️ No se pudo calcular descuento de referido:', err);
+}
 
-      // Si el recibo tiene info de aliado, calcular el descuento de aliado y restarlo
-      if (recibo.cliente_aliado_id && recibo.convenio_id) {
-          const notasMatch = recibo.notas?.match(/\[(\d+(?:\.\d+)?)%\]/);
-          const porcentajeAliado = notasMatch ? parseFloat(notasMatch[1]) : 0;
+// 2. ← ← ← CLAVE: Verificar cliente aliado ANTES de calcular descuento manual ← ← ←
+// Llamar directamente a verificarClienteAliado y esperar su resultado
+let porcentajeAliadoReal = 0;
+let infoAliadoLocal: InfoAliado = {
+    es_aliado: false,
+    porcentaje: 0,
+    aliado_nombre: '',
+    convenio_id: null,
+    cliente_aliado_id: null
+};
 
-          if (porcentajeAliado > 0) {
-              const subtotalServicios = recibo.items
-                  .filter((item: any) => item.tipo_item === 'servicio')
-                  .reduce((sum: number, item: any) => sum + parseFloat(item.subtotal), 0);
+// Preparar parámetros para verificarClienteAliado
+const emailParaVerificar = recibo.cliente_email || '';
+const telefonoParaVerificar = recibo.cliente_telefono || '';
+const citaIdParaVerificar = recibo.items?.find((i: any) => i.tipo_item === 'servicio' && i.cita)?.cita_id;
 
-              const descuentoAliadoCalculado = (subtotalServicios * porcentajeAliado) / 100;
+if (emailParaVerificar || telefonoParaVerificar || citaIdParaVerificar) {
+    try {
+        const params = new URLSearchParams();
+        if (emailParaVerificar) params.append('email', emailParaVerificar);
+        if (telefonoParaVerificar) params.append('telefono', telefonoParaVerificar);
+        if (citaIdParaVerificar) params.append('cita_id', String(citaIdParaVerificar));
+        
+        const resAliado = await fetch(
+            `${apiUrl}/verificar-cliente-aliado/?${params.toString()}`,
+            {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                }
+            }
+        );
+        
+        if (resAliado.ok) {
+            const dataAliado = await resAliado.json();
+            console.log('✅ [cargarRecibo] Cliente aliado verificado:', dataAliado);
+            
+            infoAliadoLocal = {
+                es_aliado: dataAliado.es_aliado || false,
+                porcentaje: dataAliado.porcentaje || 0,
+                aliado_nombre: dataAliado.aliado_nombre || '',
+                convenio_id: dataAliado.convenio_id || null,
+                cliente_aliado_id: dataAliado.cliente_aliado_id || null
+            };
+            
+            porcentajeAliadoReal = infoAliadoLocal.porcentaje;
+            
+            // Actualizar estado global para que el useMemo lo use
+            setInfoAliado(infoAliadoLocal);
+        }
+    } catch (err) {
+        console.warn('⚠️ [cargarRecibo] Error verificando cliente aliado:', err);
+    }
+}
 
-              // ← ← ← CLAVE: Restar AMBOS descuentos (aliado + referido) del total ← ← ←
-              descuentoManual = Math.max(
-                  0,
-                  descuentoTotalGuardado - descuentoAliadoCalculado - descuentoReferidoTotal
-              );
+// 3. Calcular descuento de aliado sobre servicios (AHORA con el porcentaje correcto)
+if (porcentajeAliadoReal > 0) {
+    const subtotalServicios = recibo.items
+        .filter((item: any) => item.tipo_item === 'servicio')
+        .reduce((sum: number, item: any) => sum + parseFloat(item.subtotal), 0);
+    
+    descuentoAliadoCalculadoLocal = (subtotalServicios * porcentajeAliadoReal) / 100;
+    
+    console.log(
+        `💰 [cargarRecibo] Descuento aliado calculado: ` +
+        `$${descuentoAliadoCalculadoLocal} (${porcentajeAliadoReal}% de $${subtotalServicios})`
+    );
+}
 
-              setInfoAliado({
-                  es_aliado: true,
-                  porcentaje: porcentajeAliado,
-                  aliado_nombre: recibo.cliente_nombre?.split('-')[0]?.trim() || 'Aliado',
-                  convenio_id: recibo.convenio_id,
-                  cliente_aliado_id: recibo.cliente_aliado_id
-              });
+// 4. ← ← ← AHORA SÍ: Calcular descuento manual (con aliado ya calculado) ← ← ←
+const descuentoManualCalculado = Math.max(
+    0, 
+    descuentoTotalGuardado - descuentoAliadoCalculadoLocal - descuentoReferidoTotal
+);
 
-              console.log(
-                  `🔍 Descuento total: ${descuentoTotalGuardado}, ` +
-                  `Aliado: ${descuentoAliadoCalculado}, ` +
-                  `Referido: ${descuentoReferidoTotal}, ` +
-                  `Manual: ${descuentoManual}`
-              );
-          } else {
-              descuentoManual = Math.max(0, descuentoTotalGuardado - descuentoReferidoTotal);
-              console.log(`🔍 Descuento total: ${descuentoTotalGuardado}, Referido: ${descuentoReferidoTotal}, Manual: ${descuentoManual}`);
-          }
-      } else {
-          // No es aliado, solo restar descuento de referido
-          descuentoManual = Math.max(0, descuentoTotalGuardado - descuentoReferidoTotal);
-          console.log(`🔍 (No aliado) Descuento total: ${descuentoTotalGuardado}, Referido: ${descuentoReferidoTotal}, Manual: ${descuentoManual}`);
-      }
+console.log(
+    `🔍 [cargarRecibo] Descuentos (OPCIÓN A CORREGIDA):` +
+    `\nTotal guardado en BD: $${descuentoTotalGuardado}` +
+    `\nAliado calculado: $${descuentoAliadoCalculadoLocal}` +
+    `\nReferido: $${descuentoReferidoTotal}` +
+    `\nManual (restante): $${descuentoManualCalculado}`
+);
 
-      setDescuento(descuentoManual);
-
+// 5. Setear el descuento manual
+setDescuento(descuentoManualCalculado);
 
 
       setPropinaTotal(parseFloat(recibo.propina_total) || 0);
@@ -1762,47 +1849,19 @@ if (recibo.cliente_email && recibo.cliente_email !== 'No@proporcionado.com') {
     }
   };
 
-  // ← ← ← NUEVO useMemo: Calcular descuento automático de aliado ← ← ←
-  const descuentoAliadoCalculado = useMemo(() => {
-    // Si no es aliado, no hay descuento
-    if (!infoAliado.es_aliado || infoAliado.porcentaje <= 0) {
-      return 0;
-    }
-
-    // Solo calcular sobre SERVICIOS (no productos)
-    const subtotalServicios = items
-      .filter(item => item.tipo === 'servicio')
-      .reduce((sum, item) => {
-        const cantidad = Number(item.cantidad) || 1;
-        const precio = Number(item.precioUnitario) || 0;        
-        return sum + (cantidad * precio);
-      }, 0);
-
-console.log(`🧮 [descuentoAliadoCalculado] Subtotal servicios: $${subtotalServicios} | Items servicios: ${items.filter(i => i.tipo === 'servicio').length}`);
-
-
-    if (subtotalServicios <= 0) return 0;
-
-    // Calcular descuento proporcional
-    const descuento = (subtotalServicios * infoAliado.porcentaje) / 100;
-    
-    // Redondear a 2 decimales
-    const resultado = Math.round(descuento * 100) / 100;
-    console.log(`💰 [descuentoAliadoCalculado] Descuento calculado: $${resultado} (${infoAliado.porcentaje}%)`);
-    return resultado;
-    }, [items, infoAliado.es_aliado, infoAliado.porcentaje]);
+  
 
   // ← ← ← ACTUALIZAR ESTADO cuando cambia el cálculo ← ← ←
   /*useEffect(() => {
     setDescuentoAliadoAutomatico(descuentoAliadoCalculado);
   }, [descuentoAliadoCalculado]);*/
 
-  useEffect(() => {
+ /* useEffect(() => {
   // Si hay descuento de aliado, actualizar el descuento automáticamente
   if (infoAliado.es_aliado && infoAliado.porcentaje > 0 && descuentoAliadoCalculado > 0) {
     setDescuento(descuentoAliadoCalculado);
   }
-}, [descuentoAliadoCalculado, infoAliado.es_aliado, infoAliado.porcentaje]);
+}, [descuentoAliadoCalculado, infoAliado.es_aliado, infoAliado.porcentaje]);*/
 
     // ← ← ← PREVENIR CIERRE ACCIDENTAL DEL MODAL ← ← ←
   useEffect(() => {
@@ -2806,7 +2865,8 @@ if (metodoPago === 'pendiente') {
         subtotal: subtotal,
 
         // ← ← ← CLAVE: Sumar descuento manual + descuento aliado automático ← ← ←
-        descuento: Math.round((Number(descuento) || 0) * 100) / 100,
+        // ← ← ← OPCIÓN A: Solo enviar descuento manual. Backend suma aliado + referido
+        descuento: Math.round(Number(descuento) * 100) / 100,
         total: total,
         propina_total: tipoRecibo === 'venta' ? propinaTotal : 0,
         propina_metodo_distribucion: tipoRecibo === 'venta' && propinaTotal > 0 ? propinaMetodo : null,
@@ -3087,10 +3147,11 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
         // 2. PAYLOAD BASE
         // ← ← ← CLAVE: Calcular descuento TOTAL (manual + referido) ← ← ←
         const descuentoReferidoTotal = badgesReferido.reduce(
-          (sum, badge) => sum + (Number(badge.montoDescuento) || 0), 
-          0
+            (sum, badge) => sum + (Number(badge.montoDescuento) || 0),
+            0
         );
-        const descuentoTotal = (Number(descuento) || 0) + descuentoReferidoTotal;
+        // ← ← ← OPCIÓN A: Solo enviar descuento manual. Backend suma aliado + referido
+        const descuentoTotal = (Number(descuento) || 0);
 
         const payloadToSanitize = {
           tipo: payloadBase.tipo,
@@ -3459,6 +3520,13 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                 const val = Math.max(1, parseInt(e.target.value) || 1);
                 actualizarCantidadItem(item.id, val);
               }}
+              onFocus={(e) => e.target.select()}  // ← ← ← NUEVO: Seleccionar todo al hacer focus
+              onBlur={(e) => {
+                // ← ← ← NUEVO: Si está vacío, poner 1
+                if (e.target.value === '' || isNaN(parseInt(e.target.value))) {
+                  actualizarCantidadItem(item.id, 1);
+                }
+              }}
               className="w-12 px-1 py-0.5 bg-gray-900 border border-gray-700 rounded text-white text-xs text-center focus:border-blue-500 focus:outline-none"
               title="Cantidad"
             />
@@ -3472,8 +3540,15 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
               step="100"
               value={item.precioUnitario}
               onChange={(e) => {
-                const val = Math.max(0, parseFloat(e.target.value) || 0);                
+                const val = Math.max(0, parseFloat(e.target.value) || 0);
                 actualizarPrecioItem(item.id, val, !!(item.tipo === 'servicio' && item.citaId));
+              }}
+              onFocus={(e) => e.target.select()}  // ← ← ← NUEVO: Seleccionar todo al hacer focus
+              onBlur={(e) => {
+                // ← ← ← NUEVO: Si está vacío, poner 0
+                if (e.target.value === '' || isNaN(parseFloat(e.target.value))) {
+                  actualizarPrecioItem(item.id, 0, !!(item.tipo === 'servicio' && item.citaId));
+                }
               }}
               className="w-20 px-1 py-0.5 bg-gray-900 border border-gray-700 rounded text-white text-xs text-right focus:border-green-500 focus:outline-none"
               title="Precio Unitario"
@@ -3868,11 +3943,10 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                       <label className="block text-xs text-gray-400 mb-1">Cantidad</label>
                       <input
                         type="number"
-                        min="0"  // ← ← ← CAMBIADO: De 1 a 0 para permitir borrar
+                        min="0"
                         value={movimientoCantidad}
                         onChange={(e) => {
                           const val = e.target.value;
-                          // ← ← ← PERMITIR VACÍO: Si está vacío, dejar vacío, sino parsear
                           if (val === '') {
                             setMovimientoCantidad(0);
                           } else {
@@ -3880,7 +3954,13 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                             setMovimientoCantidad(isNaN(parsed) ? 0 : parsed);
                           }
                         }}
-                        onFocus={(e) => e.target.select()}  // ← ← ← AUTO-SELECT AL FOCUS
+                        onFocus={(e) => e.target.select()}  // ← ← ← NUEVO: Seleccionar todo al hacer focus
+                        onBlur={(e) => {
+                          // ← ← ← NUEVO: Si está vacío, poner 1
+                          if (e.target.value === '' || isNaN(parseInt(e.target.value))) {
+                            setMovimientoCantidad(1);
+                          }
+                        }}
                         className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:ring-2 focus:ring-orange-500 outline-none"
                       />
                     </div>
@@ -3888,12 +3968,11 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                       <label className="block text-xs text-gray-400 mb-1">Monto / Precio</label>
                       <input
                         type="number"
-                        min="0"  // ← ← ← CAMBIADO: De 0 a permitir vacío
-                        step="0.01"  // ← ← ← AGREGADO: Permitir decimales
+                        min="0"
+                        step="0.01"
                         value={movimientoPrecio}
                         onChange={(e) => {
                           const val = e.target.value;
-                          // ← ← ← PERMITIR VACÍO: Si está vacío, dejar vacío, sino parsear
                           if (val === '') {
                             setMovimientoPrecio(0);
                           } else {
@@ -3901,7 +3980,13 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                             setMovimientoPrecio(isNaN(parsed) ? 0 : parsed);
                           }
                         }}
-                        onFocus={(e) => e.target.select()}  // ← ← ← AUTO-SELECT AL FOCUS
+                        onFocus={(e) => e.target.select()}  // ← ← ← NUEVO: Seleccionar todo al hacer focus
+                        onBlur={(e) => {
+                          // ← ← ← NUEVO: Si está vacío, poner 0
+                          if (e.target.value === '' || isNaN(parseFloat(e.target.value))) {
+                            setMovimientoPrecio(0);
+                          }
+                        }}
                         className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:ring-2 focus:ring-orange-500 outline-none"
                       />
                     </div>
@@ -4028,7 +4113,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                 }`}>
                   {resumenAbonos.puede_publicar 
                     ? '✅ 100% abonado - Listo para publicar' 
-                    : `⏳ ${resumenAbonos.porcentaje_abonado.toFixed(1)}% completado`}
+                    : `⏳ ${Math.round(resumenAbonos.porcentaje_abonado)}% completado`}
                 </p>
               </div>
             ) : (
@@ -4328,7 +4413,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                         }`}>
                           {resumenAbonos.puede_publicar 
                             ? '✅ 100% abonado - Listo para publicar' 
-                            : `⏳ ${resumenAbonos.porcentaje_abonado.toFixed(1)}% (${formatMoney(resumenAbonos.total_abonado)} / ${formatMoney(total)})`}
+                            : `⏳ ${Math.round(resumenAbonos.porcentaje_abonado)}% (${formatMoney(resumenAbonos.total_abonado)} / ${formatMoney(total)})`} 
                         </div>
                       )}
                     </div>                  </div>
@@ -4357,10 +4442,24 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                         type="number"
                         min="0"
                         step="100"
-                        value={descuento}
+                        value={descuento === 0 ? '' : descuento}  // ← ← ← Mostrar vacío cuando es 0
                         onChange={(e) => {
-                          const valor = parseFloat(e.target.value);
-                          setDescuento(!isNaN(valor) && valor >= 0 ? valor : 0);
+                          const val = e.target.value;
+                          if (val === '') {
+                            setDescuento(0);  // ← ← ← Permitir vacío (se muestra como vacío)
+                          } else {
+                            const valor = parseFloat(val);
+                            if (!isNaN(valor) && valor >= 0) {
+                              setDescuento(valor);
+                            }
+                          }
+                        }}
+                        onFocus={(e) => e.target.select()}  // ← ← ← NUEVO: Seleccionar todo al hacer focus
+                        onBlur={(e) => {
+                          // ← ← ← NUEVO: Si está vacío al perder foco, asegurar 0
+                          if (e.target.value === '' || isNaN(parseFloat(e.target.value))) {
+                            setDescuento(0);
+                          }
                         }}
                         //disabled={modoEdicion}
                         className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm disabled:opacity-50"
@@ -4381,6 +4480,17 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                             setPropinaTotal(valor);
                             if (propinaDistribucion.length > 0) {
                               setPropinaDistribucion(calcularDistribucionPropina);
+                            }
+                          }}
+                          onFocus={(e) => e.target.select()}  // ← ← ← NUEVO: Seleccionar todo al hacer focus
+                          onBlur={(e) => {
+                            // ← ← ← NUEVO: Si está vacío, poner 0
+                            if (e.target.value === '' || isNaN(parseFloat(e.target.value))) {
+                              setPropinaEditable('0');
+                              setPropinaTotal(0);
+                              if (propinaDistribucion.length > 0) {
+                                setPropinaDistribucion(calcularDistribucionPropina);
+                              }
                             }
                           }}
                           //disabled={modoEdicion}
@@ -4579,7 +4689,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                 ) : !resumenAbonos ? (
                   ' Cargando abonos...'
                 ) : !resumenAbonos.puede_publicar ? (
-                  `⏳ ${resumenAbonos.porcentaje_abonado.toFixed(1)}% - Faltan ${formatMoney(resumenAbonos.saldo_pendiente)}`
+                  `⏳ ${Math.round(resumenAbonos.porcentaje_abonado)}% - Faltan ${formatMoney(resumenAbonos.saldo_pendiente)}`
                 ) : (
                   '✅ Publicar Recibo'
                 )}
@@ -4698,7 +4808,8 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                       />
                     </div>
                     <p className="text-xs text-gray-500 text-center">
-                      {resumenAbonos.porcentaje_abonado}% completado
+                      
+                      ${Math.round(resumenAbonos.porcentaje_abonado)}% completado
                     </p>
                   </>
                 )}
@@ -4718,6 +4829,14 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                         type="number"
                         value={montoAbono}
                         readOnly
+                         onClick={() => {
+                            // ← ← ← NUEVO: Al hacer clic, poner el saldo pendiente en "Recibido"
+                            const saldoPendiente = resumenAbonos?.saldo_pendiente || 0;
+                            if (saldoPendiente > 0) {
+                              setRecibido(saldoPendiente.toString());
+                              setMontoAbono(saldoPendiente.toString());
+                            }
+                          }}
                         className="w-full px-4 py-3 pl-8 bg-gray-700 border border-gray-600 rounded-lg text-white text-lg font-bold cursor-not-allowed"
                         placeholder="0"
                       />
@@ -4754,6 +4873,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                             setMontoAbono(valorRecibido.toString());
                           }
                         }}
+                        onFocus={(e) => e.target.select()}  // ← ← ← NUEVO: Seleccionar todo al hacer focus
                         className="w-full px-4 py-3 pl-8 bg-gray-900 border border-green-600 rounded-lg text-white text-lg font-bold focus:border-green-500 focus:outline-none"
                         placeholder="0"
                         autoFocus
