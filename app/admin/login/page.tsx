@@ -1,4 +1,5 @@
 'use client';
+// app/admin/login
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -14,7 +15,7 @@ export default function AdminLoginPage() {
     const token = localStorage.getItem('admin_token');
     if (token) {
       // Si ya hay token, redirigir al dashboard
-      router.push('/admin');
+      window.location.href = '/admin';
     }
   }, [router]);
 
@@ -62,7 +63,7 @@ export default function AdminLoginPage() {
       localStorage.setItem('admin_user', JSON.stringify(userData));
 
       // 5. Redirigir al dashboard
-      router.push('/admin');
+      window.location.href = '/admin';
       router.refresh();
       
     } catch (err: any) {

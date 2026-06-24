@@ -222,7 +222,7 @@ export default function AdminPage() {
   
   // ← Propina y pago
   const [propinaTotal, setPropinaTotal] = useState(0);
-  const [propinaMetodo, setPropinaMetodo] = useState<'equitativa' | 'proporcional' | 'manual'>('proporcional');
+  const [propinaMetodo, setPropinaMetodo] = useState<'equitativa' | 'proporcional' | 'manual'>('equitativa');
   const [propinaDistribucion, setPropinaDistribucion] = useState<PropinaDistribucion[]>([]);
   const [metodoPago, setMetodoPago] = useState<string>('bold');
   const [metodoPagoSeleccionadoId, setMetodoPagoSeleccionadoId] = useState<number | null>(null);
@@ -990,7 +990,7 @@ const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
           <div className="grid grid-cols-12 gap-4 min-h-[calc(100vh-180px)]">
             
             {/* ========== PANEL IZQUIERDO (70%) ========== */}
-            <div className="col-span-12 lg:col-span-7 xl:col-span-9 flex flex-col">
+            <div className="col-span-12 lg:col-span-7 xl:col-span-8 flex flex-col">
               
               {/* Buscadores */}
               <div className="mb-4">
@@ -1257,7 +1257,7 @@ const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
             </div>
 
             {/* ========== PANEL DERECHO (30%) ========== */}
-            <div className="col-span-12 lg:col-span-5 xl:col-span-3">
+            <div className="col-span-12 lg:col-span-5 xl:col-span-4">
               <div className="bg-gray-800 rounded-xl shadow-2xl border-2 border-gray-700 sticky top-4 self-start max-h-[calc(100vh-100px)] flex flex-col">
                 
                 {/* [20%] HEADER */}

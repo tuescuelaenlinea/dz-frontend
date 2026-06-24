@@ -251,8 +251,8 @@ const [nuevoClienteData, setNuevoClienteData] = useState<NuevoClienteData>({
   const [movimientoPrecio, setMovimientoPrecio] = useState(0);
 
   // ← Estados para propinas
-  const [showPropinaModal, setShowPropinaModal] = useState(false);
-  const [propinaMetodo, setPropinaMetodo] = useState<'equitativa' | 'proporcional' | 'manual'>('proporcional');
+  const [showPropinaModal, setShowPropinaModal] = useState(false);  
+  const [propinaMetodo, setPropinaMetodo] = useState<'equitativa' | 'proporcional' | 'manual'>('equitativa');  // ← ← ← CAMBIO: 'proporcional' → 'equitativa'
   const [propinaDistribucion, setPropinaDistribucion] = useState<Array<{
     profesionalId: number; 
     nombre: string; 
@@ -1541,7 +1541,7 @@ if (recibo.cliente_email && recibo.cliente_email !== 'No@proporcionado.com') {
       setEstadoRecibo(recibo.estado);
       setMontoPagar(parseFloat(recibo.total) || 0);
       montoPagarEditedRef.current = false;
-      setPropinaMetodo(recibo.propina_metodo_distribucion || 'proporcional');
+      setPropinaMetodo(recibo.propina_metodo_distribucion || 'equitativa');
       
       // ← ← ← 4. CARGAR ITEMS CON ESTRUCTURA CORRECTA ← ← ←
       if (recibo.items && Array.isArray(recibo.items)) {
