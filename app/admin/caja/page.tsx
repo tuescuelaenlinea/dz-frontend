@@ -4018,35 +4018,34 @@ const formatDate = (dateStr: string): string => {
       <p className="text-sm text-gray-300 mt-1">
         Se encontraron <span className="font-bold text-white">{citasHuerfanas.length}</span> cita(s) en total.
       </p>
-
+      
       {/* ← ← ← DESGLOSE AUTOMÁTICO POR ESTADO ← ← ← */}
-      <div className="flex flex-wrap gap-1 mt-3">
-        {(() => {
-          const pendientes = citasHuerfanas.filter(c => c.estado === 'pendiente').length;
-          const confirmadas = citasHuerfanas.filter(c => c.estado === 'confirmada').length;
-          const completadas = citasHuerfanas.filter(c => c.estado === 'completada').length;
-
-          return (
-            <>
-              {pendientes > 0 && (
-                <span className="px-2 py-1 bg-yellow-900/40 text-yellow-400 text-xs rounded border border-yellow-700/50">
-                  ⏳ {pendientes} Pendiente (no requiere recibo)
-                </span>
-              )}
-              {confirmadas > 0 && (
-                <span className="px-2 py-1 bg-blue-900/40 text-blue-400 text-xs rounded border border-blue-700/50">
-                  ✅ {confirmadas} Confirmada (requiere recibo)
-                </span>
-              )}
-              {completadas > 0 && (
-                <span className="px-2 py-1 bg-green-900/40 text-green-400 text-xs rounded border border-green-700/50">
-                  🏁 {completadas} Completada (requiere recibo)
-                </span>
-              )}
-            </>
-          );
-        })()}
-      </div>
+    <div className="flex flex-wrap gap-1 mt-3">
+      {(() => {
+        const pendientes = citasHuerfanas.filter(c => c.estado === 'pendiente').length;
+        const confirmadas = citasHuerfanas.filter(c => c.estado === 'confirmada').length;
+        const completadas = citasHuerfanas.filter(c => c.estado === 'completada').length;
+        return (
+          <>
+            {pendientes > 0 && (
+              <span className="px-2 py-1 bg-yellow-900/40 text-yellow-400 text-xs rounded border border-yellow-700/50">
+                ⏳ {pendientes} Pendiente {citasHuerfanas.some(c => c.estado === 'pendiente' && parseFloat(c.pago_acumulado) > 0) ? '(con pago)' : ''}
+              </span>
+            )}
+            {confirmadas > 0 && (
+              <span className="px-2 py-1 bg-blue-900/40 text-blue-400 text-xs rounded border border-blue-700/50">
+                ✅ {confirmadas} Confirmada (requiere recibo)
+              </span>
+            )}
+            {completadas > 0 && (
+              <span className="px-2 py-1 bg-green-900/40 text-green-400 text-xs rounded border border-green-700/50">
+                🏁 {completadas} Completada (requiere recibo)
+              </span>
+            )}
+          </>
+        );
+      })()}
+    </div>
     </div>
   </div>
       

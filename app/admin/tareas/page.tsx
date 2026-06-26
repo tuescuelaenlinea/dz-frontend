@@ -23,6 +23,9 @@ export default function TareasPage() {
   const [loadingStats, setLoadingStats] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
 
+  // ← ← ← CLAVE: Definir apiUrl al nivel del componente (fuera de funciones) ← ← ←
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://179.43.112.64:8080/api';
+
   // ← ← ← OBTENER TOKEN EN CLIENTE (evita error de window en SSR) ← ← ←
   useEffect(() => {
     const storedToken = localStorage.getItem('admin_token');
@@ -31,50 +34,54 @@ export default function TareasPage() {
   }, []);
 
   // ← ← ← FETCH DE ESTADÍSTICAS (solo cuando token esté disponible) ← ← ←
-  const fetchStats = useCallback(async () => {
-    if (!token) {
-      console.log('⏳ [Stats] Esperando token...');
-      return;
+ const fetchStats = useCallback(async () => {
+  if (!token) {
+    console.log('⏳ [Stats] Esperando token...');
+    return;
+  }
+
+  try {
+    console.log('📊 [Stats] Fetching estadísticas...');
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://179.43.112.64:8080/api';
+    
+    // ← ← ← CLAVE: Agregar filtro ?mis_tareas=true ← ← ←
+    const response = await fetch(`${apiUrl}/tareas/estadisticas/?mis_tareas=true`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      cache: 'no-store'
+    });
+
+    console.log('📦 [Stats] Response status:', response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
 
-    try {
-      console.log('📊 [Stats] Fetching estadísticas...');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://179.43.112.64:8080/api';
-      
-      const response = await fetch(`${apiUrl}/tareas/estadisticas/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        cache: 'no-store'  // ← ← ← CLAVE: Evitar cache de Next.js
-      });
+    const data = await response.json();
+    console.log('✅ [Stats] Datos recibidos:', data);
+    
+    setStats({
+      pendientes_hoy: data.pendientes_hoy ?? 0,
+      completadas_semana: data.completadas_semana ?? 0,
+      tasa_finalizacion: data.tasa_finalizacion ?? 0,
+      total_tareas: data.total_tareas ?? 0,
+      total_finalizadas: data.total_finalizadas ?? 0
+    });
+    setStatsError(null);
+    
+  } catch (error) {
+    console.error('❌ [Stats] Error:', error);
+    setStatsError(error instanceof Error ? error.message : 'Error desconocido');
+  } finally {
+    setLoadingStats(false);
+  }
+}, [token]);
 
-      console.log('📦 [Stats] Response status:', response.status);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-
-      const data = await response.json();
-      console.log('✅ [Stats] Datos recibidos:', data);
-      
-      setStats({
-        pendientes_hoy: data.pendientes_hoy ?? 0,
-        completadas_semana: data.completadas_semana ?? 0,
-        tasa_finalizacion: data.tasa_finalizacion ?? 0,
-        total_tareas: data.total_tareas ?? 0,
-        total_finalizadas: data.total_finalizadas ?? 0
-      });
-      setStatsError(null);
-      
-    } catch (error) {
-      console.error('❌ [Stats] Error:', error);
-      setStatsError(error instanceof Error ? error.message : 'Error desconocido');
-    } finally {
-      setLoadingStats(false);
-    }
-  }, [token]);
+  // ← ← ← ELIMINAR ESTE useEffect (el que carga tareas) ← ← ←
+  // Ya no es necesario porque TareasModule maneja sus propias tareas
 
   // ← ← ← EJECUTAR FETCH CUANDO TOKEN ESTÉ LISTO ← ← ←
   useEffect(() => {
@@ -162,7 +169,7 @@ export default function TareasPage() {
       {/* Módulo de tareas */}
       <div className="max-w-4xl mx-auto">
         <TareasModule
-          apiUrl={process.env.NEXT_PUBLIC_API_URL}
+          apiUrl={apiUrl}
           token={token}
           onTareaFinalizada={handleTareaFinalizada}
           filtroInicial="todas"

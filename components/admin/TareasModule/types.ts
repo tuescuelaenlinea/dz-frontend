@@ -2,26 +2,46 @@
 
 export type EstadoTarea = 'pendiente' | 'en_seguimiento' | 'finalizada';
 
+export interface Usuario {
+  id: number;
+  username: string;
+  nombre_completo: string;
+  email: string;
+  is_staff: boolean;
+}
+
 export interface Tarea {
-  id: string;              // UUID o timestamp para unicidad
-  titulo: string;          // Texto de la tarea
+  id: string;
+  titulo: string;
   descripcion?: string;
-  estado: EstadoTarea;     // Estado actual
-  fecha_creacion: Date;    // Fecha de creación (internamente Date)
-  fecha_actualizacion?: Date; // Fecha de último cambio de estado
-  orden?: number;          // Para ordenamiento personalizado (opcional)
+  estado: EstadoTarea;
+  fecha_creacion: Date;
+  fecha_actualizacion?: Date;
+  orden?: number;
+  
+  // ← ← ← NUEVOS CAMPOS ← ← ←
+  creada_por?: number;
+  creada_por_username?: string;
+  creada_por_nombre?: string;
+  asignado_a?: number;
+  asignado_a_username?: string;
+  asignado_a_nombre?: string;
 }
 
 export interface TareasModuleProps {
-  apiUrl?: string;         // Base URL para API (opcional, para persistencia)
-  token?: string | null;   // Token de autenticación (opcional)
-  onTareaFinalizada?: (tarea: Tarea) => void; // Callback cuando se finaliza
-  filtroInicial?: EstadoTarea | 'todas'; // Estado inicial del filtro  
-  className?: string;  // ← Para permitir estilos personalizados desde el padre
+  apiUrl?: string;
+  token?: string | null;
+  onTareaFinalizada?: (tarea: Tarea) => void;
+  filtroInicial?: EstadoTarea | 'todas';
+  className?: string;
+  
+  // ← ← ← NUEVO: Indica si el usuario actual es superusuario ← ← ←
+  esSuperusuario?: boolean;
 }
 
 export interface TareaFormData {
   titulo: string;
   descripcion?: string;
   orden?: number;
+  asignado_a?: number;  // ← ← ← NUEVO
 }

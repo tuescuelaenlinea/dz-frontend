@@ -1,5 +1,5 @@
+// app/admin/login/page.tsx
 'use client';
-// app/admin/login
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -10,14 +10,14 @@ export default function AdminLoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // ← VERIFICAR SI YA ESTÁ AUTENTICADO AL CARGAR
+  // Verificar si ya está autenticado
   useEffect(() => {
     const token = localStorage.getItem('admin_token');
     if (token) {
-      // Si ya hay token, redirigir al dashboard
+      // ← ← ← CAMBIO: Forzar recarga completa para que el layout detecte permisos
       window.location.href = '/admin';
     }
-  }, [router]);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,10 +61,11 @@ export default function AdminLoginPage() {
       // 4. Guardar en localStorage
       localStorage.setItem('admin_token', token);
       localStorage.setItem('admin_user', JSON.stringify(userData));
+      localStorage.removeItem('user_permisos'); // ← ← ← Limpiar permisos anteriores
 
-      // 5. Redirigir al dashboard
+      // 5. ← ← ← CLAVE: Forzar recarga completa de la página ← ← ←
+      // Esto hace que el layout se reinicialice completamente y detecte los nuevos permisos
       window.location.href = '/admin';
-      router.refresh();
       
     } catch (err: any) {
       console.error('❌ Error en login:', err);

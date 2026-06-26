@@ -1,21 +1,25 @@
-// components/admin/TareasModule/index.tsx
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';  // ← Agregar useCallback
-import { Tarea, EstadoTarea, TareasModuleProps } from './types';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Tarea, EstadoTarea, TareasModuleProps, Usuario } from './types';
 import { formatDateColombia, getEstadoBadgeClass, getEstadoLabel } from './utils';
 
 export default function TareasModule({
-  apiUrl,
+  apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api',
   token,
   onTareaFinalizada,
   filtroInicial = 'todas',
-  className = ''  // ← ← ← AGREGAR valor por defecto
+  className = '',
+  esSuperusuario = false  // ← ← ← NUEVO
 }: TareasModuleProps) {
   // ← ← ← ESTADOS PRINCIPALES ← ← ←
   const [tareas, setTareas] = useState<Tarea[]>([]);
   const [nuevaTarea, setNuevaTarea] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<EstadoTarea | 'todas'>(filtroInicial);
+  
+  // ← ← ← NUEVOS ESTADOS PARA ASIGNACIÓN ← ← ←
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [usuarioAsignado, setUsuarioAsignado] = useState<number | null>(null);
   
   // ← ← ← MODAL DE CAMBIO DE ESTADO ← ← ←
   const [modalOpen, setModalOpen] = useState(false);
@@ -24,20 +28,42 @@ export default function TareasModule({
   // ← ← ← ESTADOS PARA EDICIÓN DE TAREA ← ← ←
   const [modalEditarOpen, setModalEditarOpen] = useState(false);
   const [tareaEditando, setTareaEditando] = useState<Tarea | null>(null);
-  const [formData, setFormData] = useState<{ titulo: string; descripcion?: string; orden?: number }>({ 
+  const [formData, setFormData] = useState<{ titulo: string; descripcion?: string; orden?: number; asignado_a?: number }>({ 
     titulo: '', 
     descripcion: '', 
-    orden: 0 
+    orden: 0,
+    asignado_a: undefined
   });
+  
+  // ← ← ← MODAL PARA REASIGNAR TAREA ← ← ←
+  const [modalReasignarOpen, setModalReasignarOpen] = useState(false);
+  const [tareaReasignando, setTareaReasignando] = useState<Tarea | null>(null);
+  const [nuevoAsignado, setNuevoAsignado] = useState<number | null>(null);
   
   // ← ← ← REFERENCIAS ← ← ←
   const inputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
 
-  // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
-  // ← ← ← FUNCIONES MOVIDAS AL SCOPE PRINCIPAL (FUERA DEL useEffect) ← ← ←
-  // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+  // ← ← ← CARGAR USUARIOS DISPONIBLES (solo superusuario) ← ← ←
+  useEffect(() => {
+    if (esSuperusuario && apiUrl && token) {
+      const cargarUsuarios = async () => {
+        try {
+          const res = await fetch(`${apiUrl}/tareas/usuarios-disponibles/`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setUsuarios(data.usuarios || []);
+          }
+        } catch (err) {
+          console.error('❌ Error cargando usuarios:', err);
+        }
+      };
+      cargarUsuarios();
+    }
+  }, [esSuperusuario, apiUrl, token]);
 
   // ← ← ← ABRIR MODAL DE EDICIÓN ← ← ←
   const handleAbrirEditar = useCallback((tarea: Tarea) => {
@@ -45,7 +71,8 @@ export default function TareasModule({
     setFormData({
       titulo: tarea.titulo,
       descripcion: tarea.descripcion || '',
-      orden: tarea.orden || 0
+      orden: tarea.orden || 0,
+      asignado_a: tarea.asignado_a || undefined
     });
     setModalEditarOpen(true);
     setTimeout(() => editInputRef.current?.focus(), 100);
@@ -60,6 +87,7 @@ export default function TareasModule({
       titulo: formData.titulo.trim(),
       descripcion: formData.descripcion?.trim(),
       orden: formData.orden,
+      asignado_a: formData.asignado_a,
       fecha_actualizacion: new Date()
     };
 
@@ -80,13 +108,13 @@ export default function TareasModule({
           body: JSON.stringify({
             titulo: formData.titulo.trim(),
             descripcion: formData.descripcion?.trim() || null,
-            orden: formData.orden
+            orden: formData.orden,
+            asignado_a: formData.asignado_a || null
           })
         });
         console.log('✅ Tarea editada exitosamente');
       } catch (err) {
         console.error('❌ Error editando tarea en API');
-        // Revertir cambio local si falla
         setTareas(prev => prev.map(t => 
           t.id === tareaEditando.id ? tareaEditando : t
         ));
@@ -97,59 +125,61 @@ export default function TareasModule({
     setTareaEditando(null);
   }, [tareaEditando, formData, apiUrl, token]);
 
-  // ← ← ← CARGAR TAREAS ← ← ←
-  useEffect(() => {
-    const cargarTareas = async () => {
-      console.log('🔍 [TareasModule] apiUrl:', apiUrl);
-      console.log('🔍 [TareasModule] token:', token ? '✅ Presente' : '❌ Ausente');
-      
-      if (apiUrl && token) {
-        try {
-          console.log('📡 Fetching:', `${apiUrl}/tareas/`);
-          const res = await fetch(`${apiUrl}/tareas/`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
+// ← ← ← CARGAR TAREAS ← ← ←
+useEffect(() => {
+  const cargarTareas = async () => {
+    console.log('🔍 [TareasModule] apiUrl:', apiUrl);
+    console.log('🔍 [TareasModule] token:', token ? '✅ Presente' : '❌ Ausente');
+    
+    if (apiUrl && token) {
+      try {
+        // ← ← ← CLAVE: Agregar filtro ?mis_tareas=true ← ← ←
+        const tareasUrl = `${apiUrl}/tareas/?mis_tareas=true`;
+        console.log('📡 Fetching:', tareasUrl);
+        
+        const res = await fetch(tareasUrl, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
 
-          console.log('📦 Response status:', res.status);
-          if (res.ok) {
-            const data = await res.json();
-            console.log('✅ Response data:', data);
-            
-            // Manejar respuesta paginada o array directo
-            const tareasRaw = Array.isArray(data) ? data : (data.results || data.data || []);
-            console.log('✅ Tareas cargadas:', tareasRaw.length);
-            
-            const tareasParseadas = tareasRaw.map((t: any) => ({
-              ...t,
-              fecha_creacion: t.fecha_creacion ? new Date(t.fecha_creacion) : new Date(),
-              fecha_actualizacion: t.fecha_actualizacion ? new Date(t.fecha_actualizacion) : undefined
-            }));
-            setTareas(tareasParseadas);
-            return;
-          }
-        } catch (err) {
-          console.warn('⚠️ No se pudieron cargar tareas desde API, usando localStorage');
-        }
-      }
-      
-      // Fallback: localStorage
-      const guardadas = localStorage.getItem('tareas_dzsalon');
-      if (guardadas) {
-        try {
-          const parseadas = JSON.parse(guardadas).map((t: any) => ({
+        console.log('📦 Response status:', res.status);
+        if (res.ok) {
+          const data = await res.json();
+          console.log('✅ Tareas cargadas:', data.length || (data.results ? data.results.length : 0));
+          
+          // Manejar respuesta paginada o array directo
+          const tareasRaw = Array.isArray(data) ? data : (data.results || data.data || []);
+          
+          const tareasParseadas = tareasRaw.map((t: any) => ({
             ...t,
-            fecha_creacion: new Date(t.fecha_creacion),
+            fecha_creacion: t.fecha_creacion ? new Date(t.fecha_creacion) : new Date(),
             fecha_actualizacion: t.fecha_actualizacion ? new Date(t.fecha_actualizacion) : undefined
           }));
-          setTareas(parseadas);
-        } catch (e) {
-          console.error('❌ Error parseando tareas de localStorage');
+          setTareas(tareasParseadas);
+          return;
         }
+      } catch (err) {
+        console.warn('⚠️ No se pudieron cargar tareas desde API, usando localStorage');
       }
-    };
+    }
     
-    cargarTareas();
-  }, [apiUrl, token]);  // ← ← ← Las funciones NO van en las dependencias porque están fuera
+    // Fallback: localStorage
+    const guardadas = localStorage.getItem('tareas_dzsalon');
+    if (guardadas) {
+      try {
+        const parseadas = JSON.parse(guardadas).map((t: any) => ({
+          ...t,
+          fecha_creacion: new Date(t.fecha_creacion),
+          fecha_actualizacion: t.fecha_actualizacion ? new Date(t.fecha_actualizacion) : undefined
+        }));
+        setTareas(parseadas);
+      } catch (e) {
+        console.error('❌ Error parseando tareas de localStorage');
+      }
+    }
+  };
+  
+  cargarTareas();
+}, [apiUrl, token]);
 
   // ← ← ← GUARDAR EN LOCALSTORAGE ← ← ←
   useEffect(() => {
@@ -184,26 +214,35 @@ export default function TareasModule({
       titulo,
       estado: 'pendiente',
       fecha_creacion: new Date(),
-      orden: tareas.length + 1
+      orden: tareas.length + 1,
+      asignado_a: usuarioAsignado || undefined
     };
 
     setTareas(prev => [...prev, nueva]);
     setNuevaTarea('');
+    setUsuarioAsignado(null);
     inputRef.current?.focus();
 
     if (apiUrl && token) {
       try {
+        const payload: any = {
+          titulo: nueva.titulo,
+          estado: nueva.estado,
+          fecha_creacion: nueva.fecha_creacion.toISOString()
+        };
+        
+        // Si es superusuario y seleccionó un usuario asignado, incluirlo
+        if (esSuperusuario && usuarioAsignado) {
+          payload.asignado_a = usuarioAsignado;
+        }
+        
         await fetch(`${apiUrl}/tareas/`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           },
-          body: JSON.stringify({
-            titulo: nueva.titulo,
-            estado: nueva.estado,
-            fecha_creacion: nueva.fecha_creacion.toISOString()
-          })
+          body: JSON.stringify(payload)
         });
       } catch (err) {
         console.error('❌ Error guardando tarea en API');
@@ -283,6 +322,53 @@ export default function TareasModule({
     }
   };
 
+  // ← ← ← NUEVO: ABRIR MODAL DE REASIGNACIÓN ← ← ←
+  const handleAbrirReasignar = (tarea: Tarea) => {
+    setTareaReasignando(tarea);
+    setNuevoAsignado(tarea.asignado_a || null);
+    setModalReasignarOpen(true);
+  };
+
+  // ← ← ← NUEVO: REASIGNAR TAREA ← ← ←
+  const handleReasignar = async () => {
+    if (!tareaReasignando || !nuevoAsignado) return;
+
+    const tareaActualizada: Tarea = {
+      ...tareaReasignando,
+      asignado_a: nuevoAsignado,
+      fecha_actualizacion: new Date()
+    };
+
+    setTareas(prev => prev.map(t => 
+      t.id === tareaActualizada.id ? tareaActualizada : t
+    ));
+
+    if (apiUrl && token) {
+      try {
+        await fetch(`${apiUrl}/tareas/${tareaReasignando.id}/`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            asignado_a: nuevoAsignado
+          })
+        });
+        console.log('✅ Tarea reasignada exitosamente');
+      } catch (err) {
+        console.error('❌ Error reasignando tarea en API');
+        setTareas(prev => prev.map(t => 
+          t.id === tareaReasignando.id ? tareaReasignando : t
+        ));
+      }
+    }
+
+    setModalReasignarOpen(false);
+    setTareaReasignando(null);
+    setNuevoAsignado(null);
+  };
+
   // ← ← ← FILTRAR TAREAS ← ← ←
   const tareasFiltradas = tareas.filter(tarea => {
     if (filtroEstado === 'todas') return true;
@@ -297,9 +383,16 @@ export default function TareasModule({
     finalizada: tareas.filter(t => t.estado === 'finalizada').length
   };
 
+  // ← ← ← NUEVO: Obtener nombre del usuario asignado ← ← ←
+  const getUsuarioAsignadoNombre = (tarea: Tarea): string => {
+    if (tarea.asignado_a_nombre) return tarea.asignado_a_nombre;
+    if (tarea.asignado_a_username) return tarea.asignado_a_username;
+    return 'Sin asignar';
+  };
+
   return (
-     <div className={`bg-white rounded-xl shadow-sm border border-gray-200 p-4 mx-auto ${className}`.trim()}>            
-       {/* ← ← ← HEADER CON FILTROS ← ← ← */}
+    <div className={`bg-white rounded-xl shadow-sm border border-gray-200 p-4 mx-auto ${className}`.trim()}>            
+      {/* ← ← ← HEADER CON FILTROS ← ← ← */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-100">
         <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
           📋 Tareas
@@ -351,6 +444,28 @@ export default function TareasModule({
             Agregar
           </button>
         </div>
+        
+        {/* ← ← ← NUEVO: Selector de usuario asignado (solo superusuario) ← ← ← */}
+        {esSuperusuario && usuarios.length > 0 && (
+          <div className="mt-2">
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Asignar a: <span className="text-gray-400">(opcional, por defecto: tú)</span>
+            </label>
+            <select
+              value={usuarioAsignado || ''}
+              onChange={(e) => setUsuarioAsignado(e.target.value ? parseInt(e.target.value) : null)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-shadow text-sm"
+            >
+              <option value="">Yo mismo</option>
+              {usuarios.map(user => (
+                <option key={user.id} value={user.id}>
+                  {user.nombre_completo} (@{user.username})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        
         <p className="text-xs text-gray-500 mt-1 ml-1">
           💡 Tip: Presiona <kbd className="px-1.5 py-0.5 bg-gray-100 rounded border">Enter</kbd> para guardar
         </p>
@@ -400,13 +515,29 @@ export default function TareasModule({
                 <p className="text-xs text-gray-500 mt-0.5">
                   Creada: {formatDateColombia(tarea.fecha_creacion)}
                 </p>
+                {/* ← ← ← NUEVO: Mostrar quién creó y a quién está asignada ← ← ← */}
+                <div className="flex items-center gap-2 mt-1 text-xs">
+                  {tarea.creada_por_nombre && (
+                    <span className="text-gray-400">
+                      👤 {tarea.creada_por_nombre}
+                    </span>
+                  )}
+                  {tarea.asignado_a && (
+                    <>
+                      <span className="text-gray-300">→</span>
+                      <span className="text-blue-600 font-medium">
+                        🎯 {getUsuarioAsignadoNombre(tarea)}
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
 
-              {/* ← ← ← BOTÓN EDITAR (AHORA FUNCIONA) ← ← ← */}
+              {/* ← ← ← BOTÓN EDITAR ← ← ← */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleAbrirEditar(tarea);  // ← ← ← AHORA SÍ ESTÁ DEFINIDA
+                  handleAbrirEditar(tarea);
                 }}
                 className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-blue-500 transition-opacity"
                 title="Editar tarea"
@@ -417,6 +548,24 @@ export default function TareasModule({
                   />
                 </svg>
               </button>
+
+              {/* ← ← ← NUEVO: BOTÓN REASIGNAR (solo superusuario) ← ← ← */}
+              {esSuperusuario && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleAbrirReasignar(tarea);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-purple-500 transition-opacity"
+                  title="Reasignar tarea"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                      d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" 
+                    />
+                  </svg>
+                </button>
+              )}
 
               {/* Badge */}
               <span className={`px-2 py-1 text-xs font-medium rounded border ${
@@ -442,6 +591,7 @@ export default function TareasModule({
           ))
         )}
       </div>
+
       {/* ← ← ← MODAL PARA EDITAR TAREA ← ← ← */}
       {modalEditarOpen && tareaEditando && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -505,6 +655,27 @@ export default function TareasModule({
                 <p className="text-xs text-gray-500 mt-1 text-right">{formData.descripcion?.length || 0}/500</p>
               </div>
 
+              {/* ← ← ← NUEVO: Selector de asignado (solo superusuario) ← ← ← */}
+              {esSuperusuario && usuarios.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Asignado a
+                  </label>
+                  <select
+                    value={formData.asignado_a || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, asignado_a: e.target.value ? parseInt(e.target.value) : undefined }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-shadow"
+                  >
+                    <option value="">Sin asignar</option>
+                    {usuarios.map(user => (
+                      <option key={user.id} value={user.id}>
+                        {user.nombre_completo} (@{user.username})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {/* Orden (opcional) */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -539,6 +710,80 @@ export default function TareasModule({
                 className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
               >
                 💾 Guardar cambios
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ← ← ← NUEVO: MODAL PARA REASIGNAR TAREA ← ← ← */}
+      {modalReasignarOpen && tareaReasignando && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md border border-gray-200 overflow-hidden">
+            
+            {/* Header */}
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h4 className="font-semibold text-gray-900">🎯 Reasignar tarea</h4>
+              <button
+                onClick={() => {
+                  setModalReasignarOpen(false);
+                  setTareaReasignando(null);
+                  setNuevoAsignado(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Contenido */}
+            <div className="p-4 space-y-4">
+              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                <p className="text-sm font-medium text-gray-900">{tareaReasignando.titulo}</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Actualmente asignada a: <span className="font-medium text-blue-600">{getUsuarioAsignadoNombre(tareaReasignando)}</span>
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Nuevo asignado
+                </label>
+                <select
+                  value={nuevoAsignado || ''}
+                  onChange={(e) => setNuevoAsignado(e.target.value ? parseInt(e.target.value) : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-shadow"
+                >
+                  <option value="">Seleccionar usuario...</option>
+                  {usuarios.map(user => (
+                    <option key={user.id} value={user.id}>
+                      {user.nombre_completo} (@{user.username})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-gray-100 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setModalReasignarOpen(false);
+                  setTareaReasignando(null);
+                  setNuevoAsignado(null);
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleReasignar}
+                disabled={!nuevoAsignado}
+                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
+              >
+                🔄 Reasignar
               </button>
             </div>
           </div>

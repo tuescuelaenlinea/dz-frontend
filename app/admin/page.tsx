@@ -233,6 +233,9 @@ export default function AdminPage() {
   const [horaInicio, setHoraInicio] = useState(getHoraLocal());
   const [notasCliente, setNotasCliente] = useState('');
 
+  // ← ← ← NUEVO: Estado para forzar re-render al cambiar de rol ← ← ←
+  const [currentRole, setCurrentRole] = useState('');
+
   // ← ← ← NUEVO: Control de acordeón (solo un item expandido a la vez) ← ← ←
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
 
@@ -348,6 +351,29 @@ useEffect(() => {
       loadClientes();
     }
   }, [showClientModal]);
+
+
+  // ← ← ← NUEVO: Cargar rol actual y escuchar cambios ← ← ←
+useEffect(() => {
+  // Cargar rol actual
+  const perfil = localStorage.getItem('admin_perfil');
+  const user = localStorage.getItem('admin_user');
+  try {
+    const userData = JSON.parse(user || '{}');
+    setCurrentRole(perfil || userData.rol || 'profesional');
+  } catch (e) {
+    setCurrentRole('profesional');
+  }
+  
+  // Escuchar cambios de perfil
+  const handleProfileChange = (e: CustomEvent) => {
+    setCurrentRole(e.detail?.rol || 'profesional');
+  };
+  
+  window.addEventListener('profileChanged', handleProfileChange as EventListener);
+  return () => window.removeEventListener('profileChanged', handleProfileChange as EventListener);
+}, []);
+
 
   // En AdminPage, dentro del useEffect principal o en un useEffect separado:
 useEffect(() => {
@@ -947,8 +973,8 @@ const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
   };
 
   // ← ← ← RENDERIZADO ← ← ←
-  return (
-    <div className="min-h-screen bg-gray-900 -mx-4 -my-2">
+  return (    
+    <div key={currentRole} className="min-h-screen bg-gray-900 -mx-4 -my-2">
       
       {/* ========== HEADER CON TABS ========== */}
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 shadow-xl border-b border-gray-700">

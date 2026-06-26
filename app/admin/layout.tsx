@@ -1,6 +1,6 @@
 // app/admin/layout.tsx
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { PermisosProvider, usePermisosContext } from '@/contexts/PermisosContext';
@@ -12,11 +12,12 @@ interface MenuItem {
   href: string;
   label: string;
   icon: string;
-  moduloCodigo?: string; // ← Código del módulo para verificar permisos
+  moduloCodigo?: string;
 }
 
 const TODOS_LOS_MENU_ITEMS: MenuItem[] = [
-  { href: '/admin', label: 'Dashboard', icon: '📊' },
+  { href: '/admin', label: 'Dashboard', icon: '📊', moduloCodigo: 'dashboard' },
+  { href: '/admin/profesional', label: 'Mi Panel', icon: '👨‍💼', moduloCodigo: 'dashboard_profesional' },
   { href: '/admin/publicidad', label: 'Publicidades', icon: '📢', moduloCodigo: 'publicidad' },
   { href: '/admin/citas', label: 'Citas', icon: '📅', moduloCodigo: 'citas' },
   { href: '/admin/aliados', label: 'Aliados', icon: '🤝', moduloCodigo: 'aliados' },
@@ -29,10 +30,8 @@ const TODOS_LOS_MENU_ITEMS: MenuItem[] = [
   { href: '/admin/galeria', label: 'Galería', icon: '📸', moduloCodigo: 'galeria' },
   { href: '/admin/tareas', label: 'Tareas', icon: '✅', moduloCodigo: 'tareas' },
   { href: '/admin/configuracion', label: 'Configuración', icon: '⚙️', moduloCodigo: 'configuracion' },
-  // ← ← ← NUEVOS MÓDULOS DE PERMISOS ← ← ←
   { href: '/admin/roles', label: 'Roles', icon: '🎭', moduloCodigo: 'roles' },
   { href: '/admin/profesionales-accesos', label: 'Accesos', icon: '🔐', moduloCodigo: 'accesos' },
- // { href: '/admin/audit-logs', label: 'Auditoría', icon: '📋', moduloCodigo: 'roles' }, // Solo admin/superadmin
 ];
 
 // ==========================================
@@ -43,6 +42,10 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [sidebarOpenMobile, setSidebarOpenMobile] = useState(false);
+
+  // ← ← ← CLAVE: Usar useRef para trackear redirecciones y evitar bucles ← ← ←
+  const redireccionEnCurso = useRef(false);
+  const ultimaRedireccion = useRef<string | null>(null);
 
   const router = useRouter();
   const pathname = usePathname();
@@ -69,23 +72,127 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   }, [pathname, router]);
 
   // ==========================================
+  // ← ← ← REDIRECCIÓN INTELIGENTE (SIN BUCLES) ← ← ←
+  // ==========================================
+  useEffect(() => {
+    // No hacer nada si aún cargan datos o si ya hay una redirección en curso
+    if (loadingPermisos || loading || !isAuthenticated) return;
+    if (pathname === '/admin/login') return;
+
+    // ← ← ← CLAVE: Evitar redirecciones duplicadas al mismo destino ← ← ←
+    if (redireccionEnCurso.current) {
+      console.log('⏭️ [Layout] Redirección ya en curso, esperando...');
+      return;
+    }
+
+    // Si ya redirigimos a esta ruta, no volver a hacerlo
+    if (ultimaRedireccion.current === pathname) {
+      console.log('⏭️ [Layout] Ya estamos en la ruta correcta:', pathname);
+      ultimaRedireccion.current = null; // Resetear para futuras redirecciones
+      return;
+    }
+
+    const modulos = modulosAccesibles();
+    const tieneDashboardAdmin = modulos.includes('dashboard');
+    const tieneDashboardProfesional = modulos.includes('dashboard_profesional');
+
+    // ← ← ← CASO 1: Usuario en /admin pero NO tiene acceso al dashboard admin ← ← ←
+    if (pathname === '/admin' && !esSuperadmin && !tieneDashboardAdmin) {
+      console.log('🔄 [Layout] Usuario sin acceso a dashboard admin, redirigiendo...');
+
+      if (tieneDashboardProfesional) {
+        console.log('🔄 [Layout] → Redirigiendo a /admin/profesional');
+        redireccionEnCurso.current = true;
+        ultimaRedireccion.current = '/admin/profesional';
+        router.replace('/admin/profesional');
+        // ← ← ← CLAVE: Resetear flag después de la navegación ← ← ←
+        setTimeout(() => {
+          redireccionEnCurso.current = false;
+        }, 500);
+      } else {
+        // Buscar primer módulo accesible
+        const primerModulo = TODOS_LOS_MENU_ITEMS.find(
+          item => item.moduloCodigo && modulos.includes(item.moduloCodigo) && item.href !== '/admin'
+        );
+        if (primerModulo) {
+          console.log(`🔄 [Layout] → Redirigiendo a ${primerModulo.href}`);
+          redireccionEnCurso.current = true;
+          ultimaRedireccion.current = primerModulo.href;
+          router.replace(primerModulo.href);
+          setTimeout(() => {
+            redireccionEnCurso.current = false;
+          }, 500);
+        } else {
+          console.warn('⚠️ [Layout] Usuario sin acceso a ningún módulo');
+        }
+      }
+      return;
+    }
+
+    // ← ← ← CASO 2: Usuario en /admin/profesional pero NO tiene acceso ← ← ←
+    if (pathname === '/admin/profesional' && !tieneDashboardProfesional && !esSuperadmin) {
+      console.log('🔄 [Layout] Usuario sin acceso a dashboard profesional, redirigiendo...');
+
+      if (tieneDashboardAdmin) {
+        console.log('🔄 [Layout] → Redirigiendo a /admin');
+        redireccionEnCurso.current = true;
+        ultimaRedireccion.current = '/admin';
+        router.replace('/admin');
+        setTimeout(() => {
+          redireccionEnCurso.current = false;
+        }, 500);
+      } else {
+        const primerModulo = TODOS_LOS_MENU_ITEMS.find(
+          item => item.moduloCodigo && modulos.includes(item.moduloCodigo)
+        );
+        if (primerModulo) {
+          console.log(`🔄 [Layout] → Redirigiendo a ${primerModulo.href}`);
+          redireccionEnCurso.current = true;
+          ultimaRedireccion.current = primerModulo.href;
+          router.replace(primerModulo.href);
+          setTimeout(() => {
+            redireccionEnCurso.current = false;
+          }, 500);
+        }
+      }
+      return;
+    }
+
+    // ← ← ← CASO 3: Usuario en cualquier otra ruta sin acceso ← ← ←
+    if (pathname !== '/admin' && pathname !== '/admin/profesional') {
+      const rutaActual = TODOS_LOS_MENU_ITEMS.find(item => item.href === pathname);
+      if (rutaActual?.moduloCodigo && !modulos.includes(rutaActual.moduloCodigo) && !esSuperadmin) {
+        console.log(`🔄 [Layout] Usuario sin acceso a ${pathname}, redirigiendo...`);
+
+        if (tieneDashboardAdmin) {
+          redireccionEnCurso.current = true;
+          ultimaRedireccion.current = '/admin';
+          router.replace('/admin');
+          setTimeout(() => {
+            redireccionEnCurso.current = false;
+          }, 500);
+        } else if (tieneDashboardProfesional) {
+          redireccionEnCurso.current = true;
+          ultimaRedireccion.current = '/admin/profesional';
+          router.replace('/admin/profesional');
+          setTimeout(() => {
+            redireccionEnCurso.current = false;
+          }, 500);
+        }
+      }
+    }
+  }, [pathname, modulosAccesibles, esSuperadmin, loadingPermisos, loading, isAuthenticated, router]);
+
+  // ==========================================
   // FILTRAR MENÚ SEGÚN PERMISOS
   // ==========================================
-  // ✅ CORREGIDO:
-const menuItemsFiltrados = TODOS_LOS_MENU_ITEMS.filter(item => {
-  // Si no tiene moduloCodigo, siempre mostrar (ej: Dashboard)
-  if (!item.moduloCodigo) return true;
-
-  // Superadmin ve todo
-  if (esSuperadmin) return true;
-
-  // Mientras cargan permisos, no mostrar nada
-  if (loadingPermisos) return false;
-
-  // ← ← ← CORRECCIÓN: modulosAccesibles() retorna array de strings
-  const modulos = modulosAccesibles();
-  return modulos.includes(item.moduloCodigo);  // ✅ CORRECTO
-});
+  const menuItemsFiltrados = TODOS_LOS_MENU_ITEMS.filter(item => {
+    if (!item.moduloCodigo) return true;
+    if (esSuperadmin) return true;
+    if (loadingPermisos) return false;
+    const modulos = modulosAccesibles();
+    return modulos.includes(item.moduloCodigo);
+  });
 
   // ==========================================
   // ESTADOS DE CARGA
@@ -195,40 +302,36 @@ const menuItemsFiltrados = TODOS_LOS_MENU_ITEMS.filter(item => {
             </Link>
           ))}
           <div className="p-3 border-t border-gray-800 flex-shrink-0">
-          <button
-            onClick={() => {
-              localStorage.removeItem('admin_token');
-              localStorage.removeItem('admin_user');
-               // ← ← ← CAMBIO: Forzar recarga completa de la página
+            <button
+              onClick={() => {
+                localStorage.removeItem('admin_token');
+                localStorage.removeItem('admin_user');
                 window.location.href = '/admin/login';
-            }}
-            className={`
-              w-full flex items-center gap-3 text-red-400 hover:bg-gray-800 rounded-lg transition-colors
-              ${sidebarCollapsed ? 'lg:px-0 lg:justify-center' : 'lg:px-4 lg:justify-start'}
-              px-4 py-3
-            `}
-            title={sidebarCollapsed ? 'Cerrar Sesión' : undefined}
-          >
-            <span className={`
-              text-lg flex-shrink-0
-              ${sidebarCollapsed ? 'lg:w-8 lg:flex lg:justify-center' : ''}
-            `}>
-              🚪
-            </span>
-            <span className={`
-              whitespace-nowrap font-medium
-              ${sidebarOpenMobile ? 'block' : 'hidden'}
-              lg:block lg:transition-opacity lg:duration-300
-              ${sidebarCollapsed ? 'lg:opacity-0 group-hover:lg:opacity-100' : 'lg:opacity-100'}
-            `}>
-              Cerrar Sesión
-            </span>
-          </button>
-        </div>
+              }}
+              className={`
+                w-full flex items-center gap-3 text-red-400 hover:bg-gray-800 rounded-lg transition-colors
+                ${sidebarCollapsed ? 'lg:px-0 lg:justify-center' : 'lg:px-4 lg:justify-start'}
+                px-4 py-3
+              `}
+              title={sidebarCollapsed ? 'Cerrar Sesión' : undefined}
+            >
+              <span className={`
+                text-lg flex-shrink-0
+                ${sidebarCollapsed ? 'lg:w-8 lg:flex lg:justify-center' : ''}
+              `}>
+                🚪
+              </span>
+              <span className={`
+                whitespace-nowrap font-medium
+                ${sidebarOpenMobile ? 'block' : 'hidden'}
+                lg:block lg:transition-opacity lg:duration-300
+                ${sidebarCollapsed ? 'lg:opacity-0 group-hover:lg:opacity-100' : 'lg:opacity-100'}
+              `}>
+                Cerrar Sesión
+              </span>
+            </button>
+          </div>
         </nav>
-
-        {/* Footer */}
-        
       </aside>
 
       {/* Contenido principal */}
