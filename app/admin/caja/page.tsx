@@ -1907,6 +1907,11 @@ const cargarVales = async (sessionIdExplicito?: number | null) => {
       }
       
       alert(`✅ Vale ${valeCreado.codigo_vale} creado exitosamente`);
+      // ← ← ← NUEVO: Disparar evento para que otros componentes se actualicen ← ← ←
+      
+      window.dispatchEvent(new CustomEvent('valeCreado', {
+        detail: { valeId: valeCreado.id, profesionalId: valeCreado.profesional }
+      }));
 
       // Recargar recibos para mostrar el recibo de salida creado automáticamente
 if (sessionActiva?.id) {

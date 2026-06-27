@@ -217,11 +217,19 @@ const cargarDatos = useCallback(async () => {
   }
 }, [apiUrl, token]);
 
+    // ← ← ← CORREGIDO: Cargar datos iniciales y vales cuando sessionActiva cambie ← ← ←
   useEffect(() => {
     cargarDatos();
-    cargarVales();
     cargarProfesionalesParaVales();
   }, [cargarDatos]);
+
+  // ← ← ← NUEVO: Cargar vales cuando sessionActiva esté disponible ← ← ←
+  useEffect(() => {
+    if (sessionActiva) {
+      console.log('🔄 [ProfesionalCajaPage] sessionActiva cambió, recargando vales...');
+      cargarVales();
+    }
+  }, [sessionActiva]);
 
   
     // ← Escuchar eventos
@@ -236,20 +244,28 @@ const cargarDatos = useCallback(async () => {
       cargarDatos(); 
       cargarVales(); 
     };
-    // ← ← ← NUEVO: Escuchar cuando se abre/cierra sesión de caja
+        // ← ← ← NUEVO: Escuchar cuando se abre/cierra sesión de caja
     const handleSesionCambiada = () => {
       console.log('🔄 [ProfesionalCajaPage] Evento sesionCambiada recibido, recargando...');
       cargarDatos();
+    };
+
+    // ← ← ← NUEVO: Escuchar cuando se crea un vale ← ← ←
+    const handleValeCreado = () => {
+      console.log('🎫 [ProfesionalCajaPage] Evento valeCreado recibido, recargando vales...');
+      cargarVales();
     };
     
     window.addEventListener('reciboCreado', handleReciboCreado as EventListener);
     window.addEventListener('cajaReciboActualizado', handleReciboActualizado as EventListener);
     window.addEventListener('sesionCambiada', handleSesionCambiada as EventListener);
+    window.addEventListener('valeCreado', handleValeCreado as EventListener);
     
     return () => {
       window.removeEventListener('reciboCreado', handleReciboCreado as EventListener);
       window.removeEventListener('cajaReciboActualizado', handleReciboActualizado as EventListener);
       window.removeEventListener('sesionCambiada', handleSesionCambiada as EventListener);
+      window.removeEventListener('valeCreado', handleValeCreado as EventListener);
     };
   }, [cargarDatos]);
 
@@ -314,8 +330,10 @@ const cargarVales = async () => {
       if (resProf.ok) {
         const dataProf = await resProf.json();
         if (dataProf.profesionales && dataProf.profesionales.length > 0) {
-          profesionalId = dataProf.profesionales[0].profesional_id;
+          // ← ← ← CORREGIDO: usar 'profesional' en lugar de 'profesional_id' ← ← ←
+          profesionalId = dataProf.profesionales[0].profesional;
           console.log(`✅ [cargarVales] Profesional logueado ID: ${profesionalId}`);
+          console.log(`🔍 [cargarVales] Datos completos:`, dataProf.profesionales[0]);
         }
       }
     } catch (err) {
