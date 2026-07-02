@@ -1,13 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function ProfesionalLoginPage() {
+// ==========================================
+// COMPONENTE INTERNO (usa useSearchParams)
+// ==========================================
+function ProfesionalLoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
-  // ← ← ← NUEVO: Leer username de la URL ← ← ←
+  // Leer username y nombre de la URL
   const usernameFromUrl = searchParams?.get('username') || '';
   const nombreFromUrl = searchParams?.get('nombre') || '';
   
@@ -16,7 +19,7 @@ export default function ProfesionalLoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // ← ← ← NUEVO: Actualizar username si cambia el parámetro URL ← ← ←
+  // Actualizar username si cambia el parámetro URL
   useEffect(() => {
     if (usernameFromUrl) {
       setUsername(usernameFromUrl);
@@ -27,7 +30,6 @@ export default function ProfesionalLoginPage() {
   useEffect(() => {
     const token = localStorage.getItem('admin_token');
     if (token) {
-      // Si ya está autenticado, redirigir al panel profesional
       window.location.href = '/admin/profesional';
     }
   }, []);
@@ -66,15 +68,12 @@ export default function ProfesionalLoginPage() {
 
       const userData = await userRes.json();
 
-      // ← ← ← CAMBIO: NO requerir is_staff para profesionales ← ← ←
-      // Los profesionales pueden no ser staff, solo necesitan estar activos
-      
       // 3. Guardar en localStorage
       localStorage.setItem('admin_token', token);
       localStorage.setItem('admin_user', JSON.stringify(userData));
       localStorage.removeItem('user_permisos');
 
-      // 4. ← ← ← CAMBIO: Redirigir al panel profesional ← ← ←
+      // 4. Redirigir al panel profesional
       window.location.href = '/admin/profesional';
       
     } catch (err: any) {
@@ -109,7 +108,7 @@ export default function ProfesionalLoginPage() {
           </h1>
           <p className="text-gray-600 mt-2 text-sm">Acceso para Profesionales</p>
           
-          {/* ← ← ← NUEVO: Mostrar nombre si viene de la URL ← ← ← */}
+          {/* Mostrar nombre si viene de la URL */}
           {nombreFromUrl && (
             <div className="mt-4 p-3 bg-indigo-50 rounded-lg border border-indigo-200">
               <p className="text-sm text-indigo-700">
@@ -219,5 +218,23 @@ export default function ProfesionalLoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ==========================================
+// COMPONENTE PRINCIPAL (envuelve con Suspense)
+// ==========================================
+export default function ProfesionalLoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto"></div>
+          <p className="text-white mt-4">Cargando...</p>
+        </div>
+      </div>
+    }>
+      <ProfesionalLoginForm />
+    </Suspense>
   );
 }
