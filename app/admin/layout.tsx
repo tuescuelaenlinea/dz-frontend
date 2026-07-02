@@ -50,6 +50,7 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { modulosAccesibles, loading: loadingPermisos, esSuperadmin } = usePermisosContext();
+  const modulos = loadingPermisos ? [] : modulosAccesibles();
 
   // ==========================================
   // VERIFICAR AUTENTICACIÓN
@@ -79,9 +80,10 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     if (loadingPermisos || loading || !isAuthenticated) return;
     if (pathname === '/admin/login') return;
 
-    // ← ← ← CLAVE: Evitar redirecciones duplicadas al mismo destino ← ← ←
-    if (redireccionEnCurso.current) {
-      console.log('⏭️ [Layout] Redirección ya en curso, esperando...');
+    // ← ← ← NUEVO: No redirigir si el rol está expirado ← ← ←
+    const modulos = modulosAccesibles();
+    if (!esSuperadmin && modulos.length === 0) {
+      console.log('⚠️ [Layout] Rol expirado, mostrando pantalla informativa');
       return;
     }
 
@@ -92,7 +94,7 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const modulos = modulosAccesibles();
+    
     const tieneDashboardAdmin = modulos.includes('dashboard');
     const tieneDashboardProfesional = modulos.includes('dashboard_profesional');
 
@@ -183,16 +185,19 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     }
   }, [pathname, modulosAccesibles, esSuperadmin, loadingPermisos, loading, isAuthenticated, router]);
 
-  // ==========================================
+    // ==========================================
   // FILTRAR MENÚ SEGÚN PERMISOS
   // ==========================================
   const menuItemsFiltrados = TODOS_LOS_MENU_ITEMS.filter(item => {
     if (!item.moduloCodigo) return true;
     if (esSuperadmin) return true;
     if (loadingPermisos) return false;
-    const modulos = modulosAccesibles();
+    // ← ← ← CORREGIDO: Usar la variable 'modulos' ya definida arriba ← ← ←
     return modulos.includes(item.moduloCodigo);
   });
+
+  // ← ← ← NUEVO: Detectar si el rol ha expirado (sin módulos accesibles) ← ← ←
+  const rolExpirado = !esSuperadmin && !loadingPermisos && menuItemsFiltrados.length === 0;
 
   // ==========================================
   // ESTADOS DE CARGA
@@ -212,8 +217,130 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  if (!isAuthenticated) {
+    if (!isAuthenticated) {
     return null;
+  }
+
+  // ← ← ← NUEVO: Mostrar pantalla de rol expirado ← ← ←
+  if (rolExpirado) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-red-900 via-gray-900 to-gray-800 flex items-center justify-center p-4">
+        <div className="bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full border-2 border-red-500/50 overflow-hidden">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-red-600 to-red-800 p-6">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
+                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-white">Acceso Restringido</h1>
+                <p className="text-red-100 text-sm mt-1">Tu rol ha expirado o no tienes permisos activos</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Contenido */}
+          <div className="p-8 space-y-6">
+            {/* Mensaje principal */}
+            <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-6">
+              <div className="flex items-start gap-4">
+                <div className="flex-shrink-0 w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center">
+                  <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-lg font-semibold text-white mb-2">No tienes acceso al sistema</h2>
+                  <p className="text-gray-300 text-sm leading-relaxed">
+                    Tu cuenta de usuario está activa, pero tu rol profesional ha expirado o no tienes módulos asignados. 
+                    Por favor, contacta al administrador para renovar tu acceso.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Información adicional */}
+            <div className="bg-gray-900/50 rounded-xl p-6 border border-gray-700">
+              <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                ¿Qué puedes hacer?
+              </h3>
+              <ul className="space-y-2 text-sm text-gray-400">
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-400 mt-0.5">•</span>
+                  <span>Contactar al administrador del sistema para renovar tu acceso</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-400 mt-0.5">•</span>
+                  <span>Verificar que tu cuenta tenga los permisos correctos asignados</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-400 mt-0.5">•</span>
+                  <span>Cerrar sesión e intentar nuevamente si crees que es un error temporal</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Información del usuario */}
+            {(() => {
+              try {
+                const userStr = localStorage.getItem('admin_user');
+                const user = userStr ? JSON.parse(userStr) : null;
+                return user ? (
+                  <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center">
+                        <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-400">Usuario actual:</p>
+                        <p className="text-white font-medium">{user.username || user.email}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null;
+              } catch {
+                return null;
+              }
+            })()}
+
+            {/* Botones de acción */}
+            <div className="flex gap-3 pt-4">
+              <button
+                onClick={() => {
+                  window.location.reload();
+                }}
+                className="flex-1 px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Reintentar
+              </button>
+              <button
+                onClick={() => {
+                  localStorage.removeItem('admin_token');
+                  localStorage.removeItem('admin_user');
+                  window.location.href = '/admin/login';
+                }}
+                className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Cerrar Sesión
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // ==========================================
