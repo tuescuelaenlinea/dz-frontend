@@ -5,8 +5,10 @@ import "./globals.css";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import { AuthProvider } from "@/contexts/AuthContext";
-import WhatsAppButton from "@/components/WhatsAppButton";  // ← AGREGADO: Import del botón
+import WhatsAppButton from "@/components/WhatsAppButton";
 import FullScreenButton from '@/components/ui/FullScreenButton';
+import { Suspense } from "react";
+import ClientLayout from "./ClientLayout";  // ← ← ← NUEVO IMPORT
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -24,9 +26,9 @@ export const metadata: Metadata = {
   keywords: "salón de belleza, spa, peluquería, estética, Dorian Zambrano, tratamientos faciales, manicura, pedicura",
   authors: [{ name: "Dorian Zambrano" }],
   icons: {
-    icon: '/favicon.png',  // ← PNG funciona perfectamente
+    icon: '/favicon.png',
     shortcut: '/favicon.png',
-    apple: '/apple-touch-icon.png',  // Para iOS (180x180px)
+    apple: '/apple-touch-icon.png',
   },
   openGraph: {
     title: "DZ Salón - Dorian Zambrano",
@@ -35,8 +37,6 @@ export const metadata: Metadata = {
     locale: "es_CO",
   },
 };
-
-
 
 export default function RootLayout({
   children,
@@ -47,19 +47,13 @@ export default function RootLayout({
     <html lang="es">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen flex flex-col`}>
         <AuthProvider>
-          <Navbar />
-          <main className="flex-grow">
-            {children}
-          </main>
-          <Footer />
-          {/* ← AGREGADO: Botón flotante de WhatsApp en todas las páginas */}
-          <WhatsAppButton />
-          {/* Botón flotante en esquina superior derecha */}
-      <FullScreenButton 
-        variant="floating" 
-        position="top-right" 
-        size="md"
-      />
+          <Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            </div>
+          }>
+            <ClientLayout>{children}</ClientLayout>
+          </Suspense>
         </AuthProvider>
       </body>
     </html>

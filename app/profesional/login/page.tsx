@@ -19,6 +19,24 @@ function ProfesionalLoginForm() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // ← ← ← NUEVO: Efecto para ocultar el navbar ← ← ←
+useEffect(() => {
+  // Ocultar navbar
+  const navbar = document.querySelector('header, nav, [class*="navbar"], [class*="header"]');
+  if (navbar) {
+    navbar.classList.add('hidden');
+    navbar.setAttribute('data-hidden', 'true');
+  }
+  
+  // Limpiar al desmontar
+  return () => {
+    if (navbar) {
+      navbar.classList.remove('hidden');
+      navbar.removeAttribute('data-hidden');
+    }
+  };
+}, []);
+
   // Actualizar username si cambia el parámetro URL
   useEffect(() => {
     if (usernameFromUrl) {
