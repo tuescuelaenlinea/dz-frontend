@@ -19,6 +19,31 @@ export default function AdminLoginPage() {
     }
   }, []);
 
+  // ← ← ← NUEVA FUNCIÓN: Activar pantalla completa ← ← ←
+  const activarFullscreen = async () => {
+    try {
+      const elem = document.documentElement as any;
+      
+      if (elem.requestFullscreen) {
+        await elem.requestFullscreen();
+      } else if (elem.webkitRequestFullscreen) {
+        // Safari
+        await elem.webkitRequestFullscreen();
+      } else if (elem.msRequestFullscreen) {
+        // IE/Edge
+        await elem.msRequestFullscreen();
+      } else if (elem.mozRequestFullScreen) {
+        // Firefox
+        await elem.mozRequestFullScreen();
+      }
+      
+      console.log('✅ Pantalla completa activada');
+    } catch (err) {
+      console.warn('⚠️ No se pudo activar pantalla completa:', err);
+      // No lanzar error, el login debe continuar aunque falle el fullscreen
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -61,10 +86,12 @@ export default function AdminLoginPage() {
       // 4. Guardar en localStorage
       localStorage.setItem('admin_token', token);
       localStorage.setItem('admin_user', JSON.stringify(userData));
-      localStorage.removeItem('user_permisos'); // ← ← ← Limpiar permisos anteriores
+      localStorage.removeItem('user_permisos');
 
-      // 5. ← ← ← CLAVE: Forzar recarga completa de la página ← ← ←
-      // Esto hace que el layout se reinicialice completamente y detecte los nuevos permisos
+      // ← ← ← NUEVO: Activar pantalla completa ANTES de redirigir ← ← ←
+      await activarFullscreen();
+
+      // 5. Forzar recarga completa de la página
       window.location.href = '/admin';
       
     } catch (err: any) {
@@ -79,7 +106,7 @@ export default function AdminLoginPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">DZ Salón</h1>
+          {/*<h1 className="text-3xl font-bold text-gray-900">DZ Salón</h1>*/}
           <p className="text-gray-600 mt-2">Panel Administrativo</p>
         </div>
 

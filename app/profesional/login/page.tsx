@@ -52,6 +52,31 @@ useEffect(() => {
     }
   }, []);
 
+    // ← ← ← NUEVA FUNCIÓN: Activar pantalla completa ← ← ←
+  const activarFullscreen = async () => {
+    try {
+      const elem = document.documentElement as any;
+      
+      if (elem.requestFullscreen) {
+        await elem.requestFullscreen();
+      } else if (elem.webkitRequestFullscreen) {
+        // Safari
+        await elem.webkitRequestFullscreen();
+      } else if (elem.msRequestFullscreen) {
+        // IE/Edge
+        await elem.msRequestFullscreen();
+      } else if (elem.mozRequestFullScreen) {
+        // Firefox
+        await elem.mozRequestFullScreen();
+      }
+      
+      console.log('✅ Pantalla completa activada');
+    } catch (err) {
+      console.warn('⚠️ No se pudo activar pantalla completa:', err);
+      // No lanzar error, el login debe continuar aunque falle el fullscreen
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -91,6 +116,9 @@ useEffect(() => {
       localStorage.setItem('admin_user', JSON.stringify(userData));
       localStorage.removeItem('user_permisos');
 
+      // ← ← ← NUEVO: Activar pantalla completa ANTES de redirigir ← ← ←
+      await activarFullscreen();
+
       // 4. Redirigir al panel profesional
       window.location.href = '/admin/profesional';
       
@@ -121,9 +149,7 @@ useEffect(() => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-            DZ Salón
-          </h1>
+          
           <p className="text-gray-600 mt-2 text-sm">Acceso para Profesionales</p>
           
           {/* Mostrar nombre si viene de la URL */}

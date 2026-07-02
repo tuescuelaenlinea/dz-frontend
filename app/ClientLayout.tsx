@@ -10,8 +10,10 @@ import FullScreenButton from '@/components/ui/FullScreenButton';
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   
-  // ← ← ← OCULTAR navbar/footer en rutas de profesional ← ← ←
-  const hideLayout = pathname?.startsWith('/profesional');
+  // ← ← ← Ocultar navbar/footer en toda la sección admin y profesional ← ← ←
+  const hideLayout = 
+    pathname?.startsWith('/profesional') ||   // Login de profesionales
+    pathname?.startsWith('/admin');           // Toda la sección admin
 
   return (
     <>

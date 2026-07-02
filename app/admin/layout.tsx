@@ -1,9 +1,10 @@
 // app/admin/layout.tsx
 'use client';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';  // ← ← ← AGREGADO useCallback
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { PermisosProvider, usePermisosContext } from '@/contexts/PermisosContext';
+import { useIdleTimeout } from '@/lib/useIdleTimeout';
 
 // ==========================================
 // DEFINICIÓN DE MENÚ COMPLETO
@@ -50,7 +51,72 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { modulosAccesibles, loading: loadingPermisos, esSuperadmin } = usePermisosContext();
+  
+  // ← ← ← CORREGIDO: Calcular módulos una sola vez ← ← ←
   const modulos = loadingPermisos ? [] : modulosAccesibles();
+
+  // ← ← ← NUEVO: Estados para el modal de advertencia de inactividad ← ← ←
+  const [showIdleWarning, setShowIdleWarning] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(60);
+  const warningIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ← ← ← NUEVO: Función para cerrar sesión por inactividad ← ← ←
+  const handleSessionExpired = useCallback(() => {
+    console.warn('⏱️ Sesión cerrada por inactividad');
+    
+    // Limpiar localStorage
+    localStorage.removeItem('admin_token');
+    localStorage.removeItem('admin_user');
+    localStorage.removeItem('user_permisos');
+    
+    // Redirigir a la página de acceso público
+    window.location.href = 'https://pagosapp.website/acceso_publico.php';
+  }, []);
+
+     // ← ← ← CORREGIDO: Hook de inactividad con callbacks estables ← ← ←
+  useIdleTimeout({
+    timeout: 1 * 60 * 1000,        // 1 minuto para pruebas
+    warningTime: 30 * 1000,         // Advertencia a los 30 segundos
+    enabled: isAuthenticated,
+    onIdle: handleSessionExpired,
+    onWarning: useCallback(() => {
+      console.log('[Layout] ⚠️ Mostrando advertencia');
+      setShowIdleWarning(true);
+      setSecondsLeft(30);
+      
+      if (warningIntervalRef.current) {
+        clearInterval(warningIntervalRef.current);
+      }
+      warningIntervalRef.current = setInterval(() => {
+        setSecondsLeft((prev) => {
+          if (prev <= 1) {
+            if (warningIntervalRef.current) {
+              clearInterval(warningIntervalRef.current);
+            }
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }, []),
+    onActive: useCallback(() => {
+      console.log('[Layout] ✅ Usuario activo');
+      setShowIdleWarning(false);
+      if (warningIntervalRef.current) {
+        clearInterval(warningIntervalRef.current);
+        warningIntervalRef.current = null;
+      }
+    }, []),
+  });
+
+  // ← ← ← NUEVO: Limpiar interval al desmontar ← ← ←
+  useEffect(() => {
+    return () => {
+      if (warningIntervalRef.current) {
+        clearInterval(warningIntervalRef.current);
+      }
+    };
+  }, []);
 
   // ==========================================
   // VERIFICAR AUTENTICACIÓN
@@ -81,7 +147,7 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     if (pathname === '/admin/login') return;
 
     // ← ← ← NUEVO: No redirigir si el rol está expirado ← ← ←
-    const modulos = modulosAccesibles();
+    // ← ← ← CORREGIDO: Usar la variable 'modulos' del nivel superior ← ← ←
     if (!esSuperadmin && modulos.length === 0) {
       console.log('⚠️ [Layout] Rol expirado, mostrando pantalla informativa');
       return;
@@ -90,11 +156,10 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     // Si ya redirigimos a esta ruta, no volver a hacerlo
     if (ultimaRedireccion.current === pathname) {
       console.log('⏭️ [Layout] Ya estamos en la ruta correcta:', pathname);
-      ultimaRedireccion.current = null; // Resetear para futuras redirecciones
+      ultimaRedireccion.current = null;
       return;
     }
 
-    
     const tieneDashboardAdmin = modulos.includes('dashboard');
     const tieneDashboardProfesional = modulos.includes('dashboard_profesional');
 
@@ -107,12 +172,10 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
         redireccionEnCurso.current = true;
         ultimaRedireccion.current = '/admin/profesional';
         router.replace('/admin/profesional');
-        // ← ← ← CLAVE: Resetear flag después de la navegación ← ← ←
         setTimeout(() => {
           redireccionEnCurso.current = false;
         }, 500);
       } else {
-        // Buscar primer módulo accesible
         const primerModulo = TODOS_LOS_MENU_ITEMS.find(
           item => item.moduloCodigo && modulos.includes(item.moduloCodigo) && item.href !== '/admin'
         );
@@ -183,16 +246,15 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
         }
       }
     }
-  }, [pathname, modulosAccesibles, esSuperadmin, loadingPermisos, loading, isAuthenticated, router]);
+  }, [pathname, modulos, esSuperadmin, loadingPermisos, loading, isAuthenticated, router]);
 
-    // ==========================================
+  // ==========================================
   // FILTRAR MENÚ SEGÚN PERMISOS
   // ==========================================
   const menuItemsFiltrados = TODOS_LOS_MENU_ITEMS.filter(item => {
     if (!item.moduloCodigo) return true;
     if (esSuperadmin) return true;
     if (loadingPermisos) return false;
-    // ← ← ← CORREGIDO: Usar la variable 'modulos' ya definida arriba ← ← ←
     return modulos.includes(item.moduloCodigo);
   });
 
@@ -217,7 +279,7 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-    if (!isAuthenticated) {
+  if (!isAuthenticated) {
     return null;
   }
 
@@ -243,7 +305,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
 
           {/* Contenido */}
           <div className="p-8 space-y-6">
-            {/* Mensaje principal */}
             <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-6">
               <div className="flex items-start gap-4">
                 <div className="flex-shrink-0 w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center">
@@ -261,7 +322,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
               </div>
             </div>
 
-            {/* Información adicional */}
             <div className="bg-gray-900/50 rounded-xl p-6 border border-gray-700">
               <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -285,7 +345,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
               </ul>
             </div>
 
-            {/* Información del usuario */}
             {(() => {
               try {
                 const userStr = localStorage.getItem('admin_user');
@@ -310,7 +369,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
               }
             })()}
 
-            {/* Botones de acción */}
             <div className="flex gap-3 pt-4">
               <button
                 onClick={() => {
@@ -394,7 +452,7 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
           lg:block lg:transition-opacity lg:duration-300
           ${sidebarCollapsed ? 'lg:opacity-0 group-hover:lg:opacity-100' : 'lg:opacity-100'}
         `}>
-          DZ Admin
+          Admin
         </span>
 
         {/* Menú */}
@@ -485,6 +543,70 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+      {/* ← ← ← NUEVO: Modal de advertencia por inactividad (FUERA del div principal) ← ← ← */}
+      {showIdleWarning && (
+        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-gradient-to-br from-red-900 to-orange-900 rounded-2xl shadow-2xl max-w-md w-full border-2 border-red-500/50 overflow-hidden">
+            {/* Header */}
+            <div className="bg-red-600/30 p-6 text-center border-b border-red-500/30">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-red-500/20 rounded-full mb-3 animate-pulse">
+                <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h2 className="text-2xl font-bold text-white">
+                Sesión por Expirar
+              </h2>
+              <p className="text-red-100 mt-2 text-sm">
+                Has estado inactivo por un tiempo prolongado
+              </p>
+            </div>
+
+            {/* Contenido */}
+            <div className="p-6 text-center">
+              <div className="mb-4">
+                <p className="text-white text-lg mb-2">
+                  Tu sesión se cerrará automáticamente en:
+                </p>
+                <div className="inline-flex items-center justify-center w-24 h-24 bg-red-500/20 rounded-full border-4 border-red-500">
+                  <span className="text-4xl font-bold text-white">
+                    {secondsLeft}
+                  </span>
+                </div>
+                <p className="text-red-200 text-sm mt-2">
+                  segundos
+                </p>
+              </div>
+
+              <p className="text-gray-300 text-sm mb-6">
+                Si no interactúas con la página, serás redirigido a la página de acceso.
+              </p>
+
+              {/* Botón para continuar sesión */}
+              <button
+                onClick={() => {
+                  setShowIdleWarning(false);
+                  if (warningIntervalRef.current) {
+                    clearInterval(warningIntervalRef.current);
+                    warningIntervalRef.current = null;
+                  }
+                }}
+                className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-lg font-semibold transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+              >
+                ✅ Continuar Sesión
+              </button>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-black/20 px-6 py-3 text-center">
+              <p className="text-xs text-gray-400">
+                También puedes hacer clic en cualquier parte de la página o presionar una tecla
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
