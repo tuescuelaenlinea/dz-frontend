@@ -1,6 +1,6 @@
 // app/admin/layout.tsx
 'use client';
-import { useEffect, useState, useRef, useCallback } from 'react';  // ← ← ← AGREGADO useCallback
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { PermisosProvider, usePermisosContext } from '@/contexts/PermisosContext';
@@ -44,7 +44,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [sidebarOpenMobile, setSidebarOpenMobile] = useState(false);
 
-  // ← ← ← CLAVE: Usar useRef para trackear redirecciones y evitar bucles ← ← ←
   const redireccionEnCurso = useRef(false);
   const ultimaRedireccion = useRef<string | null>(null);
 
@@ -52,37 +51,34 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { modulosAccesibles, loading: loadingPermisos, esSuperadmin } = usePermisosContext();
   
-  // ← ← ← CORREGIDO: Calcular módulos una sola vez ← ← ←
   const modulos = loadingPermisos ? [] : modulosAccesibles();
 
-  // ← ← ← NUEVO: Estados para el modal de advertencia de inactividad ← ← ←
   const [showIdleWarning, setShowIdleWarning] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(60);
   const warningIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // ← ← ← NUEVO: Función para cerrar sesión por inactividad ← ← ←
+  // ← ← ← NUEVO: Calcular tiempos de inactividad según el rol del usuario ← ← ←
+  // Admin/Superadmin: 1 hora (60 minutos)
+  // Profesional: 15 minutos
+  const tieneAccesoAdmin = esSuperadmin || modulos.includes('dashboard');
+  const idleTimeout = tieneAccesoAdmin ? 60 * 60 * 1000 : 15 * 60 * 1000; // 1h vs 15min
+  const idleWarningTime = 60 * 1000; // Advertencia 1 minuto antes del cierre
+
   const handleSessionExpired = useCallback(() => {
-    console.warn('⏱️ Sesión cerrada por inactividad');
-    
-    // Limpiar localStorage
     localStorage.removeItem('admin_token');
     localStorage.removeItem('admin_user');
     localStorage.removeItem('user_permisos');
-    
-    // Redirigir a la página de acceso público
     window.location.href = 'https://pagosapp.website/acceso_publico.php';
   }, []);
 
-     // ← ← ← CORREGIDO: Hook de inactividad con callbacks estables ← ← ←
   useIdleTimeout({
-    timeout: 1 * 60 * 1000,        // 1 minuto para pruebas
-    warningTime: 30 * 1000,         // Advertencia a los 30 segundos
+    timeout: idleTimeout,
+    warningTime: idleWarningTime,
     enabled: isAuthenticated,
     onIdle: handleSessionExpired,
     onWarning: useCallback(() => {
-      console.log('[Layout] ⚠️ Mostrando advertencia');
       setShowIdleWarning(true);
-      setSecondsLeft(30);
+      setSecondsLeft(60);
       
       if (warningIntervalRef.current) {
         clearInterval(warningIntervalRef.current);
@@ -100,7 +96,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
       }, 1000);
     }, []),
     onActive: useCallback(() => {
-      console.log('[Layout] ✅ Usuario activo');
       setShowIdleWarning(false);
       if (warningIntervalRef.current) {
         clearInterval(warningIntervalRef.current);
@@ -109,7 +104,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     }, []),
   });
 
-  // ← ← ← NUEVO: Limpiar interval al desmontar ← ← ←
   useEffect(() => {
     return () => {
       if (warningIntervalRef.current) {
@@ -139,23 +133,17 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   }, [pathname, router]);
 
   // ==========================================
-  // ← ← ← REDIRECCIÓN INTELIGENTE (SIN BUCLES) ← ← ←
+  // REDIRECCIÓN INTELIGENTE (SIN BUCLES)
   // ==========================================
   useEffect(() => {
-    // No hacer nada si aún cargan datos o si ya hay una redirección en curso
     if (loadingPermisos || loading || !isAuthenticated) return;
     if (pathname === '/admin/login') return;
 
-    // ← ← ← NUEVO: No redirigir si el rol está expirado ← ← ←
-    // ← ← ← CORREGIDO: Usar la variable 'modulos' del nivel superior ← ← ←
     if (!esSuperadmin && modulos.length === 0) {
-      console.log('⚠️ [Layout] Rol expirado, mostrando pantalla informativa');
       return;
     }
 
-    // Si ya redirigimos a esta ruta, no volver a hacerlo
     if (ultimaRedireccion.current === pathname) {
-      console.log('⏭️ [Layout] Ya estamos en la ruta correcta:', pathname);
       ultimaRedireccion.current = null;
       return;
     }
@@ -163,12 +151,8 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     const tieneDashboardAdmin = modulos.includes('dashboard');
     const tieneDashboardProfesional = modulos.includes('dashboard_profesional');
 
-    // ← ← ← CASO 1: Usuario en /admin pero NO tiene acceso al dashboard admin ← ← ←
     if (pathname === '/admin' && !esSuperadmin && !tieneDashboardAdmin) {
-      console.log('🔄 [Layout] Usuario sin acceso a dashboard admin, redirigiendo...');
-
       if (tieneDashboardProfesional) {
-        console.log('🔄 [Layout] → Redirigiendo a /admin/profesional');
         redireccionEnCurso.current = true;
         ultimaRedireccion.current = '/admin/profesional';
         router.replace('/admin/profesional');
@@ -180,26 +164,19 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
           item => item.moduloCodigo && modulos.includes(item.moduloCodigo) && item.href !== '/admin'
         );
         if (primerModulo) {
-          console.log(`🔄 [Layout] → Redirigiendo a ${primerModulo.href}`);
           redireccionEnCurso.current = true;
           ultimaRedireccion.current = primerModulo.href;
           router.replace(primerModulo.href);
           setTimeout(() => {
             redireccionEnCurso.current = false;
           }, 500);
-        } else {
-          console.warn('⚠️ [Layout] Usuario sin acceso a ningún módulo');
         }
       }
       return;
     }
 
-    // ← ← ← CASO 2: Usuario en /admin/profesional pero NO tiene acceso ← ← ←
     if (pathname === '/admin/profesional' && !tieneDashboardProfesional && !esSuperadmin) {
-      console.log('🔄 [Layout] Usuario sin acceso a dashboard profesional, redirigiendo...');
-
       if (tieneDashboardAdmin) {
-        console.log('🔄 [Layout] → Redirigiendo a /admin');
         redireccionEnCurso.current = true;
         ultimaRedireccion.current = '/admin';
         router.replace('/admin');
@@ -211,7 +188,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
           item => item.moduloCodigo && modulos.includes(item.moduloCodigo)
         );
         if (primerModulo) {
-          console.log(`🔄 [Layout] → Redirigiendo a ${primerModulo.href}`);
           redireccionEnCurso.current = true;
           ultimaRedireccion.current = primerModulo.href;
           router.replace(primerModulo.href);
@@ -223,12 +199,9 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // ← ← ← CASO 3: Usuario en cualquier otra ruta sin acceso ← ← ←
     if (pathname !== '/admin' && pathname !== '/admin/profesional') {
       const rutaActual = TODOS_LOS_MENU_ITEMS.find(item => item.href === pathname);
       if (rutaActual?.moduloCodigo && !modulos.includes(rutaActual.moduloCodigo) && !esSuperadmin) {
-        console.log(`🔄 [Layout] Usuario sin acceso a ${pathname}, redirigiendo...`);
-
         if (tieneDashboardAdmin) {
           redireccionEnCurso.current = true;
           ultimaRedireccion.current = '/admin';
@@ -258,7 +231,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     return modulos.includes(item.moduloCodigo);
   });
 
-  // ← ← ← NUEVO: Detectar si el rol ha expirado (sin módulos accesibles) ← ← ←
   const rolExpirado = !esSuperadmin && !loadingPermisos && menuItemsFiltrados.length === 0;
 
   // ==========================================
@@ -283,12 +255,10 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     return null;
   }
 
-  // ← ← ← NUEVO: Mostrar pantalla de rol expirado ← ← ←
   if (rolExpirado) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-red-900 via-gray-900 to-gray-800 flex items-center justify-center p-4">
         <div className="bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full border-2 border-red-500/50 overflow-hidden">
-          {/* Header */}
           <div className="bg-gradient-to-r from-red-600 to-red-800 p-6">
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
@@ -303,7 +273,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* Contenido */}
           <div className="p-8 space-y-6">
             <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-6">
               <div className="flex items-start gap-4">
@@ -406,7 +375,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   // ==========================================
   return (
     <div className="min-h-screen bg-gray-100 flex">
-      {/* Overlay móvil */}
       {sidebarOpenMobile && (
         <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
@@ -414,7 +382,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
         />
       )}
 
-      {/* Sidebar */}
       <aside className={`
         fixed lg:static inset-y-0 left-0 z-50 group
         bg-gray-900 text-white flex flex-col
@@ -425,7 +392,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
         lg:hover:w-64
         ${!sidebarCollapsed ? 'lg:w-64' : ''}
       `}>
-        {/* Header */}
         <div className="h-16 bg-gray-800 flex items-start justify-between px-3 border-b border-gray-700 flex-shrink-0">
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -455,7 +421,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
           Admin
         </span>
 
-        {/* Menú */}
         <nav className="flex-1 overflow-y-auto py-4 space-y-1 px-0 lg:px-2">
           {menuItemsFiltrados.map((item) => (
             <Link
@@ -519,9 +484,7 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
         </nav>
       </aside>
 
-      {/* Contenido principal */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header móvil */}
         <header className="bg-white shadow-sm sticky top-0 z-30 flex-shrink-0 lg:hidden">
           <div className="flex items-center justify-between px-4 py-3">
             <button
@@ -538,17 +501,14 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        {/* Área de contenido */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-8">
           {children}
         </main>
       </div>
 
-      {/* ← ← ← NUEVO: Modal de advertencia por inactividad (FUERA del div principal) ← ← ← */}
       {showIdleWarning && (
         <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-gradient-to-br from-red-900 to-orange-900 rounded-2xl shadow-2xl max-w-md w-full border-2 border-red-500/50 overflow-hidden">
-            {/* Header */}
             <div className="bg-red-600/30 p-6 text-center border-b border-red-500/30">
               <div className="inline-flex items-center justify-center w-16 h-16 bg-red-500/20 rounded-full mb-3 animate-pulse">
                 <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -563,7 +523,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
               </p>
             </div>
 
-            {/* Contenido */}
             <div className="p-6 text-center">
               <div className="mb-4">
                 <p className="text-white text-lg mb-2">
@@ -583,7 +542,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
                 Si no interactúas con la página, serás redirigido a la página de acceso.
               </p>
 
-              {/* Botón para continuar sesión */}
               <button
                 onClick={() => {
                   setShowIdleWarning(false);
@@ -598,7 +556,6 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
               </button>
             </div>
 
-            {/* Footer */}
             <div className="bg-black/20 px-6 py-3 text-center">
               <p className="text-xs text-gray-400">
                 También puedes hacer clic en cualquier parte de la página o presionar una tecla
