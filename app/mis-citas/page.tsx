@@ -61,7 +61,7 @@ export default function MisCitasPage() {
       try {
         console.log('🔄 Cargando citas con token:', token ? 'presente' : 'ausente');
         
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api'}/citas/mis_citas/`, {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api'}/citas/mis_citas2/`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
@@ -288,7 +288,7 @@ export default function MisCitasPage() {
       
       if (res.ok) {
         alert('✅ Solicitud de confirmación enviada a administración');
-        const resCitas = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api'}/citas/mis_citas/`, {
+        const resCitas = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api'}/citas/mis_citas2/`, {
           headers: { 'Authorization': `Bearer ${token}` },
         });
         const data = await resCitas.json();
@@ -323,7 +323,7 @@ export default function MisCitasPage() {
       
       if (!res.ok) throw new Error('Error al cancelar');
       
-      const resCitas = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api'}/citas/mis_citas/`, {
+      const resCitas = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api'}/citas/mis_citas2/`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       const data = await resCitas.json();

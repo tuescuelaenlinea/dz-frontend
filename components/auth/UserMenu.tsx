@@ -1,13 +1,32 @@
-// components/auth/UserMenu.tsx
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function UserMenu() {
   const { user, logout, isAuthenticated } = useAuth();
   const [open, setOpen] = useState(false);
+  
+  // ← ← ← CLAVE: Estado de hidratación ← ← ←
+  const [isHydrated, setIsHydrated] = useState(false);
 
+  // ← ← ← CLAVE: Solo ejecutar en el cliente después del montaje ← ← ←
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  // ← ← ← CLAVE: Mientras no esté hidratado, renderizar placeholder neutro ← ← ←
+  // Esto asegura que servidor y cliente rendericen LO MISMO inicialmente
+  if (!isHydrated) {
+    return (
+      <div className="flex items-center gap-3">
+        <div className="w-20 h-8 bg-gray-200 animate-pulse rounded"></div>
+        <div className="w-24 h-10 bg-gray-200 animate-pulse rounded-lg hidden md:block"></div>
+      </div>
+    );
+  }
+
+  // ← ← ← Ahora sí, renderizar según autenticación real ← ← ←
   if (!isAuthenticated) {
     return (
       <div className="flex items-center gap-3">

@@ -43,6 +43,7 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [sidebarOpenMobile, setSidebarOpenMobile] = useState(false);
+  const [showPublicidadModal, setShowPublicidadModal] = useState(false);
 
   const redireccionEnCurso = useRef(false);
   const ultimaRedireccion = useRef<string | null>(null);
@@ -371,6 +372,22 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   }
 
   // ==========================================
+  // HANDLER PARA CLICK EN MENÚ (intercepta Publicidades)
+  // ==========================================
+  const handleMenuClick = (item: MenuItem, e: React.MouseEvent) => {
+    // ← ← ← CLAVE: Si es el item de Publicidades, abrir modal ← ← ←
+    if (item.href === '/admin/publicidad') {
+      e.preventDefault();
+      setShowPublicidadModal(true);
+      setSidebarOpenMobile(false);
+      return;
+    }
+    
+    // Para otros items, cerrar sidebar mobile
+    setSidebarOpenMobile(false);
+  };
+
+  // ==========================================
   // RENDER
   // ==========================================
   return (
@@ -431,8 +448,8 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
                 ${pathname === item.href ? 'bg-gray-800 text-white font-medium' : ''}
                 ${sidebarCollapsed ? 'lg:px-0 lg:justify-start' : 'lg:px-4 lg:justify-start'}
                 px-4 py-3
-              `}
-              onClick={() => setSidebarOpenMobile(false)}
+              `}              
+              onClick={(e) => handleMenuClick(item, e)}
               title={sidebarCollapsed ? item.label : undefined}
             >
               <span className={`
@@ -505,6 +522,125 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+       {/* ==========================================
+          MODAL DE PUBLICIDADES (NUEVO)
+          ========================================== */}
+      {showPublicidadModal && (
+        <div 
+          className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowPublicidadModal(false)}
+        >
+          <div 
+            className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl shadow-2xl max-w-3xl w-full border-2 border-purple-500/30 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header del Modal */}
+            <div className="bg-gradient-to-r from-purple-600 to-pink-600 p-6 border-b border-purple-500/30">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center">
+                    <span className="text-3xl">📢</span>
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">
+                      Gestión Publicitaria
+                    </h2>
+                    <p className="text-purple-100 text-sm mt-1">
+                      Selecciona el módulo que deseas administrar
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowPublicidadModal(false)}
+                  className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors"
+                  title="Cerrar"
+                >
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Contenido del Modal - Dos Botones */}
+            <div className="p-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* BOTÓN 1: Blog Novias */}
+                <button
+                  onClick={() => {
+                    setShowPublicidadModal(false);
+                    router.push('/admin/blog-novias');
+                  }}
+                  className="group relative bg-gradient-to-br from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 rounded-xl p-8 text-left transition-all duration-300 transform hover:scale-105 hover:shadow-2xl overflow-hidden"
+                >
+                  {/* Efecto de brillo */}
+                  <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/10 to-white/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                  
+                  <div className="relative z-10">
+                    <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                      <span className="text-4xl">💍</span>
+                    </div>
+                    <h3 className="text-2xl font-bold text-white mb-2">
+                      Blog Novias
+                    </h3>
+                    <p className="text-pink-100 text-sm leading-relaxed mb-4">
+                      Gestiona el contenido del blog de novias: imágenes, combos, servicios y características.
+                    </p>
+                    <div className="flex items-center gap-2 text-white font-semibold">
+                      <span>Abrir módulo</span>
+                      <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                      </svg>
+                    </div>
+                  </div>
+                </button>
+
+                {/* BOTÓN 2: Publicidades */}
+                <button
+                  onClick={() => {
+                    setShowPublicidadModal(false);
+                    router.push('/admin/publicidad');
+                  }}
+                  className="group relative bg-gradient-to-br from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 rounded-xl p-8 text-left transition-all duration-300 transform hover:scale-105 hover:shadow-2xl overflow-hidden"
+                >
+                  {/* Efecto de brillo */}
+                  <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/10 to-white/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                  
+                  <div className="relative z-10">
+                    <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                      <span className="text-4xl">📣</span>
+                    </div>
+                    <h3 className="text-2xl font-bold text-white mb-2">
+                      Publicidad Modal
+                    </h3>
+                    <p className="text-blue-100 text-sm leading-relaxed mb-4">
+                      Administra las publicidades modales: segmentación, frecuencia, imágenes y estadísticas.
+                    </p>
+                    <div className="flex items-center gap-2 text-white font-semibold">
+                      <span>Abrir módulo</span>
+                      <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                      </svg>
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              {/* Botón Cancelar */}
+              <div className="mt-8 text-center">
+                <button
+                  onClick={() => setShowPublicidadModal(false)}
+                  className="px-6 py-2 text-gray-400 hover:text-white transition-colors text-sm"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showIdleWarning && (
         <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">

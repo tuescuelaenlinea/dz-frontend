@@ -355,8 +355,14 @@ export default function AdminBlogNovias() {
       if (res.ok) {
         const data = await res.json();
         console.log('✅ Blog guardado:', data);
-        await cargarDatos();
-        alert('✅ Blog guardado exitosamente');
+        
+        // ← ← ← NUEVO: Mostrar mensaje y redirigir a la página pública ← ← ←
+        alert('✅ Blog guardado exitosamente. Redirigiendo a la página pública...');
+        
+        // Esperar 500ms para que el usuario vea el mensaje antes de redirigir
+        setTimeout(() => {
+          window.location.href = 'https://www.dzsalon.com/blog-novias';
+        }, 500);
       } else {
         const error = await res.json();
         console.error('❌ Error al guardar:', error);
