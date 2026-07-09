@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
+import PasswordInput from '@/components/PasswordInput';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -60,19 +61,26 @@ export default function LoginPage() {
             />
           </div>
           
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Contraseña
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="••••••••"
-              required
-              disabled={loading}
-            />
+          {/* ← ← ← CAMPO DE CONTRASEÑA CON TOGGLE ← ← ← */}
+          <PasswordInput
+            label="Contraseña"
+            name="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            required
+            disabled={loading}
+            autoComplete="current-password"
+          />
+          
+          {/* ← ← ← LINK: ¿OLVIDASTE TU CONTRASEÑA? ← ← ← */}
+          <div className="flex items-center justify-end -mt-4">
+            <Link 
+              href="/auth/recuperar" 
+              className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+            >
+              ¿Olvidaste tu contraseña?
+            </Link>
           </div>
           
           <button
