@@ -480,6 +480,20 @@ useEffect(() => {
     }
   };
 
+    // ← ← ← NUEVO: Cargar clientes al montar el componente ← ← ←
+  useEffect(() => {
+    console.log('🔄 [ProfesionalPage] Cargando clientes...');
+    loadClientes();
+  }, []);
+
+  // ← ← ← NUEVO: Recargar clientes cuando se abre el modal ← ← ←
+  useEffect(() => {
+    if (showClientModal) {
+      console.log('🔄 [ProfesionalPage] Modal abierto, recargando clientes...');
+      loadClientes();
+    }
+  }, [showClientModal]);
+
    // ← ← ← NUEVO: Categorías con conteo basado en servicios del profesional actual ← ← ←
   const categoriasConConteo = useMemo(() => {
     // Contar servicios por categoría basándose en los servicios actuales (ya filtrados)
@@ -614,8 +628,9 @@ useEffect(() => {
       precioUnitario: precio,
       subtotal: precio,
       duracion: servicio.duracion,
-      profesionalId: undefined,
-      profesionalNombre: undefined,
+      // ← ← ← NUEVO: Asignar profesional logueado automáticamente ← ← ←
+      profesionalId: miProfesionalId || undefined,
+      profesionalNombre: miProfesionalNombre || undefined,
       imagenUrl: servicio.imagen_url,
       productosAsociados: []
     };

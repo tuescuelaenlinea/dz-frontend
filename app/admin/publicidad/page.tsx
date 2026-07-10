@@ -47,7 +47,7 @@ const validateImageFile = (file: File): { valid: boolean; error?: string } => {
   return { valid: true };
 };
 
-const compressImage = (file: File, maxSizeMB: number = 0.5): Promise<File> => {
+const compressImage = (file: File, maxSizeMB: number = 1.5): Promise<File> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -59,9 +59,11 @@ const compressImage = (file: File, maxSizeMB: number = 0.5): Promise<File> => {
         let width = img.width;
         let height = img.height;
         
-        const MAX_WIDTH = 1200;
-        const MAX_HEIGHT = 600;
+        // ← ← ← CLAVE: Dimensiones más grandes para mantener calidad ← ← ←
+        const MAX_WIDTH = 1920;   // ← Antes: 1200
+        const MAX_HEIGHT = 1080;  // ← Antes: 600
         
+        // Redimensionar manteniendo proporción
         if (width > height) {
           if (width > MAX_WIDTH) {
             height = Math.round((height * MAX_WIDTH) / width);
@@ -80,6 +82,7 @@ const compressImage = (file: File, maxSizeMB: number = 0.5): Promise<File> => {
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
         
+        // ← ← ← CLAVE: Calidad más alta (0.85 en lugar de 0.7) ← ← ←
         canvas.toBlob(
           (blob) => {
             if (blob) {
@@ -93,7 +96,7 @@ const compressImage = (file: File, maxSizeMB: number = 0.5): Promise<File> => {
             }
           },
           'image/jpeg',
-          0.7
+          0.85  // ← ← ← Calidad 85% (antes era 70%)
         );
       };
       img.onerror = () => reject(new Error('Error al cargar imagen'));
@@ -206,6 +209,26 @@ export default function PublicidadPage() {
         alert('⚠️ El título es obligatorio');
         return;
       }
+
+       // ← ← ← NUEVO: Validar fechas ← ← ←
+    if (!formData.fecha_inicio || !formData.fecha_fin) {
+      alert('⚠️ Debes seleccionar la fecha de inicio y la fecha de fin');
+      return;
+    }
+    
+    // ← ← ← NUEVO: Validar que fecha_fin sea posterior a fecha_inicio ← ← ←
+    const fechaInicio = new Date(formData.fecha_inicio);
+    const fechaFin = new Date(formData.fecha_fin);
+    
+    if (isNaN(fechaInicio.getTime()) || isNaN(fechaFin.getTime())) {
+      alert('️ Las fechas no son válidas');
+      return;
+    }
+    
+    if (fechaFin <= fechaInicio) {
+      alert('⚠️ La fecha de fin debe ser posterior a la fecha de inicio');
+      return;
+    }
       
       let imagenAEnviar = formData.imagen;
       
@@ -216,18 +239,20 @@ export default function PublicidadPage() {
           return;
         }
         
-        if (imagenAEnviar.size > 500 * 1024) {
+        // ← ← ← CLAVE: Solo comprimir si es MUY grande (> 2MB) ← ← ←
+        if (imagenAEnviar.size > 2 * 1024 * 1024) { // Si es mayor a 2MB
           try {
             setLoading(true);
-            alert('🔄 Comprimiendo imagen... Por favor espera.');
+            alert('🔄 Optimizando imagen... Por favor espera.');
             
-            imagenAEnviar = await compressImage(imagenAEnviar, 0.5);
+            // ← ← ← CLAVE: Objetivo más grande (1.5MB en lugar de 0.5MB) ← ← ←
+            imagenAEnviar = await compressImage(imagenAEnviar, 1.5);
             
-            alert('✅ Imagen comprimida exitosamente');
-            console.log(`✅ Imagen comprimida: ${(imagenAEnviar.size / 1024 / 1024).toFixed(2)}MB → ${(imagenAEnviar.size / 1024 / 1024).toFixed(2)}MB`);
+            alert('✅ Imagen optimizada exitosamente');
+            console.log(`✅ Imagen optimizada: ${(formData.imagen.size / 1024 / 1024).toFixed(2)}MB → ${(imagenAEnviar.size / 1024 / 1024).toFixed(2)}MB`);
           } catch (err) {
-            console.error('❌ Error comprimiendo imagen:', err);
-            alert('⚠️ Error al comprimir la imagen. Intenta con otra imagen más pequeña.');
+            console.error('❌ Error optimizando imagen:', err);
+            alert('⚠️ Error al optimizar la imagen. Intenta con otra imagen.');
             setLoading(false);
             return;
           } finally {
@@ -543,8 +568,8 @@ export default function PublicidadPage() {
                       
                       const sizeMB = (file.size / 1024 / 1024).toFixed(2);
                       console.log(`📁 Imagen seleccionada: ${file.name} (${sizeMB}MB)`);
-                      if (file.size > 1024 * 1024) {
-                        console.log('💡 La imagen se comprimirá automáticamente al guardar');
+                      if (file.size > 2 * 1024 * 1024) {
+                        console.log('💡 La imagen se optimizará automáticamente al guardar (solo si es >2MB)');
                       }
                     }}
                     className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-purple-500 focus:outline-none"
@@ -552,8 +577,8 @@ export default function PublicidadPage() {
                   {formData.imagen && (
                     <p className="text-xs text-gray-500 mt-1">
                       📁 {formData.imagen.name} ({(formData.imagen.size / 1024 / 1024).toFixed(2)} MB)
-                      {formData.imagen.size > 1024 * 1024 && (
-                        <span className="text-yellow-500 ml-2">⚠️ Se comprimirá al guardar</span>
+                      {formData.imagen.size > 2 * 1024 * 1024 && (
+                        <span className="text-yellow-500 ml-2">⚠️ Se optimizará al guardar (&gt;2MB)</span>
                       )}
                     </p>
                   )}
