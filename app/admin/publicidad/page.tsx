@@ -240,17 +240,20 @@ export default function PublicidadPage() {
         }
         
         // ← ← ← CLAVE: Solo comprimir si es MUY grande (> 2MB) ← ← ←
-        if (imagenAEnviar.size > 2 * 1024 * 1024) { // Si es mayor a 2MB
-          try {
-            setLoading(true);
-            alert('🔄 Optimizando imagen... Por favor espera.');
-            
-            // ← ← ← CLAVE: Objetivo más grande (1.5MB en lugar de 0.5MB) ← ← ←
-            imagenAEnviar = await compressImage(imagenAEnviar, 1.5);
-            
-            alert('✅ Imagen optimizada exitosamente');
-            console.log(`✅ Imagen optimizada: ${(formData.imagen.size / 1024 / 1024).toFixed(2)}MB → ${(imagenAEnviar.size / 1024 / 1024).toFixed(2)}MB`);
-          } catch (err) {
+        if (imagenAEnviar.size > 2 * 1024 * 1024) {
+            try {
+              setLoading(true);
+              alert('🔄 Optimizando imagen... Por favor espera.');
+              
+              // ← ← ← CLAVE: Guardar tamaño original ANTES de comprimir ← ← ←
+              const tamanoOriginal = imagenAEnviar.size;
+              
+              imagenAEnviar = await compressImage(imagenAEnviar, 1.5);
+              
+              alert('✅ Imagen optimizada exitosamente');
+              // ← ← ← CLAVE: Usar la variable local (nunca es null) ← ← ←
+              console.log(`✅ Imagen optimizada: ${(tamanoOriginal / 1024 / 1024).toFixed(2)}MB → ${(imagenAEnviar.size / 1024 / 1024).toFixed(2)}MB`);
+            } catch (err) {
             console.error('❌ Error optimizando imagen:', err);
             alert('⚠️ Error al optimizar la imagen. Intenta con otra imagen.');
             setLoading(false);
