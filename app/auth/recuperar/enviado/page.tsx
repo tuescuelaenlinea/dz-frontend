@@ -35,7 +35,8 @@ function EnviadoContent() {
           <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
             <li>Revisa tu bandeja de entrada</li>
             <li>Si no ves el email, revisa la carpeta de spam</li>
-            <li>Haz clic en el enlace del email</li>
+            <li>En el email encontrarás <strong>tu nombre de usuario</strong> y un enlace</li>
+            <li>Haz clic en el enlace para crear una nueva contraseña</li>
             <li>El enlace expira en 1 hora</li>
           </ol>
         </div>

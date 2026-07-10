@@ -53,7 +53,7 @@ export default function RecuperarPasswordPage() {
           </div>
           <h1 className="text-2xl font-bold text-gray-900">¿Olvidaste tu contraseña?</h1>
           <p className="text-gray-600 mt-2">
-            Ingresa tu email y te enviaremos un enlace para recuperar tu contraseña
+            Ingresa tu email y te enviaremos <strong>tu nombre de usuario</strong> junto con un enlace para recuperar tu contraseña
           </p>
         </div>
 
