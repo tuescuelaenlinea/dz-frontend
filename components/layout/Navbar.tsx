@@ -35,7 +35,7 @@ export default function Navbar() {
     { href: '/', label: 'Inicio' },
     //{ href: '/servicios', label: 'Servicios' },
     { href: '/categorias', label: 'Servicios' },
-    { href: '/blog-novias', label: 'Blog Novias' }, 
+    { href: '/blog-novias', label: 'Novias' }, 
     { href: '/galeria', label: 'Galería' },
     { href: '/contacto', label: 'Contacto' },
   ];
