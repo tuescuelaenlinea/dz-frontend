@@ -54,6 +54,8 @@ interface BlogPostData {
   combos_imagen_fondo_url?: string;
   activo: boolean;
   combos?: ComboNovia[];
+  combos_imagen_fondo_mobile: string | null;
+  combos_imagen_fondo_mobile_url?: string;
 }
 
 type TabType = 'general' | 'galeria' | 'servicios' | 'combos';
@@ -85,6 +87,7 @@ export default function AdminBlogNovias() {
     servicios_descripcion: '',
     servicios_imagen: null,
     combos_imagen_fondo: null,
+    combos_imagen_fondo_mobile: null,
     activo: true,
     combos: [],
   });
@@ -172,6 +175,8 @@ export default function AdminBlogNovias() {
           servicios_imagen_url: data.servicios_imagen_url || null,
           combos_imagen_fondo: data.combos_imagen_fondo || null,
           combos_imagen_fondo_url: data.combos_imagen_fondo_url || null,
+          combos_imagen_fondo_mobile: data.combos_imagen_fondo_mobile || null,
+          combos_imagen_fondo_mobile_url: data.combos_imagen_fondo_mobile_url || null,
           activo: data.activo ?? true,
           // ← ← ← CLAVE: Asegurar que combos sea array ← ← ←
           combos: Array.isArray(data.combos) ? data.combos : [],
@@ -194,7 +199,7 @@ export default function AdminBlogNovias() {
           'galeria_imagen_1', 'galeria_imagen_2', 'galeria_imagen_3', 
           'galeria_imagen_4', 'galeria_imagen_5',
           'servicios_imagen',
-          'combos_imagen_fondo'
+          'combos_imagen_fondo', 'combos_imagen_fondo_mobile',
         ];
         
         imageFields.forEach(field => {
@@ -307,6 +312,7 @@ export default function AdminBlogNovias() {
         servicios_descripcion: blogData.servicios_descripcion,
         servicios_imagen: uploadedImages.servicios_imagen || blogData.servicios_imagen || null,
         combos_imagen_fondo: uploadedImages.combos_imagen_fondo || blogData.combos_imagen_fondo || null,
+        combos_imagen_fondo_mobile: uploadedImages.combos_imagen_fondo_mobile || blogData.combos_imagen_fondo_mobile || null,
         activo: blogData.activo,
       };
 
@@ -692,6 +698,15 @@ export default function AdminBlogNovias() {
                   'Imagen de Fondo de Combos',
                   'combos_imagen_fondo' as keyof BlogPostData,
                   'Imagen de fondo para la sección de combos (recomendado: 1920x900px)'
+                )}
+              </div>
+
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-medium mb-4">Imagen de Fondo (Móvil)</h3>
+                {renderImageField(
+                  'Imagen de Fondo de Combos (Móvil)',
+                  'combos_imagen_fondo_mobile' as keyof BlogPostData,
+                  'Imagen vertical para móviles (recomendado: 768x1024px). Si no se sube, se usará la imagen de web.'
                 )}
               </div>
 
