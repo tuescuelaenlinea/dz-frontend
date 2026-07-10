@@ -3268,88 +3268,56 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
         }
         };
 
- const handleClose = async () => {
-  console.log('🔒 [handleClose] Cerrando modal...');
+  const handleClose = async () => {
+    console.log('🔒 [handleClose] Cerrando modal...');
 
-  // ← ← ← NUEVO: Si el movimiento operativo ya fue registrado, limpiar y cerrar sin lógica adicional ← ← ←
-  if (movimientoOperativoRegistrado) {
-    console.log('⏭️ [handleClose] Movimiento operativo ya registrado, limpiando estados y cerrando...');
-    setMovimientoOperativoRegistrado(false); // Resetear bandera
-    
-    // Limpiar estados
-    setItems([]);
-    setDescuento(0);
-    setPropinaTotal(0);
-    setPropinaEditable('0');
-    setPropinaDistribucion([]);
-    setClienteNombre('');
-    setNotas('');
-    setSearchTerm('');
-    setModoEdicion(false);
-    setReciboEditando(null);
-    setReciboId(null);
-    setTipoRecibo('venta');
-    setMetodoPago('bold');
-    setEstadoRecibo('borrador');
-    setPropinaMetodo('proporcional');
-    setShowProfessionalModal(false);
-    setItemParaProfesional(null);
-    setItemsQuitados([]);
-
-    // ← ← ← NUEVO: Resetear bandera de movimiento operativo ← ← ←
-    setMovimientoOperativoRegistrado(false);
-    
-    console.log('🚪 [handleClose] Llamando a onClose()');
-    onClose();
-    return;
-  }
-  
-  
-  // ← ← ← VALIDACIÓN: Si es modo edición y hay reciboId ← ← ←
-  if (modoEdicion && reciboId) {
-    console.log('🔍 [handleClose] Modo edición detectado, verificando items...');
-    
-    // Si NO hay items → Eliminar recibo AUTOMÁTICAMENTE sin preguntar
-    if (items.length === 0) {
-      console.log('🗑️ [handleClose] Recibo sin items, eliminando automáticamente...');
-      try {
-        const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/`, {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-          }
-        });
-        
-        if (res.ok) {
-          console.log('✅ [handleClose] Recibo eliminado exitosamente');
-          
-          // ← ← ← CLAVE: Disparar evento CON reciboId en el detail ← ← ←
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('reciboEliminado', {
-              detail: { reciboId }
-            }));
-          }
-        } else {
-          console.warn('⚠️ [handleClose] No se pudo eliminar el recibo:', await res.text());
+        if (loading) {
+            console.log('⏳ [handleClose] Modal está cargando, no se puede cerrar aún');
+            alert('⏳ Por favor espera a que termine de cargar las citas...');
+            return; // No hacer nada
         }
-      } catch (err) {
-        console.error('❌ [handleClose] Error eliminando recibo:', err);
-      }
-    }
-    // Si HAY items → Preguntar qué hacer
-    else {
-      console.log('💾 [handleClose] Recibo con items, preguntando al usuario...');
-      const opcion = window.confirm(
-        `⚠️ Este recibo tiene ${items.length} item(s).\n\n` +
-        '¿Qué deseas hacer?\n\n' +
-        '• "Aceptar": Guardar como borrador (actualizar con items)\n' +
-        '• "Cancelar": Eliminar recibo y todos sus items'
-      );
+
+
+
+    // ← ← ← NUEVO: Si el movimiento operativo ya fue registrado, limpiar y cerrar sin lógica adicional ← ← ←
+    if (movimientoOperativoRegistrado) {
+      console.log('⏭️ [handleClose] Movimiento operativo ya registrado, limpiando estados y cerrando...');
+      setMovimientoOperativoRegistrado(false); // Resetear bandera
       
-      if (!opcion) {
-        // Usuario eligió eliminar
-        console.log('🗑️ [handleClose] Usuario eligió eliminar recibo');
+      // Limpiar estados
+      setItems([]);
+      setDescuento(0);
+      setPropinaTotal(0);
+      setPropinaEditable('0');
+      setPropinaDistribucion([]);
+      setClienteNombre('');
+      setNotas('');
+      setSearchTerm('');
+      setModoEdicion(false);
+      setReciboEditando(null);
+      setReciboId(null);
+      setTipoRecibo('venta');
+      setMetodoPago('bold');
+      setEstadoRecibo('borrador');
+      setPropinaMetodo('proporcional');
+      setShowProfessionalModal(false);
+      setItemParaProfesional(null);
+      setItemsQuitados([]);
+
+      console.log('🚪 [handleClose] Llamando a onClose()');
+      onClose();
+      return;
+    }
+    
+    // ← ← ← VALIDACIÓN: Si es modo edición y hay reciboId ← ← ←
+    if (modoEdicion && reciboId) {
+      console.log('🔍 [handleClose] Modo edición detectado, verificando items...');
+      
+      // ← ← ← NUEVA LÓGICA AUTOMÁTICA: Sin window.confirm ← ← ←
+      
+      // Si NO hay items → Eliminar recibo AUTOMÁTICAMENTE
+      if (items.length === 0) {
+        console.log('🗑️ [handleClose] Recibo sin items, eliminando automáticamente...');
         try {
           const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/`, {
             method: 'DELETE',
@@ -3360,7 +3328,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
           });
           
           if (res.ok) {
-            console.log('✅ [handleClose] Recibo con items eliminado');
+            console.log('✅ [handleClose] Recibo eliminado exitosamente');
             
             // ← ← ← CLAVE: Disparar evento CON reciboId en el detail ← ← ←
             if (typeof window !== 'undefined') {
@@ -3368,13 +3336,16 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                 detail: { reciboId }
               }));
             }
+          } else {
+            console.warn('⚠️ [handleClose] No se pudo eliminar el recibo:', await res.text());
           }
         } catch (err) {
           console.error('❌ [handleClose] Error eliminando recibo:', err);
         }
-      } else {
-        // ← ← ← USUARIO ELIGIÓ GUARDAR → ACTUALIZAR BORRADOR CON ITEMS ← ← ←
-        console.log('💾 [handleClose] Usuario eligió guardar borrador - ACTUALIZANDO...');
+      }
+      // Si HAY items → Guardar como borrador AUTOMÁTICAMENTE
+      else {
+        console.log(`💾 [handleClose] Recibo con ${items.length} item(s), guardando automáticamente como borrador...`);
         
         try {
           // ← ← ← PREPARAR PAYLOAD IGUAL QUE "ACTUALIZAR BORRADOR" ← ← ←
@@ -3406,47 +3377,47 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
           // ← ← ← LLAMAR handleActualizarReciboConPayload (igual que botón Actualizar) ← ← ←
           await handleActualizarReciboConPayload(payloadBase, false);
           
-          console.log('✅ [handleClose] Borrador actualizado exitosamente con items');
+          console.log('✅ [handleClose] Borrador guardado automáticamente con items');
           
         } catch (err: any) {
-          console.error('❌ [handleClose] Error actualizando borrador:', err);
-          alert('⚠️ No se pudo guardar el recibo con los items. Error: ' + err.message);
+          console.error('❌ [handleClose] Error guardando borrador automáticamente:', err);
+          // No mostrar alert para no interrumpir el cierre
+          console.warn('⚠️ [handleClose] El recibo se cerrará sin guardar los cambios');
         }
       }
     }
-  }
-  // Si es modo creación nuevo (no hay reciboId) → Simplemente cerrar
-  else {
-    console.log('ℹ️ [handleClose] Modo creación nuevo, cerrando sin acciones');
-  }
-  
-  // ← ← ← LIMPIAR ESTADOS ← ← ←
-  setItems([]);
-  setDescuento(0);
-  setPropinaTotal(0);
-  setPropinaEditable('0');
-  setPropinaDistribucion([]);
-  setClienteNombre('');
-  setNotas('');
-  setSearchTerm('');
-  setModoEdicion(false);
-  setReciboEditando(null);
-  setReciboId(null);
-  setTipoRecibo('venta');
-  setMetodoPago('bold');
-  setEstadoRecibo('borrador');
-  setPropinaMetodo('proporcional');
-  setShowProfessionalModal(false);
-  setItemParaProfesional(null);
-  setItemsQuitados([]);
+    // Si es modo creación nuevo (no hay reciboId) → Simplemente cerrar
+    else {
+      console.log('ℹ️ [handleClose] Modo creación nuevo, cerrando sin acciones');
+    }
+    
+    // ← ← ← LIMPIAR ESTADOS ← ← ←
+    setItems([]);
+    setDescuento(0);
+    setPropinaTotal(0);
+    setPropinaEditable('0');
+    setPropinaDistribucion([]);
+    setClienteNombre('');
+    setNotas('');
+    setSearchTerm('');
+    setModoEdicion(false);
+    setReciboEditando(null);
+    setReciboId(null);
+    setTipoRecibo('venta');
+    setMetodoPago('bold');
+    setEstadoRecibo('borrador');
+    setPropinaMetodo('proporcional');
+    setShowProfessionalModal(false);
+    setItemParaProfesional(null);
+    setItemsQuitados([]);
 
-  // ← ← ← NUEVO: Resetear bandera de movimiento operativo ← ← ←
-  setMovimientoOperativoRegistrado(false);
-  
-  // ← ← ← CLAVE: Llamar onClose() DESPUÉS de todo ← ← ←
-  console.log('🚪 [handleClose] Llamando a onClose()');
-  onClose();
-};
+    // ← ← ← NUEVO: Resetear bandera de movimiento operativo ← ← ←
+    setMovimientoOperativoRegistrado(false);
+    
+    // ← ← ← CLAVE: Llamar onClose() DESPUÉS de todo ← ← ←
+    console.log('🚪 [handleClose] Llamando a onClose()');
+    onClose();
+  };
 
   if (!isOpen) return null;
 
@@ -3709,18 +3680,50 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
               {modoEdicion && <span className="ml-2 text-yellow-300">• Modo Edición</span>}
             </p>
           </div>
+          {/* ← Botón X del Header (con disabled cuando carga) */}
           <button
             onClick={handleClose}
-            className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors"
+            disabled={loading}
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+              loading
+                ? 'bg-white/10 cursor-not-allowed opacity-50'
+                : 'bg-white/20 hover:bg-white/30'
+            }`}
+            title={loading ? 'Cargando datos, por favor espera...' : 'Cerrar modal'}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            {loading ? (
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            )}
           </button>
         </div>
-
+      
         {/* ← Body con scroll */}
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 overflow-y-auto p-5 relative">
+          {/* ← ← ← SPINNER DE CARGA MIENTRAS EDITA ← ← ← */}
+          {loading && modoEdicion && reciboId && (
+            <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm z-50 flex items-center justify-center rounded-lg">
+              <div className="flex flex-col items-center gap-4">
+                {/* Spinner animado */}
+                <div className="relative">
+                  <div className="w-16 h-16 border-4 border-gray-700 rounded-full"></div>
+                  <div className="absolute top-0 left-0 w-16 h-16 border-4 border-blue-500 rounded-full animate-spin border-t-transparent"></div>
+                </div>
+                {/* Texto de carga */}
+                <div className="text-center">
+                  <p className="text-white font-semibold text-lg">Cargando recibo...</p>
+                  <p className="text-gray-400 text-sm mt-1">Por favor espera un momento</p>
+                </div>
+                {/* Barra de progreso animada */}
+                <div className="w-48 h-1 bg-gray-700 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-blue-500 to-purple-500 animate-pulse rounded-full"></div>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
             {/* ← Columna Izquierda: Configuración y Búsqueda */}
@@ -4581,13 +4584,22 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
 
         {/* ← ← ← FOOTER CON BOTONES CONDICIONALES ← ← ← */}
         <div className="sticky bottom-0 bg-gray-900 px-6 py-4 border-t border-gray-700 rounded-b-2xl flex gap-3">
-          {/* ← ← ← BOTÓN CANCELAR ← ← ← */}
+         
+          {/* ← Botón Cerrar del Footer (con spinner cuando carga) */}
           <button
             onClick={handleClose}
             disabled={loading}
-            className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+            className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            title={loading ? 'Cargando datos, por favor espera...' : 'Cerrar modal'}
           >
-            Cancelar
+            {loading ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Cargando...
+              </>
+            ) : (
+              'Cerrar'
+            )}
           </button>
           
           {/* ← ← ← BOTONES PARA VENTAS (lógica existente con abonos) ← ← ← */}
@@ -5859,7 +5871,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
-        <h3 className="text-lg font-bold text-white">¿Cómo deseas eliminar este item?</h3>
+        <h3 className="text-lg font-bold text-white">Confirma que deseas eliminar este item</h3>
         <p className="text-sm text-gray-400 mt-1">
           <span className="text-white font-medium">{itemToDelete.descripcion}</span>
         </p>
@@ -5869,7 +5881,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
       <div className="space-y-3 mb-6">
         {itemToDelete.tipo === 'servicio' && itemToDelete.citaId ? (
           <>
-            <button
+            {/*<button
               onClick={() => {
                 quitarItemDelRecibo(itemToDelete.id);
                 setItemToDelete(null);
@@ -5878,7 +5890,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
             >
               📋 Solo quitar del recibo
               <span className="text-xs text-blue-200">(La cita se mantiene)</span>
-            </button>
+            </button>*/}
             <button
               onClick={() => {
                 removerItem(itemToDelete.id);
