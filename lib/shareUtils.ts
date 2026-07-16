@@ -9,7 +9,7 @@ export function generateServiceShareUrl(servicio: {
   precio_min: string;
   duracion: string;
 }) {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pagosapp.website';
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://dzsalon.com';
   
   const params = new URLSearchParams({
     servicio: servicio.id.toString(),
@@ -46,12 +46,12 @@ export function shareServiceViaWhatsApp(servicio: {
 }, phone: string = '') {
   const shareUrl = generateServiceShareUrl(servicio);
   
-  const message = `Hola! 👋 Te comparto este servicio de DZ Salón:\n\n` +
+  const message = `Hola! 👋 Realiza la voloración de tu servicio aquí:\n\n` +
     `✨ *${servicio.nombre}*\n` +
     `💰 Desde $${parseInt(servicio.precio_min).toLocaleString()}\n` +
     `⏱️ ${servicio.duracion}\n\n` +
     `📅 Agenda tu cita aquí:\n${shareUrl}\n\n` +
-    `_Enviado desde DZ Salón - https://pagosapp.website_`;
+    `_Enviado desde DZ Salón - https://dzsalon.com`;
   
   openWhatsApp(phone, message);
 }
