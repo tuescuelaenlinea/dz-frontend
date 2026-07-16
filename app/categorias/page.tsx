@@ -442,7 +442,7 @@ function CategoryCardHorizontal({
           <h3 className={`text-lg md:text-xl font-bold drop-shadow-lg transition-colors ${
             tieneServicios ? 'text-white group-hover:text-yellow-300' : 'text-gray-300'
           }`}>
-            {categoria.nombre}
+            {categoria.nombre} ({categoria.servicios_count || 0})
           </h3>
         </div>
         
@@ -517,7 +517,7 @@ function CategoryCardHorizontal({
         )}*/}
         
         <div className="flex gap-3">
-          {/* ← ← ← BOTÓN SERVICIOS: LINK SOLO SI TIENE SERVICIOS ← ← ← */}
+          {/* ← ← ← BOTÓN SERVICIOS: LINK SOLO SI TIENE SERVICIOS ← ← ← 
           {tieneServicios ? (
             <Link
               href={`/servicios?categoria=${categoria.id}`}
@@ -537,12 +537,12 @@ function CategoryCardHorizontal({
               </svg>
               Servicios ({categoria.servicios_count || 0})
             </div>
-          )}
+          )}*/}
           
-          {/* ← ← ← BOTÓN GALERÍA: LINK SOLO SI TIENE GALERÍA ← ← ← */}
+          {/* ← ← ← BOTÓN GALERÍA: LINK SOLO SI TIENE GALERÍA ← ← ← 
           {categoria.tiene_galeria ? (
-            <Link
-              href={`/galeria?categoria=${categoria.id}`}
+           <Link
+              href={`/galeria?categoria=${categoria.id}&from=categoria`}  // ← ✅ Agregado &from=categoria
               className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-medium text-sm transition-colors group/link"
               onClick={(e) => e.stopPropagation()}
             >
@@ -558,10 +558,9 @@ function CategoryCardHorizontal({
               </svg>
               Galería ({categoria.galeria_count})
             </div>
-          )}
+          )}*/}
         </div>
       </div>
     </div>
   );
 }
-

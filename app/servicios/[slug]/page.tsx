@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import RelatedServices from '@/components/services/RelatedServices';
+//import { formatDescription } from '@/lib/formatDescription';
 
 interface Servicio {
   id: number;
@@ -27,6 +28,43 @@ interface Servicio {
   requiere_valoracion: boolean;
   sesiones_incluidas: number;
 }
+
+// ============================================================================
+// 🎨 HELPER: Formatear descripción con saltos de línea y viñetas
+// ============================================================================
+function renderDescription(text: string | null | undefined) {
+  if (!text) return null;
+  
+  // Dividir por saltos de línea y procesar cada línea
+  return text.split('\n').map((line, index) => {
+    const trimmed = line.trim();
+    
+    // Línea vacía → espacio vertical
+    if (!trimmed) {
+      return <br key={`br-${index}`} />;
+    }
+    
+    // Viñeta con •, -, o * al inicio
+    if (/^[•\-\*]\s?/.test(trimmed)) {
+      const content = trimmed.replace(/^[•\-\*]\s?/, '');
+      return (
+        <div key={`bullet-${index}`} className="flex items-start gap-2 my-2 pl-1">
+          <span className="text-blue-600 mt-1.5 text-sm">•</span>
+          <span className="text-gray-700 leading-relaxed">{content}</span>
+        </div>
+      );
+    }
+    
+    // Párrafo normal
+    return (
+      <p key={`para-${index}`} className="text-gray-700 leading-relaxed my-3">
+        {trimmed}
+      </p>
+    );
+  });
+}
+// ============================================================================
+
 
 export default function ServicioDetallePage() {
   const params = useParams();
@@ -64,6 +102,7 @@ export default function ServicioDetallePage() {
     }
   }
 
+  
   // ← Función principal de carga
   async function loadData() {
     try {
@@ -248,12 +287,12 @@ export default function ServicioDetallePage() {
               )}
             </div>
 
-            {/* Descripción */}
+            {/* Descripción - CON FORMATO */}
             <div className="mb-8">
               <h2 className="text-xl font-bold text-gray-900 mb-3">Descripción</h2>
-              <p className="text-gray-700 leading-relaxed">
-                {servicio.descripcion || servicio.descripcion_corta}
-              </p>
+              <div className="space-y-2">
+                {renderDescription(servicio.descripcion || servicio.descripcion_corta)}
+              </div>
             </div>
 
             {/* Características */}
@@ -297,9 +336,10 @@ export default function ServicioDetallePage() {
               </div>
             </div>
 
-            {/* CTA Buttons MODIFICADOS */}
+            {/* CTA Buttons - CON 3 BOTONES: Reservar, Galería, Volver */}
             <div className="flex flex-col sm:flex-row gap-3">
-              {/* ← ← ← CAMBIAR Link POR BUTTON PARA LÓGICA DINÁMICA ← ← ← */}
+              
+              {/* Botón 1: Reservar Cita */}
               <button
                 onClick={handleReservarCita}
                 disabled={!servicio}
@@ -308,12 +348,26 @@ export default function ServicioDetallePage() {
                 📅 Reservar Cita
               </button>
               
-              <Link
-                href="/servicios"
+              {/* ← ← ← BOTÓN: Ver Galería (filtrada por categoría del servicio) ← ← ← */}
+<Link
+  href={`/galeria?categoria=${servicio.categoria}&from=categoria`}
+  className="flex-1 text-center px-6 py-3 bg-purple-100 text-purple-700 rounded-full font-semibold hover:bg-purple-200 transition-all duration-300 flex items-center justify-center gap-2"
+>
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+  </svg>
+  Ver Galería
+</Link>
+              
+              {/* Botón 3: Volver */}
+              <button
+                type="button"
+                onClick={() => router.back()}
                 className="flex-1 text-center px-6 py-3 bg-gray-100 text-gray-900 rounded-full font-semibold hover:bg-gray-200 transition-all duration-300"
               >
-                ← Volver a Servicios
-              </Link>
+                ← Volver
+              </button>
+              
             </div>
           </div>
         </div>

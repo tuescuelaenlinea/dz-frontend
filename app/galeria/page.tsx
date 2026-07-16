@@ -272,17 +272,19 @@ export default function GaleriaPage() {
             {/* ← ← ← BOTÓN "VOLVER" SOLO SI HAY FILTRO DE URL ← ← ← */}
             {categoriaFiltroUrl && (
               <button
-                onClick={() => {
-                  router.push('/galeria');  // ← Limpia URL params
-                  setCategoriaFiltroUrl(null);
-                  setNombreCategoriaFiltro(null);
+                 onClick={() => {
+                  if (window.history.length > 1) {
+                    router.back();
+                  } else {
+                    router.push('/'); // Fallback: ir al home si no hay historial
+                  }
                 }}
                 className="px-4 py-2 text-sm bg-white/10 hover:bg-white/20 rounded-lg transition-colors flex items-center gap-2 text-white"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
-                Todas las categorías
+                Volver a servicios
               </button>
             )}
           </div>
@@ -312,52 +314,77 @@ export default function GaleriaPage() {
       )}
 
       {/* ========== VISTA: GALERÍA CON SLIDER AUTOMÁTICO ========== */}
-      {vistaActual === 'galeria' && (
-        <>
-          <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm shadow-sm border-b">
-            <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-              <button
-                onClick={() => {
-                  // ← ← ← Si hay filtro URL, limpiarlo; si no, volver a categorías
-                  if (categoriaFiltroUrl) {
-                    router.push('/galeria');
-                    setCategoriaFiltroUrl(null);
-                    setNombreCategoriaFiltro(null);
-                  } else {
-                    setVistaActual('categorias');
-                    setCategoriaSeleccionada(null);
-                  }
-                }}
-                className="flex items-center gap-2 text-gray-700 hover:text-gray-900 font-medium transition-colors"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-                {categoriaFiltroUrl ? 'Todas las categorías' : 'Volver'}
-              </button>
-              <span className="text-sm text-gray-500">
-                {galeriaOrdenada.length} {galeriaOrdenada.length === 1 ? 'foto' : 'fotos'}
-              </span>
-            </div>
-          </div>
+{vistaActual === 'galeria' && (
+  <>
+    <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm shadow-sm border-b">
+      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+        
+        {/* Botón izquierdo: Volver a categorías o servicio */}
+        <button
+          onClick={() => {
+            if (categoriaFiltroUrl) {
+              router.push('/galeria');
+              setCategoriaFiltroUrl(null);
+              setNombreCategoriaFiltro(null);
+            } else {
+              setVistaActual('categorias');
+              setCategoriaSeleccionada(null);
+            }
+          }}
+          className="flex items-center gap-2 text-gray-700 hover:text-gray-900 font-medium transition-colors whitespace-nowrap"
+        >
+          <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          <span className="text-sm">
+            {categoriaFiltroUrl ? 'Todas las categorías' : 'Volver'}
+          </span>
+        </button>
 
-          <section className="py-8">
-            <div className="max-w-6xl mx-auto px-4">
-              {galeriaOrdenada.length === 0 ? (
-                <div className="text-center py-16">
-                  <p className="text-gray-600 text-lg">No hay imágenes en esta categoría.</p>
-                </div>
-              ) : (
-                <GallerySlider
-                  items={galeriaOrdenada}
-                  getImageUrl={getImageUrl}
-                  onImageClick={setSelectedImage}
-                />
-              )}
-            </div>
-          </section>
-        </>
-      )}
+        {/* Contador de fotos (centro) */}
+        <span className="text-sm text-gray-500 whitespace-nowrap">
+          {galeriaOrdenada.length} {galeriaOrdenada.length === 1 ? 'foto' : 'fotos'}
+        </span>
+
+        {/* Botón derecho: Volver a servicios > (solo si hay filtro URL) */}
+        {categoriaFiltroUrl && (
+          <button
+            onClick={() => {
+              if (window.history.length > 1) {
+                router.back();
+              } else {
+                router.push('/servicios'); // Fallback más lógico que home
+              }
+            }}
+            className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors whitespace-nowrap"
+          >
+            <span>Volver a servicios</span>
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        )}
+        
+      </div>
+    </div>
+
+    <section className="py-8">
+      <div className="max-w-6xl mx-auto px-4">
+        {galeriaOrdenada.length === 0 ? (
+          <div className="text-center py-16">
+            <p className="text-gray-600 text-lg">No hay imágenes en esta categoría.</p>
+          </div>
+        ) : (
+          <GallerySlider
+            items={galeriaOrdenada}
+            getImageUrl={getImageUrl}
+            onImageClick={setSelectedImage}
+          />
+        )}
+      </div>
+    </section>
+  </>
+)}
 
       {/* ========== MODAL LIGHTBOX CON ZOOM ========== */}
       {selectedImage && (

@@ -353,10 +353,11 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
               </button>
               <button
                 onClick={() => {
-                  localStorage.removeItem('admin_token');
-                  localStorage.removeItem('admin_user');
-                  window.location.href = '/admin/login';
-                }}
+                    localStorage.removeItem('admin_token');
+                    localStorage.removeItem('admin_user');
+                    localStorage.removeItem('user_permisos');  // ← Limpia también permisos
+                    window.location.href = 'https://pagosapp.website/acceso_publico.php';  // ← ✅ Redirige al acceso público
+                  }}
                 className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -470,10 +471,11 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
           ))}
           <div className="p-3 border-t border-gray-800 flex-shrink-0">
             <button
-              onClick={() => {
+             onClick={() => {
                 localStorage.removeItem('admin_token');
                 localStorage.removeItem('admin_user');
-                window.location.href = '/admin/login';
+                localStorage.removeItem('user_permisos');  // ← Limpia también permisos
+                window.location.href = 'https://pagosapp.website/acceso_publico.php';  // ← ✅ Redirige al acceso público
               }}
               className={`
                 w-full flex items-center gap-3 text-red-400 hover:bg-gray-800 rounded-lg transition-colors
