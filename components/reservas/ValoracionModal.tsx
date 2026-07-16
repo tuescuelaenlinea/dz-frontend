@@ -1,5 +1,4 @@
 'use client';
-
 import { useState, useEffect, useMemo } from 'react';
 import { useValoracion } from '@/hooks/useValoracion';
 import SeccionCliente from './valoracion/SeccionCliente';
