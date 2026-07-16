@@ -2948,7 +2948,7 @@ const formatDate = (dateStr: string): string => {
                   )}
                 </div>
 
-                {/* Botones de acción */}
+                {/* Botones de acción 
                 {vale.estado === 'registrado' && (
                   <div className="flex gap-2 pt-2 border-t border-gray-700">
                     <button
@@ -2970,7 +2970,7 @@ const formatDate = (dateStr: string): string => {
                       ❌ Cancelar
                     </button>
                   </div>
-                )}
+                )}*/}
               </div>
             )}
           </div>
@@ -3070,7 +3070,7 @@ const formatDate = (dateStr: string): string => {
                   )}
                 </div>
 
-                {/* Botones de acción */}
+                {/* Botones de acción 
                 {vale.estado === 'registrado' && (
                   <div className="flex gap-2 pt-2 border-t border-gray-700">
                     <button
@@ -3092,7 +3092,7 @@ const formatDate = (dateStr: string): string => {
                       ❌ Cancelar
                     </button>
                   </div>
-                )}
+                )}*/}
               </div>
             )}
           </div>

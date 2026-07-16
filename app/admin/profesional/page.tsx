@@ -1,4 +1,3 @@
-// app/admin/profesional/page.tsx
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -121,10 +120,8 @@ interface PropinaDistribucion {
   porcentaje: number;
 }
 
-// ← ← ← TABS: Ventas (crear recibo), Mi Agenda, Caja ← ← ←
 type TabType = 'ventas' | 'mi-agenda' | 'caja';
 
-// ← ← ← FUNCIONES AUXILIARES ← ← ←
 const getFechaLocal = (): string => {
   const ahora = new Date();
   const year = ahora.getFullYear();
@@ -175,7 +172,6 @@ const getImageUrl = (imagenPath: string | null, imagenUrl?: string | null): stri
   return `${API_DOMAIN}${imagePath}`;
 };
 
-// ← ← ← COMPONENTE PRINCIPAL ← ← ←
 export default function ProfesionalPage() {
   const [activeTab, setActiveTab] = useState<TabType>('ventas');
   
@@ -245,6 +241,10 @@ export default function ProfesionalPage() {
   const [miProfesionalId, setMiProfesionalId] = useState<number | null>(null);
   const [miProfesionalNombre, setMiProfesionalNombre] = useState<string>('');
 
+  // ← ← ← NUEVO: Estado para sesión de caja ← ← ←
+  const [sesionActiva, setSesionActiva] = useState<boolean | null>(null);
+  const [loadingSesion, setLoadingSesion] = useState(true);
+
   // ← API config
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
   const token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
@@ -253,6 +253,28 @@ export default function ProfesionalPage() {
   const toggleItemExpanded = (itemId: string) => {
     setExpandedItemId(prev => prev === itemId ? null : itemId);
   };
+
+  // ← ← ← NUEVO: Verificar sesión de caja activa al montar ← ← ←
+  useEffect(() => {
+    async function verificarSesion() {
+      try {
+        const res = await fetch(`${apiUrl}/caja/sesiones/activa-global/`, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+        if (res.ok) {
+          setSesionActiva(true);
+        } else {
+          setSesionActiva(false);
+        }
+      } catch (err) {
+        console.error('❌ Error verificando sesión de caja:', err);
+        setSesionActiva(false);
+      } finally {
+        setLoadingSesion(false);
+      }
+    }
+    verificarSesion();
+  }, [apiUrl, token]);
 
   // ← Búsqueda con debounce
   useEffect(() => {
@@ -289,127 +311,91 @@ export default function ProfesionalPage() {
       try {
         console.log('🔍 [ProfesionalPage] Cargando datos iniciales...');
         
-        // ← ← ← NUEVO: Detectar el profesional del usuario actual ← ← ←
-  try {
-    console.log('🔍 [ProfesionalPage] Detectando profesional del usuario...');
-    console.log('🔍 [ProfesionalPage] Token presente:', !!token);
-    
-    const resProf = await fetch(`${apiUrl}/profesional-user/mis-profesionales/`, {
-      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-    });
-    
-    console.log('🔍 [ProfesionalPage] Response status:', resProf.status);
-    
-    if (resProf.ok) {
-      const dataProf = await resProf.json();
-      console.log('🔍 [ProfesionalPage] Response data:', dataProf);
-      
-      if (dataProf.profesionales && dataProf.profesionales.length > 0) {
-        const miProf = dataProf.profesionales[0];
-        console.log(`✅ [ProfesionalPage] Profesional detectado:`, miProf);
-        setMiProfesionalId(miProf.profesional);
-        setMiProfesionalNombre(miProf.profesional_nombre);
-        console.log(`✅ [ProfesionalPage] Profesional ID: ${miProf.profesional_id}, Nombre: ${miProf.profesional_nombre}`);
-      } else {
-        console.warn('⚠️ [ProfesionalPage] No hay profesionales en la respuesta');
-      }
-    } else {
-      console.error(`❌ [ProfesionalPage] Error detectando profesional: ${resProf.status}`);
-      const errorText = await resProf.text();
-      console.error(`❌ [ProfesionalPage] Error detalle:`, errorText);
-    }
-  } catch (err) {
-    console.error('❌ [ProfesionalPage] Error detectando profesional:', err);
-  }
-      
-      const categoriasRes = await fetch(`${apiUrl}/categorias/?activo=true&ordering=orden`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      const categoriasData = await categoriasRes.json();
-      const categoriasList = Array.isArray(categoriasData) ? categoriasData : (categoriasData.results || []);
-      setCategorias(categoriasList);
-      
-            // ← ← ← CORREGIDO: NO cargar servicios aquí, el otro useEffect se encarga ← ← ←
-      const [productosData, profsData] = await Promise.all([
-        fetch(`${apiUrl}/productos/?activo=true&limit=20`, {
-          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-        }).then(res => res.ok ? res.json() : { results: [] }),
-        
-        api.getProfesionales(),
-      ]);
-      
-      const productosList = Array.isArray(productosData) ? productosData : (productosData.results || []);
-      const profsList = Array.isArray(profsData) ? profsData : (profsData.results || []);
-      
-      // ← ← ← NO llamar a setServicios() aquí ← ← ←
-      setProductos(productosList);
-      setProfesionales(profsList);
-      
-              console.log('🔍 [ProfesionalPage] loadData() completado (categorías, productos, profesionales cargados)');
-      
-    } catch (err) {
-      console.error('❌ [ProfesionalPage] Error cargando datos:', err);
-    }
-  }
-  loadData();
-}, []);
-
-  // ← ← ← CORREGIDO: Cargar servicios del profesional usando endpoint dedicado ← ← ←
-// ← ← ← CORREGIDO: Cargar servicios del profesional usando endpoint dedicado ← ← ←
-// ← ← ← CORREGIDO: Cargar servicios según profesional o todos si no hay profesional ← ← ←
-useEffect(() => {
-  async function cargarServicios() {
-    if (miProfesionalId) {
-      // ← ← ← Hay profesional: cargar solo sus servicios ← ← ←
-      try {
-        console.log(`🔍 [ProfesionalPage] Cargando servicios del profesional ${miProfesionalId}...`);
-        
-        const resServicios = await fetch(
-          `${apiUrl}/servicios/por-profesional-actual/`,
-          { headers: token ? { 'Authorization': `Bearer ${token}` } : {} }
-        );
-        
-        if (resServicios.ok) {
-          const dataServicios = await resServicios.json();
-          console.log(`✅ [ProfesionalPage] Respuesta del backend:`, dataServicios);
+        try {
+          console.log('🔍 [ProfesionalPage] Detectando profesional del usuario...');
+          const resProf = await fetch(`${apiUrl}/profesional-user/mis-profesionales/`, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+          });
           
-          if (dataServicios.servicios && dataServicios.servicios.length > 0) {
-            console.log(`✅ [ProfesionalPage] ${dataServicios.servicios_count} servicios cargados para ${dataServicios.profesional_nombre}`);
-            setServicios(dataServicios.servicios);
-          } else {
-            console.warn(`⚠️ [ProfesionalPage] No hay servicios asignados al profesional ${dataServicios.profesional_nombre}`);
-            setServicios([]);
+          if (resProf.ok) {
+            const dataProf = await resProf.json();
+            if (dataProf.profesionales && dataProf.profesionales.length > 0) {
+              const miProf = dataProf.profesionales[0];
+              setMiProfesionalId(miProf.profesional);
+              setMiProfesionalNombre(miProf.profesional_nombre);
+            }
           }
-        } else {
-          console.error(`❌ [ProfesionalPage] Error cargando servicios: ${resServicios.status}`);
+        } catch (err) {
+          console.error('❌ [ProfesionalPage] Error detectando profesional:', err);
         }
-      } catch (err) {
-        console.error('❌ [ProfesionalPage] Error cargando servicios del profesional:', err);
-      }
-    } else {
-      // ← ← ← NO hay profesional: cargar TODOS los servicios ← ← ←
-      try {
-        console.log('⚠️ [ProfesionalPage] No hay profesional ID, cargando todos los servicios');
         
-        const resServicios = await fetch(
-          `${apiUrl}/servicios/?activo=true&ordering=nombre&page_size=5000&incluir_solo_caja=true`,
-          { headers: token ? { 'Authorization': `Bearer ${token}` } : {} }
-        );
+        const categoriasRes = await fetch(`${apiUrl}/categorias/?activo=true&ordering=orden`, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+        const categoriasData = await categoriasRes.json();
+        const categoriasList = Array.isArray(categoriasData) ? categoriasData : (categoriasData.results || []);
+        setCategorias(categoriasList);
         
-        if (resServicios.ok) {
-          const dataServicios = await resServicios.json();
-          const serviciosList = Array.isArray(dataServicios) ? dataServicios : (dataServicios.results || []);
-          console.log(`✅ [ProfesionalPage] ${serviciosList.length} servicios cargados (todos)`);
-          setServicios(serviciosList.slice(0, 300));
-        }
+        const [productosData, profsData] = await Promise.all([
+          fetch(`${apiUrl}/productos/?activo=true&limit=20`, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+          }).then(res => res.ok ? res.json() : { results: [] }),
+          api.getProfesionales(),
+        ]);
+        
+        const productosList = Array.isArray(productosData) ? productosData : (productosData.results || []);
+        const profsList = Array.isArray(profsData) ? profsData : (profsData.results || []);
+        
+        setProductos(productosList);
+        setProfesionales(profsList);
+        
       } catch (err) {
-        console.error('❌ [ProfesionalPage] Error cargando todos los servicios:', err);
+        console.error('❌ [ProfesionalPage] Error cargando datos:', err);
       }
     }
-  }
-  
-  cargarServicios();
-}, [miProfesionalId, apiUrl, token]);
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    async function cargarServicios() {
+      if (miProfesionalId) {
+        try {
+          const resServicios = await fetch(
+            `${apiUrl}/servicios/por-profesional-actual/`,
+            { headers: token ? { 'Authorization': `Bearer ${token}` } : {} }
+          );
+          
+          if (resServicios.ok) {
+            const dataServicios = await resServicios.json();
+            if (dataServicios.servicios && dataServicios.servicios.length > 0) {
+              setServicios(dataServicios.servicios);
+            } else {
+              setServicios([]);
+            }
+          }
+        } catch (err) {
+          console.error('❌ [ProfesionalPage] Error cargando servicios del profesional:', err);
+        }
+      } else {
+        try {
+          const resServicios = await fetch(
+            `${apiUrl}/servicios/?activo=true&ordering=nombre&page_size=5000&incluir_solo_caja=true`,
+            { headers: token ? { 'Authorization': `Bearer ${token}` } : {} }
+          );
+          
+          if (resServicios.ok) {
+            const dataServicios = await resServicios.json();
+            const serviciosList = Array.isArray(dataServicios) ? dataServicios : (dataServicios.results || []);
+            setServicios(serviciosList.slice(0, 300));
+          }
+        } catch (err) {
+          console.error('❌ [ProfesionalPage] Error cargando todos los servicios:', err);
+        }
+      }
+    }
+    
+    cargarServicios();
+  }, [miProfesionalId, apiUrl, token]);
 
   const loadClientes = async () => {
     try {
@@ -480,23 +466,17 @@ useEffect(() => {
     }
   };
 
-    // ← ← ← NUEVO: Cargar clientes al montar el componente ← ← ←
   useEffect(() => {
-    console.log('🔄 [ProfesionalPage] Cargando clientes...');
     loadClientes();
   }, []);
 
-  // ← ← ← NUEVO: Recargar clientes cuando se abre el modal ← ← ←
   useEffect(() => {
     if (showClientModal) {
-      console.log('🔄 [ProfesionalPage] Modal abierto, recargando clientes...');
       loadClientes();
     }
   }, [showClientModal]);
 
-   // ← ← ← NUEVO: Categorías con conteo basado en servicios del profesional actual ← ← ←
   const categoriasConConteo = useMemo(() => {
-    // Contar servicios por categoría basándose en los servicios actuales (ya filtrados)
     const conteoPorCategoria = new Map<number, number>();
     
     servicios.forEach(servicio => {
@@ -504,22 +484,19 @@ useEffect(() => {
       conteoPorCategoria.set(catId, (conteoPorCategoria.get(catId) || 0) + 1);
     });
     
-    // Mapear categorías originales con el nuevo conteo y filtrar las vacías
     return categorias
       .map(cat => ({
         ...cat,
         servicios_count: conteoPorCategoria.get(cat.id) || 0
       }))
-      .filter(cat => cat.servicios_count > 0); // ← Ocultar categorías sin servicios
+      .filter(cat => cat.servicios_count > 0);
   }, [categorias, servicios]);
 
-  // ← ← ← FILTROS DE BÚSQUEDA + FILTRO POR PROFESIONAL ← ← ←
   const serviciosPorCategoria = useMemo(() => {
     if (categoriaSeleccionada === null) return servicios;
     return servicios.filter(s => s.categoria === categoriaSeleccionada);
   }, [servicios, categoriaSeleccionada]);
 
-  
   const serviciosFiltrados = useMemo(() => {
     if (serviceSearchTerm.trim()) {
       return busquedaBackendServicios;
@@ -546,7 +523,6 @@ useEffect(() => {
     );
   }, [clientes, clienteSearchTerm]);
 
-  // ← ← ← CÁLCULOS AUTOMÁTICOS ← ← ←
   const subtotal = useMemo(() => {
     return reciboItems.reduce((sum, item) => sum + item.subtotal, 0);
   }, [reciboItems]);
@@ -612,7 +588,6 @@ useEffect(() => {
     }));
   }, [propinaTotal, propinaMetodo, reciboItems, profesionales]);
 
-  // ← ← ← AGREGAR ITEMS AL RECIBO ← ← ←
   const agregarServicio = (servicio: Servicio) => {
     const precio = typeof servicio.precio_min === 'string' ? parseFloat(servicio.precio_min) : servicio.precio_min;
     
@@ -628,7 +603,6 @@ useEffect(() => {
       precioUnitario: precio,
       subtotal: precio,
       duracion: servicio.duracion,
-      // ← ← ← NUEVO: Asignar profesional logueado automáticamente ← ← ←
       profesionalId: miProfesionalId || undefined,
       profesionalNombre: miProfesionalNombre || undefined,
       imagenUrl: servicio.imagen_url,
@@ -746,8 +720,14 @@ useEffect(() => {
     setItemParaProductos(null);
   };
 
-  // ← ← ← CREAR RECIBO ← ← ←
   const handleCrearRecibo = async () => {
+    // ← ← ← VALIDACIÓN: Verificar sesión de caja ← ← ←
+    if (!sesionActiva) {
+      alert('⚠️ Debes abrir una sesión de caja antes de crear un recibo.');
+      setActiveTab('caja');
+      return;
+    }
+
     if (reciboItems.length === 0) {
       alert('⚠️ Agrega al menos un servicio o producto');
       return;
@@ -815,8 +795,6 @@ useEffect(() => {
         items_data: itemsPayload,
       };
 
-      console.log('📦 [ProfesionalPage] Creando recibo borrador:', payloadRecibo);
-
       const resRecibo = await fetch(`${apiUrl}/caja/recibos/`, {
         method: 'POST',
         headers: {
@@ -828,14 +806,12 @@ useEffect(() => {
 
       if (!resRecibo.ok) {
         const errorText = await resRecibo.text();
-        console.error('❌ Error raw del servidor:', errorText.substring(0, 500));
         let errorData;
         try { errorData = JSON.parse(errorText); } catch { errorData = { detail: errorText.substring(0, 200) }; }
         throw new Error(errorData.detail || JSON.stringify(errorData));
       }
 
       const reciboCreado = await resRecibo.json();
-      console.log('✅ [ProfesionalPage] Recibo creado:', reciboCreado.codigo_recibo);
 
       if (propinaTotal > 0 && propinaDistribucion.length > 0) {
         await fetch(`${apiUrl}/caja/recibos/${reciboCreado.id}/distribuir-propina/`, {
@@ -858,18 +834,14 @@ useEffect(() => {
 
       alert(`✅ Recibo ${reciboCreado.codigo_recibo} creado con citas agendadas`);
 
-      // ← ← ← REDIRIGIR AL TAB CAJA ← ← ←
       setActiveTab('caja');
 
-      // ← ← ← Disparar evento para abrir modal de edición en ProfesionalCajaPage ← ← ←
       setTimeout(() => {
-        console.log('📦 [ProfesionalPage] Disparando evento para abrir recibo en Caja:', reciboCreado.id);
         window.dispatchEvent(new CustomEvent('abrirReciboBorrador', {
           detail: { reciboId: reciboCreado.id }
         }));
       }, 150);
 
-      // ← ← ← RESETEAR FORMULARIO ← ← ←
       setReciboItems([]);
       setPropinaTotal(0);
       setPropinaDistribucion([]);
@@ -888,7 +860,6 @@ useEffect(() => {
     }
   };
 
-  // ← Handlers de focus
   const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     setTimeout(() => { e.target.select(); }, 10);
   };
@@ -938,14 +909,13 @@ useEffect(() => {
     }
   };
 
-  // ← ← ← RENDERIZADO ← ← ←
   return (
     <div className="min-h-screen bg-gray-900 -mx-4 -my-2">
+      <style jsx global>{hideNumberSpinners}</style>
       
       {/* ========== HEADER CON TABS ========== */}
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 shadow-xl border-b border-gray-700">
         <div className="px-6">
-          
           <div className="flex gap-0 overflow-x-auto">
             {(['ventas', 'mi-agenda', 'caja'] as TabType[]).map((tab) => (
               <button
@@ -962,7 +932,6 @@ useEffect(() => {
                 {tab === 'caja' && '🏦 Caja'}
               </button>
             ))}
-            {/* ← ← ← NUEVO: Mostrar profesional actual ← ← ← */}
           
             <div className="p-4 ml-auto">
               <FullScreenButton variant="inline" size="sm" />
@@ -981,6 +950,25 @@ useEffect(() => {
       {/* ========== CONTENIDO PRINCIPAL ========== */}
       <div className="p-4">
         
+        {/* ← ← ← BANNER DE ADVERTENCIA: SIN SESIÓN DE CAJA ← ← ← */}
+        {!loadingSesion && !sesionActiva && (
+          <div className="bg-yellow-900/40 border border-yellow-700/50 text-yellow-200 px-4 py-3 rounded-lg mb-4 flex items-center justify-between shadow-lg">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">⚠️</span>
+              <div>
+                <p className="font-bold text-sm md:text-base">No hay sesión de caja abierta</p>
+                <p className="text-xs md:text-sm text-yellow-200/80">Debes abrir una sesión de caja antes de crear recibos de venta.</p>
+              </div>
+            </div>
+            <button 
+              onClick={() => setActiveTab('caja')}
+              className="bg-yellow-700 hover:bg-yellow-600 text-white px-4 py-2 rounded-md text-sm font-semibold transition-colors whitespace-nowrap"
+            >
+              Ir a Caja
+            </button>
+          </div>
+        )}
+
         {/* TAB: VENTAS (Crear Recibo) */}
         {activeTab === 'ventas' && (
           <div className="grid grid-cols-12 gap-4 min-h-[calc(100vh-180px)]">
@@ -1259,16 +1247,13 @@ useEffect(() => {
                               : 'border-gray-700 bg-gray-900 hover:border-gray-600'
                           } ${item.tipo === 'servicio' ? 'cursor-pointer' : ''}`}
                           onClick={() => {
-                            // Solo abrir modal de profesional si es servicio
                             if (item.tipo === 'servicio') {
                               setItemParaProfesional(item);
                               setShowProfessionalModal(true);
                             }
                           }}
                         >
-                          {/* ← ← ← ENCABEZADO DE LA CARD (todo en una fila) ← ← ← */}
                           <div className="flex items-center gap-2 p-2.5 select-none">
-                            {/* Imagen miniatura */}
                             <div className="flex-shrink-0 w-8 h-8 rounded overflow-hidden bg-gray-800 flex items-center justify-center">
                               {item.imagenUrl ? (
                                 <img src={item.imagenUrl} alt={item.descripcion} className="w-full h-full object-cover" />
@@ -1277,7 +1262,6 @@ useEffect(() => {
                               )}
                             </div>
 
-                            {/* Nombre del item */}
                             <div className="flex-1 min-w-0">
                               <p className="font-semibold text-white text-sm truncate leading-tight">{item.descripcion}</p>
                               {item.categoria && (
@@ -1285,7 +1269,6 @@ useEffect(() => {
                               )}
                             </div>
 
-                            {/* ← ← ← CANTIDAD (input en encabezado) ← ← ← */}
                             <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                               <input
                                 type="number"
@@ -1299,7 +1282,6 @@ useEffect(() => {
                               />
                             </div>
 
-                            {/* ← ← ← BADGE DEL PROFESIONAL (en encabezado) ← ← ← */}
                             {item.tipo === 'servicio' && (
                               <div className="flex-shrink-0">
                                 {item.profesionalNombre ? (
@@ -1316,7 +1298,6 @@ useEffect(() => {
                               </div>
                             )}
 
-                            {/* Botón eliminar */}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1336,42 +1317,32 @@ useEffect(() => {
                   )}
                 </div>
 
-                {/* Sección pago 
-                <div className="p-3 border-t border-gray-700 flex-shrink-0 bg-gray-900/50 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-gray-400 whitespace-nowrap w-16">💎 Propina:</span>
-                    <div className="flex-1 relative min-w-0">
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                      <input
-                        type="number" min="0" step="1000" value={propinaTotal === 0 ? '' : propinaTotal}
-                        onFocus={handlePropinaFocus} onBlur={handlePropinaBlur} onChange={handlePropinaChange}
-                        className="w-full pl-5 pr-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-xs focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        placeholder="0"
-                      />
-                    </div>
-                    <select
-                      value={propinaMetodo} onChange={(e) => setPropinaMetodo(e.target.value as any)}
-                      className="flex-1 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-xs text-gray-300 whitespace-nowrap min-w-0"
-                    >
-                      <option value="proporcional">Proporcional</option>
-                      <option value="equitativa">Equitativa</option>
-                      <option value="manual">Manual</option>
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-gray-300 whitespace-nowrap">TOTAL:</span>
-                    <span className="text-lg font-bold text-green-400 flex-1 text-right">{formatCurrency(total)}</span>
-                  </div>
-                </div>*/}
-
                 {/* Acciones */}
                 <div className="p-3 border-t border-gray-700 flex-shrink-0 flex gap-2">
                   <button onClick={handleCancelar} className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition-colors text-sm">❌ Cancelar</button>
                   <button
-                    onClick={handleCrearRecibo} disabled={reciboItems.length === 0}
-                    className="flex-1 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                    onClick={handleCrearRecibo} 
+                    disabled={reciboItems.length === 0 || !sesionActiva}
+                    className={`flex-1 py-2.5 rounded-lg font-semibold transition-colors text-sm flex items-center justify-center gap-2 ${
+                      !sesionActiva 
+                        ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
+                        : reciboItems.length === 0 
+                          ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
+                          : 'bg-green-600 hover:bg-green-700 text-white'
+                    }`}
+                    title={!sesionActiva ? "Abre una sesión de caja primero" : ""}
                   >
-                    ✅ Confirmar
+                    {!sesionActiva ? (
+                      <>
+                        <span>🔒</span>
+                        <span>Abre Caja Primero</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>✅</span>
+                        <span>Confirmar</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
@@ -1395,8 +1366,6 @@ useEffect(() => {
       </div>
 
       {/* ← ← ← MODALES ← ← ← */}
-      
-      {/* Modal Clientes */}
       {showClientModal && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setShowClientModal(false)}>
           <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden border-2 border-gray-700" onClick={(e) => e.stopPropagation()}>
@@ -1454,7 +1423,6 @@ useEffect(() => {
         </div>
       )}
 
-      {/* Modal Nuevo Cliente */}
       {showRegisterModal && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setShowRegisterModal(false)}>
           <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border-2 border-gray-700" onClick={(e) => e.stopPropagation()}>
@@ -1488,7 +1456,6 @@ useEffect(() => {
         </div>
       )}
 
-      {/* Modal Profesional */}
       {showProfessionalModal && (
         <ProfessionalModal
           isOpen={showProfessionalModal}
@@ -1509,7 +1476,6 @@ useEffect(() => {
         />
       )}
 
-      {/* Modal Método de Pago */}
       {showPaymentMethodModal && (
         <PaymentMethodModal
           isOpen={showPaymentMethodModal}
@@ -1523,7 +1489,6 @@ useEffect(() => {
         />
       )}
 
-      {/* Modal Horario Semanal */}
       {modalHorarioSemanaOpen && profesionalParaHorario && (
         <HorarioSemanalModal
           isOpen={modalHorarioSemanaOpen}
@@ -1538,7 +1503,6 @@ useEffect(() => {
         />
       )}
 
-      {/* Modal Productos para Item */}
       {productoModalOpen && itemParaProductos && (
         <ProductoModal
           isOpen={productoModalOpen}

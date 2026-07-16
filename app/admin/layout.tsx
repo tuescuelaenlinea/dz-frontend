@@ -62,7 +62,7 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   // Admin/Superadmin: 1 hora (60 minutos)
   // Profesional: 15 minutos
   const tieneAccesoAdmin = esSuperadmin || modulos.includes('dashboard');
-  const idleTimeout = tieneAccesoAdmin ? 60 * 60 * 1000 : 15 * 60 * 1000; // 1h vs 15min
+  const idleTimeout = tieneAccesoAdmin ? 6000 * 60 * 1000 : 15 * 60 * 1000; // 100h vs 15min
   const idleWarningTime = 60 * 1000; // Advertencia 1 minuto antes del cierre
 
   const handleSessionExpired = useCallback(() => {

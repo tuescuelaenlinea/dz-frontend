@@ -133,6 +133,8 @@ export default function ProfesionalCajaPage() {
   const [profesionales, setProfesionales] = useState<Profesional[]>([]);
   const [valeExpandido, setValeExpandido] = useState<number | null>(null);
 
+  const [miProfesionalId, setMiProfesionalId] = useState<number | null>(null);
+
   // ← Estados para modal de crear vale
   const [modalNuevoValeOpen, setModalNuevoValeOpen] = useState(false);
   const [nuevoVale, setNuevoVale] = useState({
@@ -231,6 +233,26 @@ const cargarDatos = useCallback(async () => {
     }
   }, [sessionActiva]);
 
+// ← ← ← NUEVO: Obtener el ID del profesional logueado al montar el componente ← ← ←
+useEffect(() => {
+  const obtenerMiProfesional = async () => {
+    try {
+      const resProf = await fetch(`${apiUrl}/profesional-user/mis-profesionales/`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      if (resProf.ok) {
+        const dataProf = await resProf.json();
+        if (dataProf.profesionales && dataProf.profesionales.length > 0) {
+          // Nota: usa 'profesional' según la estructura de tu API
+          setMiProfesionalId(dataProf.profesionales[0].profesional); 
+        }
+      }
+    } catch (err) {
+      console.error('⚠️ No se pudo obtener el profesional logueado:', err);
+    }
+  };
+  obtenerMiProfesional();
+}, [apiUrl, token]);
   
     // ← Escuchar eventos
   useEffect(() => {
@@ -1196,6 +1218,7 @@ const cargarVales = async () => {
           reciboParaEditarId={reciboEditarId}
           apiUrl={apiUrl}
           token={token}
+          miProfesionalId={miProfesionalId}  // ← ← ← AGREGA ESTA LÍNEA
           onReciboActualizado={() => {
             cargarDatos();
             setModalEditarOpen(false);

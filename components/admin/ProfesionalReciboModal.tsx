@@ -55,6 +55,7 @@ interface ProfesionalReciboModalProps {
   reciboParaEditarId: number;
   apiUrl?: string;
   token?: string | null;
+  miProfesionalId?: number | null; // ← ← ← AGREGA ESTA PROPIEDAD
   onReciboActualizado?: (recibo: any) => void;
 }
 
@@ -73,6 +74,7 @@ export default function ProfesionalReciboModal({
   reciboParaEditarId,
   apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api',
   token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null,
+  miProfesionalId,
   onReciboActualizado,
 }: ProfesionalReciboModalProps) {
   // ← Estados
@@ -225,7 +227,7 @@ export default function ProfesionalReciboModal({
 
         const { cita_id, codigo_reserva } = await resCita.json();
 
-        // 2. Agregar item con cita creada
+         // 2. Agregar item con cita creada y profesional asignado automáticamente
         const nuevoItem: ReciboItem = {
           id: `new-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           tipo: 'servicio',
@@ -238,11 +240,13 @@ export default function ProfesionalReciboModal({
           precioUnitario: precio,
           subtotal: precio,
           duracion: servicio.duracion,
-          profesionalId: undefined,
-          profesionalNombre: undefined,
+          // ← ← ← MODIFICAR ESTAS LÍNEAS ← ← ←
+          profesionalId: miProfesionalId || undefined,
+          profesionalNombre: miProfesionalId ? 'Profesional Actual' : undefined,
           imageUrl: servicio.imagen_url,
           esNuevo: true,
         };
+
         setItems(prev => [...prev, nuevoItem]);
         console.log(`✅ Servicio agregado con cita ${codigo_reserva}`);
       } else {
