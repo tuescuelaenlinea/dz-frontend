@@ -1912,13 +1912,12 @@ if (recibo.cliente_email && recibo.cliente_email !== 'No@proporcionado.com') {
     const timer = setTimeout(async () => {
       setLoadingSearch(true);
       try {
-        const endpoint = searchType === 'servicio' 
-          ? `${apiUrl}/servicios/?search=${encodeURIComponent(searchTerm)}&disponible=true`
-          : `${apiUrl}/productos/buscar/?search=${encodeURIComponent(searchTerm)}&disponibles=true`;
-        
-        const res = await fetch(endpoint, {
-          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-        });
+        const endpoint = searchType === 'servicio'
+                ? `${apiUrl}/servicios/?search=${encodeURIComponent(searchTerm)}&disponible=true&incluir_solo_caja=true`
+                : `${apiUrl}/productos/buscar/?search=${encodeURIComponent(searchTerm)}&disponibles=true`;
+            const res = await fetch(endpoint, {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
         
         if (res.ok) {
           const data = await res.json();

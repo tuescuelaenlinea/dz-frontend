@@ -280,11 +280,11 @@ useEffect(() => {
     try {
       // El backend debe tener SearchFilter configurado en el viewset de Servicios
       const res = await fetch(
-        `${apiUrl}/servicios/?search=${encodeURIComponent(serviceSearchTerm)}&activo=true&page_size=100`, 
-        {
-          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-        }
-      );
+                `${apiUrl}/servicios/?search=${encodeURIComponent(serviceSearchTerm)}&activo=true&page_size=100&incluir_solo_caja=true`,
+                {
+                    headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+                }
+            );
       if (res.ok) {
         const data = await res.json();
         // Manejar tanto lista plana como paginada
