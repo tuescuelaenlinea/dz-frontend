@@ -7,6 +7,10 @@ import CajaReciboModal from '@/components/admin/CajaReciboModal';
 import CalcularComisionesModal from '@/components/admin/CalcularComisionesModal';
 import ReciboImpresionModal from '@/components/admin/ReciboImpresionModal';
 import FullScreenButton from '@/components/ui/FullScreenButton';
+import ReporteCierreCajaModal from '@/components/admin/ReporteCierreCajaModal';
+import ReportesModal from '@/components/admin/ReportesModal';
+import LibroDiarioModal from '@/components/admin/LibroDiarioModal';
+import LibroMayorModal from '@/components/admin/LibroMayorModal';
 // ← ← ← INTERFACES ← ← ←
 
 interface CajaSession {
@@ -282,6 +286,14 @@ export default function CajaPage() {
 
   // ← ← ← NUEVO: Estado para controlar qué vale está expandido en el acordeón ← ← ←
   const [valeExpandido, setValeExpandido] = useState<number | null>(null);
+  const [modalReportesOpen, setModalReportesOpen] = useState(false);
+  const [modalReporteCierreOpen, setModalReporteCierreOpen] = useState(false);
+  const [sessionIdParaReporte, setSessionIdParaReporte] = useState<number | null>(null);
+
+  const [modalLibroDiarioOpen, setModalLibroDiarioOpen] = useState(false);
+  const [modalLibroMayorOpen, setModalLibroMayorOpen] = useState(false);
+
+
 
   // ← ← ← CONSTANTE: Opciones de método de pago para vales ← ← ←
   const METODOS_PAGO_VALE = [
@@ -2141,6 +2153,9 @@ const handleCerrarCaja = async () => {
 
     // ← ← ← NUEVA FUNCIÓN: Ejecutar el cierre real de caja
     const ejecutarCierreDeCaja = async () => {
+      // 1. Guardar el ID de la sesión que se está cerrando
+      const idSesionCerrada = sessionActiva?.id;
+
       try {
         const res = await fetch(`${apiUrl}/caja/sesiones/${sessionActiva!.id}/cerrar/`, {
           method: 'POST',
@@ -2153,12 +2168,19 @@ const handleCerrarCaja = async () => {
             observaciones_cierre: formDataCerrar.observaciones_cierre
           })
         });
-
+        
         if (res.ok) {
           const data = await res.json();
           setSessionActiva(null);
           setModalCerrarCajaOpen(false);
           alert(`✅ Caja cerrada. Diferencia: ${data.diferencia}`);
+          
+          // 2. Abrir el reporte de cierre automáticamente con la sesión que acabamos de cerrar
+          if (idSesionCerrada) {
+            setSessionIdParaReporte(idSesionCerrada);
+            setModalReporteCierreOpen(true);
+          }
+          
           cargarDatosCaja();
         } else {
           const error = await res.json();
@@ -2591,7 +2613,7 @@ const formatDate = (dateStr: string): string => {
 
 
           <button
-            onClick={() => router.push('/admin/caja/reportes')}
+            onClick={() => setModalReportesOpen(true)}
             className="p-4 bg-gray-900 hover:bg-gray-700 rounded-lg border border-gray-600 text-left transition-colors"
           >
             <div className="flex items-center gap-3">
@@ -2600,7 +2622,7 @@ const formatDate = (dateStr: string): string => {
               </div>
               <div>
                 <p className="font-medium text-white">Reportes</p>
-                <p className="text-xs text-gray-400">Estadísticas y export</p>
+                <p className="text-xs text-gray-400">Cierre de caja y más</p>
               </div>
             </div>
           </button>
@@ -4427,7 +4449,22 @@ const formatDate = (dateStr: string): string => {
                                   </div>
 
                                   {/* ← ← ← BOTONES DE ACCIÓN ← ← ← */}
-                                  <div className="flex gap-2">
+                                  <div className="flex gap-2 mt-3">
+
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation(); // Evitar que se abra la sesión en modo lectura
+                                        setSessionIdParaReporte(sesion.id);
+                                        setModalReporteCierreOpen(true);
+                                      }}
+                                      className="flex-1 px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/50 text-indigo-400 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1"
+                                      title="Ver reporte de cierre de esta sesión"
+                                    >
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                      </svg>
+                                      📄 Reporte
+                                    </button>
                                     {/* ← ← ← NUEVO: Botón Reabrir (solo para sesiones cerradas) ← ← ← */}
                                     {sesion.estado === 'cerrada' && (
                                       <button
@@ -4504,6 +4541,57 @@ const formatDate = (dateStr: string): string => {
             console.log(`✅ Método de recibo actualizado a: ${nuevoMetodo}`);
           }}*/
         />
+
+<LibroDiarioModal
+  isOpen={modalLibroDiarioOpen}
+  onClose={() => setModalLibroDiarioOpen(false)}
+  apiUrl={apiUrl}
+  token={token}
+/>
+
+<LibroMayorModal
+  isOpen={modalLibroMayorOpen}
+  onClose={() => setModalLibroMayorOpen(false)}
+  apiUrl={apiUrl}
+  token={token}
+/>
+
+ {/* ← ← ← MODAL CENTRAL DE REPORTES ← ← ← */}
+<ReportesModal
+  isOpen={modalReportesOpen}
+  onClose={() => setModalReportesOpen(false)}
+  onSeleccionarReporte={(tipo) => {
+    if (tipo === 'cierre_caja') {
+      // Si viene del modal de reportes, usar la sesión activa o la seleccionada en historial
+      const idAUsar = sesionSeleccionada?.id || sessionActiva?.id;
+      if (idAUsar) {
+        setSessionIdParaReporte(idAUsar);
+        setModalReporteCierreOpen(true);
+      } else {
+        alert('⚠️ No hay una sesión de caja (activa o histórica) seleccionada para generar el reporte.');
+      }
+    }
+    else if (tipo === 'libro_diario') {  // ← ← ← AGREGAR
+      setModalLibroDiarioOpen(true);
+    }
+     else if (tipo === 'libro_mayor') {  // ← AGREGAR
+      setModalLibroMayorOpen(true);
+    }
+  }}
+/>
+
+{/* ← ← ← MODAL DE REPORTE DE CIERRE DE CAJA (El que te di en la respuesta anterior) ← ← ← */}
+<ReporteCierreCajaModal
+  isOpen={modalReporteCierreOpen}
+  onClose={() => {
+    setModalReporteCierreOpen(false);
+    setSessionIdParaReporte(null);
+  }}
+  sessionId={sessionIdParaReporte || 0}
+  apiUrl={apiUrl}
+  token={token}
+/>
+     
     </div>
   );
 }
@@ -5051,7 +5139,8 @@ function ValeCard({
           </button>
         </div>
       )}
-      
+
+     
       {/* Estado final si ya fue procesado 
       {vale.estado !== 'registrado' && (
         <p className="text-xs text-gray-500 mt-2 italic">

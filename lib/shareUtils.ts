@@ -46,7 +46,7 @@ export function shareServiceViaWhatsApp(servicio: {
 }, phone: string = '') {
   const shareUrl = generateServiceShareUrl(servicio);
   
-  const message = `Hola! 👋 Realiza la voloración de tu servicio aquí:\n\n` +
+  const message = `Hola! 👋 Realiza la valoración de tu servicio aquí:\n\n` +
     `✨ *${servicio.nombre}*\n` +
     `💰 Desde $${parseInt(servicio.precio_min).toLocaleString()}\n` +
     `⏱️ ${servicio.duracion}\n\n` +

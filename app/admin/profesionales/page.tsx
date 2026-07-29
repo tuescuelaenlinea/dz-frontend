@@ -143,7 +143,8 @@ export default function AdminProfesionalesPage() {
       const token = localStorage.getItem('admin_token');
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
       
-      const res: Response = await fetch(`${apiUrl}/profesionales/?ordering=orden,nombre`, {
+       // ← ← ← AGREGADO: &incluir_inactivos=true para que el admin pueda verlos y filtrarlos
+      const res: Response = await fetch(`${apiUrl}/profesionales/?ordering=orden,nombre&incluir_inactivos=true`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
