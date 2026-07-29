@@ -131,7 +131,7 @@ export default function LibroMayorModal({
         <title>Libro Mayor - ${data.fecha_inicial} al ${data.fecha_final}</title>
         <style>
           @page {
-            size: letter landscape;
+            size: letter;
             margin: 1cm;
           }
           * {
@@ -258,7 +258,7 @@ export default function LibroMayorModal({
         </div>
 
         <div class="info-rango">
-          <div><strong>Rango:</strong> ${new Date(data.fecha_inicial).toLocaleDateString('es-CO')} - ${new Date(data.fecha_final).toLocaleDateString('es-CO')}</div>
+          <div><strong>Rango:</strong> ${formatDateDisplay(data.fecha_inicial)} - ${formatDateDisplay(data.fecha_final)}</div>
           <div><strong>Generado:</strong> ${fechaActual} ${horaActual}</div>
           <div><strong>Total Días con Movimientos:</strong> ${data.filas.length}</div>
         </div>
@@ -283,7 +283,7 @@ export default function LibroMayorModal({
               </tr>
             ` : data.filas.map((fila) => `
               <tr>
-                <td>${new Date(fila.fecha).toLocaleDateString('es-CO')}</td>
+                <td>${formatDateDisplay(fila.fecha)}</td>
                 <td class="text-right">$ ${fila.saldo_anterior.toLocaleString('es-CO')}</td>
                 <td class="text-right ${fila.ingresos > 0 ? 'monto-positivo' : ''}">
                   ${fila.ingresos > 0 ? '$ ' + fila.ingresos.toLocaleString('es-CO') : '-'}

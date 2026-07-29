@@ -62,55 +62,94 @@ export default function LibroDiarioModal({
     }
   }, [isOpen]);
 
-  const cargarLibroDiario = async () => {
-    if (!fechaInicial || !fechaFinal) {
-      alert('⚠️ Debes seleccionar un rango de fechas');
-      return;
-    }
+  // En LibroDiarioModal.tsx - función cargarLibroDiario
 
-    setLoading(true);
-    try {
-      // ← ← ← LOG 1: Ver exactamente qué valores tienen los estados antes de enviar ← ← ←
-      console.log('🔍 [Frontend] Estados actuales antes de enviar:', {
-        fechaInicial_state: fechaInicial,
-        fechaFinal_state: fechaFinal,
-        saldoInicial_state: saldoInicial,
-      });
+const cargarLibroDiario = async () => {
+  if (!fechaInicial || !fechaFinal) {
+    alert('⚠️ Debes seleccionar un rango de fechas');
+    return;
+  }
 
-      const params = new URLSearchParams({
-        fecha_inicial: fechaInicial,
-        fecha_final: fechaFinal,
-        saldo_inicial: saldoInicial.replace(/,/g, ''),
-      });
+  setLoading(true);
+  try {
+    const params = new URLSearchParams({
+      fecha_inicial: fechaInicial,
+      fecha_final: fechaFinal,
+      saldo_inicial: saldoInicial.replace(/,/g, ''),
+    });
 
-      // ← ← ← LOG 2: Ver la URL exacta que se construye ← ← ←
-      const urlFinal = `${apiUrl}/caja/libro-diario/?${params}`;
-      console.log('🌐 [Frontend] URL de la petición:', urlFinal);
+    const res = await fetch(`${apiUrl}/caja/libro-diario/?${params}`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
 
-      const res = await fetch(urlFinal, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
+    if (!res.ok) throw new Error('Error cargando libro diario');
 
-      if (!res.ok) throw new Error('Error cargando libro diario');
+    const resultado = await res.json();
+    
+    // ========================================================================
+    // ← ← ← FILTRO FRONTEND: Depuración estricta por rango ← ← ←
+    // ========================================================================
+    const fechaIniFiltro = new Date(fechaInicial + 'T00:00:00');
+    const fechaFinFiltro = new Date(fechaFinal + 'T23:59:59.999');
 
-      const resultado = await res.json();
+    const transaccionesFiltradas = resultado.transacciones.filter((trans: Transaccion) => {
+      const fechaTransStr = `${trans.fecha}T${trans.hora || '00:00:00'}`;
+      const fechaTrans = new Date(fechaTransStr);
       
-      // ← ← ← LOG 3: Ver la respuesta cruda del backend ← ← ←
-      console.log('✅ [Frontend] Respuesta completa del backend:', resultado);
-      console.log('📅 [Frontend] Fechas específicas retornadas por el backend:', {
-        fecha_inicial_retornada: resultado.fecha_inicial,
-        fecha_final_retornada: resultado.fecha_final,
-      });
+      return fechaTrans >= fechaIniFiltro && fechaTrans <= fechaFinFiltro;
+    });
 
-      setData(resultado);
-    } catch (err) {
-      console.error('❌ [Frontend] Error en la petición:', err);
-      alert('⚠️ No se pudo cargar el libro diario');
-    } finally {
-      setLoading(false);
-    }
-  };
+    console.log(`🔍 [Frontend] Filtrado: ${resultado.transacciones.length} → ${transaccionesFiltradas.length} transacciones`);
 
+    // ========================================================================
+    // ← ← ← RECÁLCULO DE SALDOS con las transacciones depuradas ← ← ←
+    // ========================================================================
+    let saldoAcumulado = parseFloat(resultado.saldo_inicial.toString()) || 0;
+
+    const transaccionesConSaldo = transaccionesFiltradas.map((trans: Transaccion) => {
+      if (trans.tipo === 'APERTURA') {
+        // El saldo de apertura es el saldo inicial
+        return { ...trans, saldo: saldoAcumulado };
+      } else {
+        // Para el resto, acumulamos ingresos - egresos
+        saldoAcumulado += (trans.ingresos || 0) - (trans.egresos || 0);
+        return { ...trans, saldo: saldoAcumulado };
+      }
+    });
+
+    // ← ← ← CLAVE: Calcular totales EXCLUYENDO las APERTURAS ← ← ←
+    const totalIngresosFiltrado = transaccionesFiltradas
+      .filter((t: Transaccion) => t.tipo !== 'APERTURA')  // ← ← ← EXCLUIR APERTURAS
+      .reduce((sum: number, t: Transaccion) => sum + (t.ingresos || 0), 0);
+
+    const totalEgresosFiltrado = transaccionesFiltradas
+      .filter((t: Transaccion) => t.tipo !== 'APERTURA')  // ← ← ← EXCLUIR APERTURAS
+      .reduce((sum: number, t: Transaccion) => sum + (t.egresos || 0), 0);
+
+    // ========================================================================
+    // ← ← ← ACTUALIZAR ESTADO CON DATOS DEPURADOS Y RECACLULADOS ← ← ←
+    // ========================================================================
+    setData({
+      ...resultado,
+      transacciones: transaccionesConSaldo,
+      total_ingresos: totalIngresosFiltrado,
+      total_egresos: totalEgresosFiltrado,
+      saldo_final: saldoAcumulado,
+      resumen: {
+        ...resultado.resumen,
+        total_ingresos: totalIngresosFiltrado,
+        total_egresos: totalEgresosFiltrado,
+        saldo_final: saldoAcumulado
+      }
+    });
+
+  } catch (err) {
+    console.error('❌ Error:', err);
+    alert('️ No se pudo cargar el libro diario');
+  } finally {
+    setLoading(false);
+  }
+};
   const handleImprimir = () => {
     if (!data) return;
 
@@ -138,7 +177,7 @@ export default function LibroDiarioModal({
         <title>Libro Diario - ${formatDatePrint(data.fecha_inicial)} al ${formatDatePrint(data.fecha_final)}</title>
         <style>
           @page {
-            size: letter landscape;
+            size: letter;
             margin: 1cm;
           }
           * {

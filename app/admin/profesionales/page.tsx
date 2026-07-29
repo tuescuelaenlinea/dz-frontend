@@ -138,63 +138,67 @@ export default function AdminProfesionalesPage() {
   }, [filtroEspecialidad, filtroActivo, busqueda]);
 
   const cargarProfesionales = async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('admin_token');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
-      
-       // ← ← ← AGREGADO: &incluir_inactivos=true para que el admin pueda verlos y filtrarlos
-      const res: Response = await fetch(`${apiUrl}/profesionales/?ordering=orden,nombre&incluir_inactivos=true`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+  try {
+    setLoading(true);
+    const token = localStorage.getItem('admin_token');
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
+    
+    const res: Response = await fetch(`${apiUrl}/profesionales/?ordering=orden,nombre&incluir_inactivos=true`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
 
-      if (!res.ok) {
-        if (res.status === 401) {
-          router.push('/admin/login');
-          return;
-        }
-        throw new Error('Error al cargar profesionales');
+    if (!res.ok) {
+      if (res.status === 401) {
+        router.push('/admin/login');
+        return;
       }
-
-      const data = await res.json();
-      let profesionalesList = Array.isArray(data) ? data : (data.results || []);
-      
-      const profesionalesConServicios = await Promise.all(
-        profesionalesList.map(async (prof: Profesional) => {
-          try {
-            const serviciosRes = await fetch(
-              `${apiUrl}/servicios-profesionales/?profesional=${prof.id}&activo=true`,
-              { headers: { 'Authorization': `Bearer ${token}` } }
-            );
-            
-            if (serviciosRes.ok) {
-              const serviciosData = await serviciosRes.json();
-              const serviciosCount = serviciosData.count || serviciosData.length || 0;
-              return {
-                ...prof,
-                servicios: Array.from({ length: serviciosCount }, (_, i) => i),
-                serviciosCount: serviciosCount,
-              };
-            }
-          } catch (err) {
-            console.error(`❌ Error cargando servicios para ${prof.nombre}:`, err);
-          }
-          return { ...prof, servicios: [], serviciosCount: 0 };
-        })
-      );
-      
-      setProfesionales(profesionalesConServicios);
-      
-    } catch (err: any) {
-      console.error('❌ Error cargando profesionales:', err);
-      setError(err.message || 'Error al cargar profesionales');
-    } finally {
-      setLoading(false);
+      throw new Error('Error al cargar profesionales');
     }
-  };
+
+    const data = await res.json();
+    let profesionalesList = Array.isArray(data) ? data : (data.results || []);
+    
+    // ← ← ← FILTRAR profesionales sin ID válido
+    profesionalesList = profesionalesList.filter((p: Profesional) => p.id && p.id > 0);
+    
+    console.log(`✅ Profesionales cargados: ${profesionalesList.length}`);
+    
+    const profesionalesConServicios = await Promise.all(
+      profesionalesList.map(async (prof: Profesional) => {
+        try {
+          const serviciosRes = await fetch(
+            `${apiUrl}/servicios-profesionales/?profesional=${prof.id}&activo=true`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+          );
+          
+          if (serviciosRes.ok) {
+            const serviciosData = await serviciosRes.json();
+            const serviciosCount = serviciosData.count || serviciosData.length || 0;
+            return {
+              ...prof,
+              servicios: Array.from({ length: serviciosCount }, (_, i) => i),
+              serviciosCount: serviciosCount,
+            };
+          }
+        } catch (err) {
+          console.error(`❌ Error cargando servicios para ${prof.nombre}:`, err);
+        }
+        return { ...prof, servicios: [], serviciosCount: 0 };
+      })
+    );
+    
+    setProfesionales(profesionalesConServicios);
+    
+  } catch (err: any) {
+    console.error('❌ Error cargando profesionales:', err);
+    setError(err.message || 'Error al cargar profesionales');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const cargarCategorias = async () => {
     try {
@@ -304,6 +308,14 @@ export default function AdminProfesionalesPage() {
   };
 
   const abrirModalEditar = (profesional: Profesional) => {
+
+      console.log('✏️ Abriendo modal para editar profesional:', profesional);
+  console.log('  ID:', profesional.id);
+  if (!profesional.id) {
+    console.error('❌ Profesional sin ID válido:', profesional);
+    alert('⚠️ Este profesional no tiene un ID válido. No se puede editar.');
+    return;
+  }
     setModoEdicion(true);
     setProfesionalSeleccionado(profesional);
     setFormData({
@@ -398,7 +410,7 @@ export default function AdminProfesionalesPage() {
     }
   };
 
-  const guardarProfesional = async () => {
+const guardarProfesional = async () => {
   // Validaciones básicas
   if (!formData.nombre?.trim()) {
     alert('❌ El nombre es obligatorio');
@@ -409,7 +421,14 @@ export default function AdminProfesionalesPage() {
     return;
   }
 
-   // ← NUEVO: Normalizar Instagram antes de enviar
+  // ← ← ← NUEVO: Validar ID en modo edición
+  if (modoEdicion && (!profesionalSeleccionado || !profesionalSeleccionado.id)) {
+    alert('❌ Error: No se encontró el profesional a editar. Recarga la página e intenta de nuevo.');
+    console.error('❌ profesionalSeleccionado:', profesionalSeleccionado);
+    return;
+  }
+
+  // Normalizar Instagram
   let instagramLimpio = formData.instagram?.trim() || '';
   if (instagramLimpio.startsWith('@')) {
     instagramLimpio = instagramLimpio.substring(1);
@@ -421,19 +440,19 @@ export default function AdminProfesionalesPage() {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com/api';
     
     if (!token) {
-      alert('❌ No hay sesión activa. Por favor, inicia sesión nuevamente.');
+      alert(' No hay sesión activa. Por favor, inicia sesión nuevamente.');
       router.push('/admin/login');
       return;
     }
 
-    // ✅ CORRECCIÓN: Construir FormData correctamente
+    // Construir FormData correctamente
     const datosFormData = new FormData();
     
     // Campos obligatorios
     datosFormData.append('nombre', formData.nombre.trim());
     datosFormData.append('especialidad', formData.especialidad.trim());
     
-    // Campos opcionales (solo si tienen valor)
+    // Campos opcionales
     if (formData.titulo?.trim()) {
       datosFormData.append('titulo', formData.titulo.trim());
     }
@@ -445,7 +464,7 @@ export default function AdminProfesionalesPage() {
     if (instagramLimpio) {
       datosFormData.append('instagram', instagramLimpio);
     } else {
-      datosFormData.append('instagram', ''); // Enviar string vacío si está vacío
+      datosFormData.append('instagram', '');
     }
     
     if (formData.telefono_whatsapp?.trim()) {
@@ -456,38 +475,44 @@ export default function AdminProfesionalesPage() {
       datosFormData.append('email_notificaciones', formData.email_notificaciones.trim());
     }
     
-    // ✅ CORRECCIÓN: Campos numéricos y booleanos
+    // Campos numéricos y booleanos
     datosFormData.append('orden', String(formData.orden || 0));
     datosFormData.append('es_medico', String(formData.es_medico || false));
     datosFormData.append('es_responsable', String(formData.es_responsable || false));
     datosFormData.append('activo', String(formData.activo !== false));
     datosFormData.append('activo_reservas', String(formData.activo_reservas !== false));
     
-    // ✅ CORRECCIÓN: porcentaje_global como número (no string)
+    // porcentaje_global
     const porcentaje = parseFloat(String(formData.porcentaje_global || 50));
     if (!isNaN(porcentaje)) {
       datosFormData.append('porcentaje_global', porcentaje.toFixed(2));
     }
     
-    // Foto (si existe)
+    // Foto
     if (fotoFile) {
       datosFormData.append('foto', fotoFile);
     }
     
-    // ✅ LOGGING: Ver qué se está enviando
+    // Logging detallado
     console.log('📤 Enviando datos del profesional:');
+    console.log('  modoEdicion:', modoEdicion);
+    console.log('  profesionalSeleccionado:', profesionalSeleccionado);
+    console.log('  ID:', profesionalSeleccionado?.id);
+    
     for (let [key, value] of datosFormData.entries()) {
       console.log(`  ${key}:`, value);
     }
 
     let res: Response;
-    if (modoEdicion && profesionalSeleccionado) {
-      console.log(`✏️ Actualizando profesional ID: ${profesionalSeleccionado.id}`);
-      res = await fetch(`${apiUrl}/profesionales/${profesionalSeleccionado.id}/`, {
+    if (modoEdicion && profesionalSeleccionado && profesionalSeleccionado.id) {
+      const url = `${apiUrl}/profesionales/${profesionalSeleccionado.id}/`;
+      console.log(`✏️ Actualizando profesional en URL: ${url}`);
+      
+      res = await fetch(url, {
         method: 'PUT',
         headers: { 
           'Authorization': `Bearer ${token}`,
-          // ✅ NO agregar Content-Type para FormData (el navegador lo hace automáticamente)
+          // NO agregar Content-Type para FormData
         },
         body: datosFormData,
       });
@@ -497,16 +522,16 @@ export default function AdminProfesionalesPage() {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${token}`,
-          // ✅ NO agregar Content-Type para FormData
         },
         body: datosFormData,
       });
     }
 
-    // ✅ MEJORA: Manejo detallado de errores
+    // Manejo detallado de errores
     if (!res.ok) {
       const errorText = await res.text();
       console.error('❌ Error response:', errorText);
+      console.error('❌ Status:', res.status);
       
       let errorData;
       try {
@@ -515,14 +540,12 @@ export default function AdminProfesionalesPage() {
         errorData = { detail: errorText };
       }
       
-      // ✅ Mostrar errores específicos de validación
       let errorMessage = 'Error al guardar el profesional:\n\n';
       
       if (errorData.detail) {
         errorMessage += errorData.detail + '\n';
       }
       
-      // Mostrar errores de campos específicos
       Object.entries(errorData).forEach(([field, errors]) => {
         if (field !== 'detail' && Array.isArray(errors)) {
           errorMessage += `\n${field}: ${errors.join(', ')}`;
@@ -550,7 +573,6 @@ export default function AdminProfesionalesPage() {
     setGuardando(false);
   }
 };
-
   const guardarServiciosAsignados = async () => {
     if (!profesionalSeleccionado) return;
 
