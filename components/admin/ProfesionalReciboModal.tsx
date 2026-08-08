@@ -55,7 +55,7 @@ interface ProfesionalReciboModalProps {
   reciboParaEditarId: number;
   apiUrl?: string;
   token?: string | null;
-  miProfesionalId?: number | null; // ← ← ← AGREGA ESTA PROPIEDAD
+  miProfesionalId?: number | null;
   onReciboActualizado?: (recibo: any) => void;
 }
 
@@ -77,10 +77,14 @@ export default function ProfesionalReciboModal({
   miProfesionalId,
   onReciboActualizado,
 }: ProfesionalReciboModalProps) {
+
   // ← Estados
   const [items, setItems] = useState<ReciboItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingRecibo, setLoadingRecibo] = useState(false);
+
+  // ← ← ← NUEVO: Estado para observaciones ← ← ←
+  const [observaciones, setObservaciones] = useState('');
 
   // ← Búsqueda
   const [searchTerm, setSearchTerm] = useState('');
@@ -111,6 +115,9 @@ export default function ProfesionalReciboModal({
       if (res.ok) {
         const recibo = await res.json();
         setClienteNombre(recibo.cliente_nombre || 'Cliente');
+
+        // ← ← ← NUEVO: Cargar observaciones existentes ← ← ←
+        setObservaciones(recibo.notas || '');
 
         // Mapear items existentes
         if (recibo.items && Array.isArray(recibo.items)) {
@@ -168,12 +175,14 @@ export default function ProfesionalReciboModal({
       setSearchResults([]);
       return;
     }
+
     const timer = setTimeout(async () => {
       setLoadingSearch(true);
       try {
         const endpoint = searchType === 'servicio'
           ? `${apiUrl}/servicios/?search=${encodeURIComponent(searchTerm)}&disponible=true&incluir_solo_caja=true`
           : `${apiUrl}/productos/buscar/?search=${encodeURIComponent(searchTerm)}&disponibles=true`;
+
         const res = await fetch(endpoint, {
           headers: token ? { 'Authorization': `Bearer ${token}` } : {}
         });
@@ -187,6 +196,7 @@ export default function ProfesionalReciboModal({
         setLoadingSearch(false);
       }
     }, 300);
+
     return () => clearTimeout(timer);
   }, [searchTerm, searchType, isOpen, apiUrl, token]);
 
@@ -227,7 +237,7 @@ export default function ProfesionalReciboModal({
 
         const { cita_id, codigo_reserva } = await resCita.json();
 
-         // 2. Agregar item con cita creada y profesional asignado automáticamente
+        // 2. Agregar item con cita creada y profesional asignado automáticamente
         const nuevoItem: ReciboItem = {
           id: `new-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           tipo: 'servicio',
@@ -240,7 +250,6 @@ export default function ProfesionalReciboModal({
           precioUnitario: precio,
           subtotal: precio,
           duracion: servicio.duracion,
-          // ← ← ← MODIFICAR ESTAS LÍNEAS ← ← ←
           profesionalId: miProfesionalId || undefined,
           profesionalNombre: miProfesionalId ? 'Profesional Actual' : undefined,
           imageUrl: servicio.imagen_url,
@@ -249,6 +258,7 @@ export default function ProfesionalReciboModal({
 
         setItems(prev => [...prev, nuevoItem]);
         console.log(`✅ Servicio agregado con cita ${codigo_reserva}`);
+
       } else {
         const producto = itemData as Producto;
         const precio = typeof producto.precio_venta === 'string'
@@ -266,8 +276,10 @@ export default function ProfesionalReciboModal({
           imageUrl: producto.imagen_url,
           esNuevo: true,
         };
+
         setItems(prev => [...prev, nuevoItem]);
       }
+
       setSearchTerm('');
       setSearchResults([]);
     } catch (err: any) {
@@ -313,10 +325,9 @@ export default function ProfesionalReciboModal({
     const item = items.find(i => i.id === itemId);
     if (!item) return;
 
-    // Si tiene cita, eliminarla del backend
     if (item.citaId) {
       const confirmar = window.confirm(
-        `⚠️ ¿Eliminar este servicio?\n• ${item.descripcion}\n• Cita: ${item.codigoReserva || `#${item.citaId}`}\n\nLa cita también será eliminada.`
+        `⚠️ ¿Eliminar este servicio?\n• ${item.descripcion}\n• Cita: ${item.codigoReserva || `#${item.citaId}`}\nLa cita también será eliminada.`
       );
       if (!confirmar) return;
 
@@ -330,7 +341,6 @@ export default function ProfesionalReciboModal({
       }
     }
 
-    // Eliminar del backend si es item existente
     if (item.id && !isNaN(parseInt(item.id)) && reciboParaEditarId) {
       try {
         await fetch(`${apiUrl}/caja/recibos/${reciboParaEditarId}/items/${item.id}/`, {
@@ -353,18 +363,17 @@ export default function ProfesionalReciboModal({
 
   const handleProfesionalSelected = async (profesional: Profesional) => {
     if (!itemParaProfesional) return;
+
     const itemId = itemParaProfesional.id;
     const citaId = itemParaProfesional.citaId;
 
     try {
-      // 1. Actualizar estado local
       setItems(prev => prev.map(item =>
         item.id === itemId
           ? { ...item, profesionalId: profesional.id, profesionalNombre: profesional.nombre }
           : item
       ));
 
-      // 2. Actualizar cita en backend
       if (citaId) {
         await fetch(`${apiUrl}/citas/${citaId}/`, {
           method: 'PATCH',
@@ -392,6 +401,7 @@ export default function ProfesionalReciboModal({
     }
 
     setLoading(true);
+
     try {
       const payload: any = {
         tipo: 'venta',
@@ -406,7 +416,10 @@ export default function ProfesionalReciboModal({
         cliente_nombre: clienteNombre,
         cliente_telefono: 'No proporcionado',
         cliente_email: 'no@proporcionado.com',
-        notas: '',
+
+        // ← ← ← NUEVO: Incluir observaciones en el payload ← ← ←
+        notas: observaciones.trim(),
+
         items_data: items.map(item => {
           const itemIdNum = item.id && !isNaN(Number(item.id)) ? Number(item.id) : null;
           return {
@@ -441,7 +454,6 @@ export default function ProfesionalReciboModal({
       const reciboActualizado = await res.json();
       console.log('✅ Recibo actualizado:', reciboActualizado.codigo_recibo);
 
-      // Disparar evento para que el padre recargue
       window.dispatchEvent(new CustomEvent('cajaReciboActualizado', {
         detail: reciboActualizado
       }));
@@ -464,15 +476,12 @@ export default function ProfesionalReciboModal({
   return (
     <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4 overflow-y-auto">
       <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-5xl my-8 max-h-[95vh] flex flex-col">
+
         {/* ← Header */}
         <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between z-10">
           <div>
-            <h2 className="text-xl font-bold">
-              🛍️ Nueva Venta
-            </h2>
-            <p className="text-sm opacity-90 mt-1">
-              Agrega servicios y productos al recibo
-            </p>
+            <h2 className="text-xl font-bold">🛍️ Nueva Ventsssa</h2>
+            <p className="text-sm opacity-90 mt-1">Agrega servicios y productos al recibo</p>
           </div>
           <button
             onClick={onClose}
@@ -493,8 +502,10 @@ export default function ProfesionalReciboModal({
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* ← Columna 1: Búsqueda */}
+
+              {/* ← Columna 1: Búsqueda + Cliente + Observaciones */}
               <div className="space-y-4">
+
                 {/* Cliente */}
                 <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
                   <label className="block text-sm font-semibold text-gray-300 mb-2">
@@ -509,11 +520,14 @@ export default function ProfesionalReciboModal({
                   />
                 </div>
 
+                
+
                 {/* Búsqueda */}
                 <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
                   <label className="block text-sm font-semibold text-gray-300 mb-3">
                     🔍 Agregar Items
                   </label>
+
                   <div className="flex gap-2 mb-3">
                     <button
                       onClick={() => setSearchType('servicio')}
@@ -536,6 +550,7 @@ export default function ProfesionalReciboModal({
                       Productos
                     </button>
                   </div>
+
                   <div className="relative">
                     <input
                       type="text"
@@ -588,6 +603,7 @@ export default function ProfesionalReciboModal({
                     📦 Items del Recibo ({items.length})
                   </h3>
                 </div>
+
                 <div className="p-4 max-h-[500px] overflow-y-auto">
                   {items.length === 0 ? (
                     <p className="text-center text-gray-400 py-8 text-sm">
@@ -601,34 +617,30 @@ export default function ProfesionalReciboModal({
                           className={`bg-gray-800 rounded-lg p-3 border transition-colors ${
                             item.tipo === 'servicio'
                               ? (item.profesionalId
-                                  ? 'border-gray-700'
-                                  : 'border-red-500/50 cursor-pointer hover:border-red-500')
+                                ? 'border-gray-700'
+                                : 'border-red-500/50 cursor-pointer hover:border-red-500')
                               : 'border-gray-700'
                           }`}
                           onClick={() => item.tipo === 'servicio' && !item.profesionalId && handleOpenProfessionalModal(item)}
                         >
                           {/* Fila principal */}
                           <div className="flex items-center justify-between gap-2 text-xs">
-                            {/* Código de reserva */}
                             {item.tipo === 'servicio' && item.codigoReserva && (
                               <span className="font-mono text-[10px] text-blue-400 bg-blue-900/30 px-1.5 py-0.5 rounded">
                                 {item.codigoReserva}
                               </span>
                             )}
 
-                            {/* Badge NUEVO */}
                             {item.esNuevo && (
                               <span className="text-[10px] text-green-400 bg-green-900/30 px-1.5 py-0.5 rounded">
                                 ✨ Nuevo
                               </span>
                             )}
 
-                            {/* Descripción */}
                             <span className="font-medium text-white truncate flex-1" title={item.descripcion}>
                               {item.descripcion}
                             </span>
 
-                            {/* Profesional */}
                             {item.tipo === 'servicio' && (
                               <span
                                 className={`text-[10px] truncate max-w-24 flex items-center gap-1 ${
@@ -641,7 +653,6 @@ export default function ProfesionalReciboModal({
                               </span>
                             )}
 
-                            {/* Cantidad × Precio = Subtotal */}
                             <div className="flex items-center gap-2 text-right shrink-0" onClick={(e) => e.stopPropagation()}>
                               <input
                                 type="number"
@@ -670,7 +681,6 @@ export default function ProfesionalReciboModal({
                               </span>
                             </div>
 
-                            {/* Botón eliminar */}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -708,6 +718,24 @@ export default function ProfesionalReciboModal({
             </div>
           )}
         </div>
+
+        {/* ← ← ← NUEVO: Campo de Observaciones ← ← ← */}
+                <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
+                  <label className="block text-sm font-semibold text-gray-300 mb-2">
+                    📝 Observaciones
+                  </label>
+                  <textarea
+                    value={observaciones}
+                    onChange={(e) => setObservaciones(e.target.value)}
+                    rows={3}
+                    maxLength={500}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none resize-none placeholder-gray-500"
+                    placeholder="Notas internas, indicaciones especiales, referencias del cliente..."
+                  />
+                  <p className="text-xs text-gray-500 mt-1 text-right">
+                    {observaciones.length}/500
+                  </p>
+                </div>
 
         {/* ← Footer */}
         <div className="sticky bottom-0 bg-gray-900 px-6 py-4 border-t border-gray-700 rounded-b-2xl flex gap-3">

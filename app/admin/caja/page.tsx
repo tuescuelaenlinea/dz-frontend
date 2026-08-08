@@ -293,6 +293,13 @@ export default function CajaPage() {
   const [modalLibroDiarioOpen, setModalLibroDiarioOpen] = useState(false);
   const [modalLibroMayorOpen, setModalLibroMayorOpen] = useState(false);
 
+    // ← ← ← INICIO: ESTADOS PARA SUPERADMIN ← ← ←
+  const [esSuperadmin, setEsSuperadmin] = useState(false);
+  const [sesionesActivasTodas, setSesionesActivasTodas] = useState<CajaSession[]>([]);
+  const [sesionSuperadminSeleccionada, setSesionSuperadminSeleccionada] = useState<number | null>(null);
+  const [loadingSesionesSuperadmin, setLoadingSesionesSuperadmin] = useState(false);
+  // ← ← ← FIN: ESTADOS PARA SUPERADMIN ← ← ←
+
 
 
   // ← ← ← CONSTANTE: Opciones de método de pago para vales ← ← ←
@@ -896,6 +903,59 @@ const getEstadoBadgeClass = (estado: string) => {
     default: return 'bg-gray-100 text-gray-800';
   }
 };
+// ← ← ← INICIO: FUNCIONES PARA SUPERADMIN ← ← ←
+
+// Detectar si el usuario actual es superadmin
+const detectarSuperadmin = async (): Promise<boolean> => {
+try {
+const res = await fetch(`${apiUrl}/user/me/`, {
+headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+});
+if (res.ok) {
+const data = await res.json();
+const esSuper = data.is_superuser === true || data.is_staff === true;
+setEsSuperadmin(esSuper);
+console.log(`👑 [detectarSuperadmin] es_superuser=${data.is_superuser}, is_staff=${data.is_staff} → esSuperadmin=${esSuper}`);
+return esSuper;
+}
+return false;
+} catch (err) {
+console.error('❌ Error detectando superadmin:', err);
+return false;
+}
+};
+
+// Cargar TODAS las sesiones activas (solo superadmin)
+const cargarSesionesActivasSuperadmin = async () => {
+if (!esSuperadmin) return;
+setLoadingSesionesSuperadmin(true);
+try {
+const res = await fetch(`${apiUrl}/caja/sesiones/sesiones-superadmin/?estado=abierta`, {
+headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+});
+if (res.ok) {
+const data = await res.json();
+const sesiones = Array.isArray(data) ? data : (data.results || []);
+setSesionesActivasTodas(sesiones);
+console.log(`👑 [superadmin] ${sesiones.length} sesiones activas encontradas`);
+
+// Si hay sesiones y ninguna seleccionada, seleccionar la primera
+if (sesiones.length > 0 && !sesionSuperadminSeleccionada) {
+setSesionSuperadminSeleccionada(sesiones[0].id);
+}
+} else if (res.status === 403) {
+console.warn('⚠️ Acceso denegado: no es superadmin');
+setEsSuperadmin(false);
+}
+} catch (err) {
+console.error('❌ Error cargando sesiones superadmin:', err);
+} finally {
+setLoadingSesionesSuperadmin(false);
+}
+};
+
+// ← ← ← FIN: FUNCIONES PARA SUPERADMIN ← ← ←
+
 // ← ← ← ESCUCHAR ACTUALIZACIONES DE RECIBO (CORREGIDO)
 useEffect(() => {
   const handleReciboActualizado = (event: CustomEvent) => {
@@ -1121,11 +1181,12 @@ alert(`ℹ️ El recibo ${recibo.codigo_recibo} está en estado "${recibo.estado
 };
 // ← ← ← FUNCIÓN: Cargar historial de sesiones de caja ← ← ←
 const cargarHistorialSesiones = async (fecha?: string) => {
-  setLoadingHistorial(true);
-  try {
-    // ← ← ← CAMBIO: ordering=id para orden ascendente por ID
-    // ← ← ← También incluimos cerrada,cancelada para ver todo el historial
-    let url = `${apiUrl}/caja/sesiones/?estado=cerrada,cancelada&ordering=session_caja_id&limit=100`;
+setLoadingHistorial(true);
+try {
+// ← ← ← SUPERADMIN: usa endpoint dedicado; usuario normal: endpoint estándar
+let url = esSuperadmin
+? `${apiUrl}/caja/sesiones/sesiones-superadmin/?estado=cerrada,cancelada&limit=100`
+: `${apiUrl}/caja/sesiones/?estado=cerrada,cancelada&ordering=session_caja_id&limit=100`;
     //let url = `${apiUrl}/caja/recibos/?ordering=-session_caja_id,-fecha,-id&limit=50`;
     if (fecha) {
       url += `&fecha=${fecha}`;
@@ -1573,7 +1634,9 @@ const handleAbrirModalComisiones = () => {
 
   // ← Cargar datos al montar
   useEffect(() => {
-    cargarDatosCaja();
+  detectarSuperadmin().then(() => {
+  cargarDatosCaja();
+  });
   }, []);
 // Agregar este useEffect (después del useEffect que carga citas count)
 useEffect(() => {
@@ -1606,6 +1669,32 @@ useEffect(() => {
   };
 }, [sessionActiva?.id, sesionSeleccionada?.id]);
 
+// ← ← ← INICIO: EFECTO PARA SUPERADMIN ← ← ←
+useEffect(() => {
+if (esSuperadmin) {
+cargarSesionesActivasSuperadmin();
+}
+}, [esSuperadmin]);
+
+// Cuando el superadmin selecciona una sesión diferente
+useEffect(() => {
+if (esSuperadmin && sesionSuperadminSeleccionada) {
+const sesionSel = sesionesActivasTodas.find(s => s.id === sesionSuperadminSeleccionada);
+if (sesionSel) {
+setSessionActiva(sesionSel);
+setNuevoVale(prev => ({ ...prev, session_caja: sesionSel.id.toString() }));
+// Recargar recibos de esa sesión
+cargarRecibosRecientes(sesionSel.id, true);
+cargarVales(sesionSel.id);
+cargarResumenSesion(sesionSel.id);
+console.log(`👑 [superadmin] Sesión seleccionada: #${sesionSel.id} de ${sesionSel.usuario_username}`);
+}
+}
+}, [sesionSuperadminSeleccionada, sesionesActivasTodas]);
+// ← ← ← FIN: EFECTO PARA SUPERADMIN ← ← ←
+
+
+
   // ← ← ← ESCUCHAR EVENTO DE COMISIONES PAGADAS (RESPALDO) ← ← ←
 useEffect(() => {
 const handleReciboComisionesPagado = (event: CustomEvent) => {
@@ -1636,27 +1725,37 @@ window.removeEventListener('reciboComisionesPagado', handleReciboComisionesPagad
     }
   };
 
-// ← Cargar sesión activa
+// ← Cargar sesión activa (CORREGIDO PARA SUPERADMIN)
 const cargarSessionActiva = async (): Promise<CajaSession | null> => {
-  try {
-    const res = await fetch(`${apiUrl}/caja/sesiones/activa/`, {
-      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-    });
-    
-    if (res.ok) {
-      const data = await res.json();
-      setSessionActiva(data);
-      // ← ← ← ACTUALIZAR session_caja en nuevoVale cuando hay sesión activa
-      if (data?.id) {
-        setNuevoVale(prev => ({ ...prev, session_caja: data.id.toString() }));
-      }
-      return data;  // ← ← ← RETORNAR la sesión para usarla inmediatamente
-    }
-    return null;
-  } catch (err) {
-    console.error('❌ Error cargando sesión activa:', err);
-    return null;
-  }
+try {
+// ← ← ← CLAVE: Superadmin usa endpoint global, usuario normal usa el suyo
+const urlSesion = esSuperadmin
+? `${apiUrl}/caja/sesiones/activa-global/`
+: `${apiUrl}/caja/sesiones/activa/`;
+
+console.log(`🔍 [cargarSessionActiva] esSuperadmin=${esSuperadmin} → URL: ${urlSesion}`);
+
+const res = await fetch(urlSesion, {
+headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+});
+if (res.ok) {
+const data = await res.json();
+setSessionActiva(data);
+if (data?.id) {
+setNuevoVale(prev => ({ ...prev, session_caja: data.id.toString() }));
+}
+return data;
+}
+// ← ← ← Si es superadmin y no hay sesión global, intentar cargar todas
+if (esSuperadmin && res.status === 404) {
+console.log('👑 [superadmin] No hay sesión activa global, cargando lista de sesiones...');
+await cargarSesionesActivasSuperadmin();
+}
+return null;
+} catch (err) {
+console.error('❌ Error cargando sesión activa:', err);
+return null;
+}
 };
 
 
@@ -2428,8 +2527,19 @@ const formatDate = (dateStr: string): string => {
         {/* ← ← ← BADGE DE ADVERTENCIA EN HEADER ← ← ← */}
          
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold text-white">🏦 Módulo de Caja</h1>
-          <p className="text-gray-400 mt-1">Gestión de sesiones, recibos y vales</p>
+        <h1 className="text-2xl lg:text-3xl font-bold text-white flex items-center gap-2">
+        🏦 Módulo de Caja
+        {esSuperadmin && (
+        <span className="text-sm bg-purple-600/30 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/50">
+        👑 Superadmin
+        </span>
+        )}
+        </h1>
+        <p className="text-gray-400 mt-1">
+        {esSuperadmin
+        ? 'Acceso total a todas las sesiones de caja del sistema'
+        : 'Gestión de sesiones, recibos y vales'}
+        </p>
         </div>
         <div className="flex gap-3">
           {/*<button
@@ -2451,7 +2561,22 @@ const formatDate = (dateStr: string): string => {
             {!sesionSeleccionada && (
             !sessionActiva ? (
             <button
-            onClick={() => setModalAbrirCajaOpen(true)}
+            onClick={() => {
+            // ← ← ← SUPERADMIN: puede abrir caja sin restricción de usuario
+            if (esSuperadmin) {
+            setFormDataAbrir(prev => ({
+            ...prev,
+            fecha: getColombiaDate(),
+            turno: (() => {
+            const hora = new Date().getHours();
+            if (hora >= 6 && hora < 14) return 'manana' as const;
+            if (hora >= 14 && hora < 22) return 'tarde' as const;
+            return 'noche' as const;
+            })()
+            }));
+            }
+            setModalAbrirCajaOpen(true);
+            }}
             className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
             >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2478,6 +2603,66 @@ const formatDate = (dateStr: string): string => {
       </div>
 
       
+      {/* ← ← ← INICIO: SELECTOR DE SESIÓN PARA SUPERADMIN ← ← ← */}
+      {esSuperadmin && (
+      <div className="bg-gradient-to-r from-purple-900/40 to-indigo-900/40 rounded-xl p-4 border border-purple-500/50">
+      <div className="flex items-center justify-between mb-3">
+      <h3 className="text-sm font-bold text-purple-300 flex items-center gap-2">
+      👑 Modo Superadmin — Selector de Sesión Activa
+      </h3>
+      <button
+      onClick={cargarSesionesActivasSuperadmin}
+      disabled={loadingSesionesSuperadmin}
+      className="text-xs text-purple-400 hover:text-purple-300 disabled:opacity-50 flex items-center gap-1"
+      >
+      {loadingSesionesSuperadmin ? (
+      <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-purple-400"></div>
+      ) : (
+      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+      </svg>
+      )}
+      Actualizar
+      </button>
+      </div>
+
+      {sesionesActivasTodas.length === 0 ? (
+      <p className="text-sm text-gray-400 text-center py-2">
+      No hay sesiones activas en el sistema
+      </p>
+      ) : (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+      {sesionesActivasTodas.map((sesion) => (
+      <button
+      key={sesion.id}
+      onClick={() => setSesionSuperadminSeleccionada(sesion.id)}
+      className={`p-3 rounded-lg border text-left transition-all ${
+      sesionSuperadminSeleccionada === sesion.id
+      ? 'bg-purple-600/30 border-purple-400 ring-2 ring-purple-500/50'
+      : 'bg-gray-800/50 border-gray-600 hover:border-purple-500/50'
+      }`}
+      >
+      <div className="flex items-center gap-2 mb-1">
+      <span className={`w-2 h-2 rounded-full ${
+      sesionSuperadminSeleccionada === sesion.id ? 'bg-purple-400' : 'bg-green-400'
+      }`}></span>
+      <span className="font-mono text-xs text-white font-bold">#{sesion.id}</span>
+      <span className="text-xs text-gray-400">• {sesion.turno}</span>
+      </div>
+      <p className="text-xs text-gray-300">
+      👤 {sesion.usuario_username}
+      </p>
+      <p className="text-xs text-gray-500">
+      📅 {formatDate(sesion.fecha)} • 🕐 {sesion.hora_apertura ? new Date(sesion.hora_apertura).toLocaleTimeString('es-CO', {hour:'2-digit',minute:'2-digit'}) : ''}
+      </p>
+      </button>
+      ))}
+      </div>
+      )}
+      </div>
+      )}
+      {/* ← ← ← FIN: SELECTOR DE SESIÓN PARA SUPERADMIN ← ← ← */}
+
       {/* ← Cards de Resumen UNIFICADAS CON EL RESUMEN DETALLADO ← ← ← */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Estado de Caja */}
