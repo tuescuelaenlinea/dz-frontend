@@ -576,13 +576,13 @@ useEffect(() => {
   };
 }, [reciboExpandido, cargarDatosCaja]);  // ← ← ← AGREGAR cargarDatosCaja como dependencia
 
-  // ← Formulario abrir caja
-  const [formDataAbrir, setFormDataAbrir] = useState({
-    fecha: new Date().toISOString().split('T')[0],
-    turno: 'manana' as const,
-    saldo_inicial: '',
-    observaciones_apertura: ''
-  });
+// ← Formulario abrir caja
+const [formDataAbrir, setFormDataAbrir] = useState({
+fecha: new Date().toISOString().split('T')[0],
+turno: 'manana' as 'manana' | 'tarde' | 'noche',
+saldo_inicial: '',
+observaciones_apertura: ''
+});
 
   // ← Formulario cerrar caja
   const [formDataCerrar, setFormDataCerrar] = useState({
