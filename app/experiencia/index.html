@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tu opinión | Dorian Zambrano Salón Spa</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Montserrat:wght@400;500;600;700&family=Great+Vibes&display=swap" rel="stylesheet">
+<style>
+:root{--gold:#C6A15B;--gold-dark:#A9853D;--black:#0d0d0d;--cream:#f6f4f0;--gray:#6b6b6b}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Montserrat',sans-serif;background:var(--cream);color:var(--black)}
+.bg{position:fixed;inset:0;background-size:cover;background-position:center;z-index:-1}
+.bg-mobile{display:none}
+@media(max-width:768px){.bg-desktop{display:none}.bg-mobile{display:block}}
+.page{max-width:1080px;margin:0 auto;padding:0 16px 40px}
+header{text-align:center;padding:34px 10px 10px}
+.logo{height:70px;margin-bottom:6px}
+.logo-fallback{font-family:'Cormorant Garamond',serif;font-size:56px;color:var(--gold);line-height:1}
+h1{font-family:'Cormorant Garamond',serif;font-size:34px;letter-spacing:4px;font-weight:600}
+.sub{color:var(--gold);letter-spacing:6px;font-size:13px;margin:4px 0 22px}
+h2{font-size:20px;font-weight:600;letter-spacing:1px}
+.lead{color:var(--gray);font-size:14px;margin-top:6px}
+.pregunta{color:var(--gold);font-size:17px;font-weight:600;letter-spacing:1px;margin:26px 0 12px}
+.stars{display:flex;justify-content:center;gap:10px}
+.star{background:none;border:none;cursor:pointer;padding:4px;transition:transform .15s}
+.star svg{width:52px;height:52px;fill:#e5d9bd;transition:fill .15s;filter:drop-shadow(0 2px 2px rgba(0,0,0,.15))}
+.star:hover{transform:scale(1.12)}
+.star.on svg{fill:var(--gold)}
+@media(max-width:768px){.star svg{width:44px;height:44px}}
+.hint{color:var(--gray);font-size:13px;margin-top:8px}
+.hidden{display:none!important}
+.panel{background:#fff;border:1px solid #e8e0cf;border-radius:14px;max-width:560px;margin:30px auto 0;padding:26px 22px;box-shadow:0 8px 30px rgba(0,0,0,.07);text-align:center}
+.panel .tag{display:inline-block;background:var(--black);color:var(--gold);font-weight:600;font-size:12px;letter-spacing:1px;padding:8px 18px;border-radius:6px;margin:-46px auto 18px}
+.script{font-family:'Great Vibes',cursive;font-size:26px;color:var(--gold);margin:10px 0}
+.icon-big{font-size:40px;color:var(--gold)}
+.btn-externo{display:flex;align-items:center;background:#fff;border:1px solid #eee;border-radius:10px;overflow:hidden;margin:14px auto;max-width:340px;text-decoration:none;color:var(--black);box-shadow:0 3px 10px rgba(0,0,0,.08);text-align:left}
+.btn-externo .logo-ext{width:56px;display:flex;justify-content:center;align-items:center;font-size:26px;font-weight:700}
+.btn-externo .txt{flex:1;padding:10px 8px;border-left:1px solid #eee}
+.btn-externo .txt small{display:block;color:var(--gray);font-size:11px}
+.btn-externo .txt b{font-size:17px}
+.btn-externo .flecha{background:var(--gold);color:#fff;align-self:stretch;display:flex;align-items:center;padding:0 16px;font-size:18px}
+/* PQR */
+.panel.pqr{max-width:640px;text-align:left}
+.pqr-head{display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}
+.pqr-head .cara{font-size:34px}
+.pqr-head h3{font-size:15px;letter-spacing:.5px}
+.pqr-head p{color:var(--gold);font-weight:600}
+.fila{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+.fila .ico{width:26px;text-align:center;color:var(--gold);flex-shrink:0}
+.fila label{width:130px;font-size:12.5px;color:#333;flex-shrink:0}
+.fila input,.fila textarea{flex:1;border:1px solid #ddd;border-radius:6px;padding:9px 10px;font-size:13px;font-family:inherit;background:#fff}
+.fila input:focus,.fila textarea:focus{outline:none;border-color:var(--gold)}
+@media(max-width:640px){.fila{flex-wrap:wrap}.fila label{width:100%}.fila .ico{display:none}}
+.btn-enviar{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:var(--black);color:var(--gold);border:none;border-radius:8px;padding:14px;font-size:14px;font-weight:700;letter-spacing:2px;cursor:pointer;margin-top:14px}
+.btn-enviar:disabled{opacity:.6;cursor:wait}
+.error-form{color:#B3261E;font-size:12.5px;margin-top:8px;text-align:center}
+.exito{text-align:center;padding:30px 10px}
+.exito .icon-big{font-size:52px}
+/* Secciones inferiores */
+.pill{display:table;background:var(--black);color:#fff;font-size:13px;font-weight:600;letter-spacing:1px;padding:9px 26px;border-radius:8px;margin:44px auto 18px}
+.card-info{background:#fff;border:1px solid #e8e0cf;border-radius:12px;padding:22px}
+.steps{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap}
+.step{display:flex;align-items:center;gap:10px;text-align:left}
+.step .ico{width:52px;height:52px;border:1.5px solid var(--gold);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--gold);flex-shrink:0}
+.step b{font-size:13px;display:block}
+.step small{color:var(--gray);font-size:11px}
+.arrow{color:var(--gold);font-size:20px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:768px){.cards{grid-template-columns:1fr}}
+.card-info h4{font-size:14px;letter-spacing:1px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.badge{width:34px;height:34px;border-radius:50%;background:var(--gold);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:16px}
+.badge.warn{background:#B8860B}
+.card-info ul{list-style:none;color:#444;font-size:12.5px;line-height:1.9}
+.card-info ul li::before{content:"•";color:var(--gold);margin-right:8px}
+.sobre{float:right;font-size:38px;position:relative}
+.sobre .n{position:absolute;top:-8px;right:-8px;background:var(--black);color:#fff;border-radius:50%;width:20px;height:20px;font-size:11px;display:flex;align-items:center;justify-content:center}
+footer{background:var(--black);color:#fff;margin-top:50px;padding:34px 18px;text-align:center}
+footer .f-logo{font-family:'Cormorant Garamond',serif;color:var(--gold);font-size:30px}
+footer .f-name{letter-spacing:3px;font-size:14px}
+footer .f-slogan{color:var(--gold);letter-spacing:2px;font-size:12px;margin:12px 0}
+footer .f-data{color:#bbb;font-size:12px;line-height:2}
+footer a{color:#bbb;text-decoration:none}
+</style>
+</head>
+<body>
+<div class="bg bg-desktop" id="bgDesktop"></div>
+<div class="bg bg-mobile" id="bgMobile"></div>
+
+<div class="page">
+  <header>
+    <img id="logoImg" class="logo hidden" alt="Logo DZ">
+    <div id="logoFallback" class="logo-fallback">DZ</div>
+    <h1>DORIAN ZAMBRANO</h1>
+    <div class="sub">— SALÓN SPA —</div>
+    <h2>TU OPINIÓN ES MUY IMPORTANTE PARA NOSOTROS</h2>
+    <p class="lead">Gracias por visitarnos. Queremos conocer tu experiencia para seguir mejorando.</p>
+    <p class="pregunta">¿CÓMO CALIFICARÍAS EL SERVICIO RECIBIDO?</p>
+    <div class="stars" id="stars"></div>
+    <p class="hint">Selecciona de 1 a 5 estrellas</p>
+  </header>
+
+  <!-- ═══ PANEL 4-5 ESTRELLAS ═══ -->
+  <section id="panelPositivo" class="panel hidden">
+    <div class="tag">SI CALIFICAS CON 4 O 5 ESTRELLAS</div>
+    <div class="icon-big">♡</div>
+    <h3 style="margin-top:8px">¡NOS ALEGRA SABER QUE<br>DISFRUTASTE TU EXPERIENCIA!</h3>
+    <p class="script">¿Nos ayudas dejando una reseña?</p>
+    <a id="btnGoogle" class="btn-externo" href="#" target="_blank" rel="noopener">
+      <span class="logo-ext" style="color:#4285F4">G</span>
+      <span class="txt"><small>Calificar en</small><b>Google</b></span>
+      <span class="flecha">›</span>
+    </a>
+    <a id="btnTripadvisor" class="btn-externo" href="#" target="_blank" rel="noopener">
+      <span class="logo-ext" style="color:#00AF87">🦉</span>
+      <span class="txt"><small>Calificar en</small><b>Tripadvisor</b></span>
+      <span class="flecha">›</span>
+    </a>
+    <p class="script">¡Gracias por recomendarnos!</p>
+  </section>
+
+  <!-- ═══ PANEL PQR 1-3 ESTRELLAS ═══ -->
+  <section id="panelPQR" class="panel pqr hidden">
+    <div style="text-align:center"><div class="tag">SI CALIFICAS CON 1, 2 O 3 ESTRELLAS</div></div>
+    <div class="pqr-head">
+      <span class="cara">☹️</span>
+      <div>
+        <h3>LAMENTAMOS QUE TU EXPERIENCIA NO HAYA SIDO LA ESPERADA.</h3>
+        <p>Queremos solucionarlo.</p>
+      </div>
+    </div>
+    <form id="formPQR" novalidate>
+      <div class="fila"><span class="ico">👤</span><label>Nombre</label><input id="fNombre" placeholder="Escribe tu nombre" required></div>
+      <div class="fila"><span class="ico">📞</span><label>Teléfono</label><input id="fTelefono" placeholder="Escribe tu teléfono" required></div>
+      <div class="fila"><span class="ico">✉️</span><label>Correo electrónico</label><input id="fEmail" type="email" placeholder="Escribe tu correo" required></div>
+      <div class="fila"><span class="ico">✂️</span><label>Servicio recibido</label><input id="fServicio" list="listaServicios" placeholder="Ej: Corte, Color, Manicure, Spa, etc." required></div>
+      <div class="fila"><span class="ico">👤</span><label>Profesional que te atendió</label><input id="fProfesional" list="listaProfesionales" placeholder="Nombre del profesional"></div>
+      <div class="fila"><span class="ico">📅</span><label>Fecha</label><input id="fFecha" type="date" required></div>
+      <div class="fila"><span class="ico">💬</span><label>¿Qué ocurrió?</label><input id="fQue" placeholder="Cuéntanos qué sucedió" required></div>
+      <div class="fila"><span class="ico">⚡</span><label>¿Cómo podemos mejorar?</label><textarea id="fMejorar" rows="2" placeholder="Tu opinión nos ayuda a mejorar"></textarea></div>
+      <button type="submit" class="btn-enviar" id="btnEnviar">✉️ ENVIAR PQR</button>
+      <p class="error-form hidden" id="msgError"></p>
+    </form>
+  </section>
+
+  <!-- ═══ ¿CÓMO FUNCIONA? (sin QR) ═══ -->
+  <div class="pill">¿CÓMO FUNCIONA?</div>
+  <div class="card-info">
+    <div class="steps">
+      <div class="step"><div class="ico">★</div><div><b>Califica de<br>1 a 5 estrellas</b></div></div>
+      <span class="arrow">→</span>
+      <div class="step"><div class="ico">😊</div><div><b>4–5 estrellas</b><small>Google o Tripadvisor<br>(Reseña pública)</small></div></div>
+      <span class="arrow">→</span>
+      <div class="step"><div class="ico">☹️</div><div><b>1–3 estrellas</b><small>Formulario PQR<br>(Correo privado al salón)</small></div></div>
+    </div>
+  </div>
+
+  <!-- ═══ ¿QUÉ RECIBIMOS? ═══ -->
+  <div class="pill">¿QUÉ RECIBIMOS EN NUESTRO CORREO?</div>
+  <div class="cards">
+    <div class="card-info">
+      <h4><span class="badge">★</span> NUEVA VALORACIÓN <span style="color:var(--gold)">★★★★★</span><span class="sobre">✉️<span class="n">1</span></span></h4>
+      <ul><li>Cliente</li><li>Servicio</li><li>Profesional</li><li>Calificación</li><li>Comentario</li></ul>
+    </div>
+    <div class="card-info">
+      <h4><span class="badge warn">!</span> NUEVA PQR <span class="sobre">✉️<span class="n">1</span></span></h4>
+      <ul><li>Nombre del cliente</li><li>Celular</li><li>Correo</li><li>Servicio</li><li>Profesional</li><li>Fecha</li><li>Calificación</li><li>Comentarios</li></ul>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="f-logo">DZ</div>
+  <div class="f-name" id="fNombreSalon">DORIAN ZAMBRANO</div>
+  <div class="f-slogan">TU EXPERIENCIA NOS INSPIRA A SER MEJORES CADA DÍA<br>♥</div>
+  <div class="f-data">
+    <span id="fDireccion"></span><br>
+    <span id="fTelefono"></span><br>
+    <a id="fInstagram" href="#" target="_blank" rel="noopener"></a><br>
+    <a id="fWeb" href="#" target="_blank" rel="noopener"></a>
+  </div>
+</footer>
+
+<datalist id="listaServicios"></datalist>
+<datalist id="listaProfesionales"></datalist>
+
+<script>
+const API_URL = window.DZ_API_URL || 'https://api.dzsalon.com'; // ← ajusta a tu entorno
+let calificacion = 0, config = null, debounceTimer = null;
+
+// Token de sesión para evitar duplicados al cambiar estrellas
+let token = localStorage.getItem('dz_exp_token');
+if (!token) { token = 'tok-' + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('dz_exp_token', token); }
+
+const STAR = '<svg viewBox="0 0 24 24"><path d="M12 1.8l3 6.8 7.2.7-5.4 4.9 1.6 7.1L12 17.6l-6.4 3.7 1.6-7.1L1.8 9.3l7.2-.7z"/></svg>';
+
+// ── Cargar configuración pública ──
+fetch(API_URL + '/api/experiencia/config/')
+  .then(r => r.json())
+  .then(c => {
+    config = c;
+    if (c.fondo_desktop_url) document.getElementById('bgDesktop').style.backgroundImage = `url('${c.fondo_desktop_url}')`;
+    if (c.fondo_mobile_url)  document.getElementById('bgMobile').style.backgroundImage  = `url('${c.fondo_mobile_url}')`;
+    if (c.logo_url) { const l = document.getElementById('logoImg'); l.src = c.logo_url; l.classList.remove('hidden'); document.getElementById('logoFallback').classList.add('hidden'); }
+    document.getElementById('btnGoogle').href = c.url_google || '#';
+    document.getElementById('btnTripadvisor').href = c.url_tripadvisor || '#';
+    document.getElementById('fDireccion').textContent = c.direccion || '';
+    document.getElementById('fTelefono').textContent = c.telefono_1 || '';
+    const ig = document.getElementById('fInstagram'); ig.textContent = c.instagram_url || ''; ig.href = c.instagram_url || '#';
+    const wb = document.getElementById('fWeb'); wb.textContent = c.web_url || ''; wb.href = c.web_url || '#';
+  });
+
+// ── Sugerencias de servicios y profesionales (catálogo real) ──
+function llenarDatalist(url, id, campo) {
+  fetch(url).then(r => r.json()).then(data => {
+    const items = Array.isArray(data) ? data : (data.results || []);
+    const dl = document.getElementById(id);
+    items.forEach(i => { const o = document.createElement('option'); o.value = i[campo]; dl.appendChild(o); });
+  }).catch(() => {});
+}
+llenarDatalist(API_URL + '/api/servicios/?page_size=600', 'listaServicios', 'nombre');
+llenarDatalist(API_URL + '/api/profesionales/?page_size=600', 'listaProfesionales', 'nombre');
+
+// ── Estrellas ──
+const starsBox = document.getElementById('stars');
+for (let i = 1; i <= 5; i++) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'star'; b.dataset.val = i; b.innerHTML = STAR;
+  b.addEventListener('mouseenter', () => pintar(i));
+  b.addEventListener('mouseleave', () => pintar(calificacion));
+  b.addEventListener('click', () => seleccionar(i));
+  starsBox.appendChild(b);
+}
+function pintar(n) { [...starsBox.children].forEach(s => s.classList.toggle('on', +s.dataset.val <= n)); }
+
+function seleccionar(n) {
+  calificacion = n; pintar(n);
+  document.getElementById('msgError').classList.add('hidden');
+  if (n >= 4) {
+    document.getElementById('panelPQR').classList.add('hidden');
+    document.getElementById('panelPositivo').classList.remove('hidden');
+    // Guarda solo la calificación (con debounce por si cambia de opinión)
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => enviar({ calificacion, token_sesion: token }), 1500);
+  } else {
+    document.getElementById('panelPositivo').classList.add('hidden');
+    document.getElementById('panelPQR').classList.remove('hidden');
+  }
+  document.getElementById(n >= 4 ? 'panelPositivo' : 'panelPQR').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Los botones externos también registran la valoración al hacer clic
+['btnGoogle','btnTripadvisor'].forEach(id =>
+  document.getElementById(id).addEventListener('click', () => {
+    if (calificacion >= 4) enviar({ calificacion, token_sesion: token });
+  })
+);
+
+// ── Envío PQR ──
+document.getElementById('formPQR').addEventListener('submit', e => {
+  e.preventDefault();
+  const err = document.getElementById('msgError');
+  const payload = {
+    calificacion,
+    token_sesion: token,
+    nombre: document.getElementById('fNombre').value.trim(),
+    telefono: document.getElementById('fTelefono').value.trim(),
+    email: document.getElementById('fEmail').value.trim(),
+    servicio: document.getElementById('fServicio').value.trim(),
+    profesional: document.getElementById('fProfesional').value.trim(),
+    fecha_servicio: document.getElementById('fFecha').value || null,
+    que_ocurrio: document.getElementById('fQue').value.trim(),
+    como_mejorar: document.getElementById('fMejorar').value.trim(),
+  };
+  const faltan = [];
+  if (!payload.nombre) faltan.push('Nombre');
+  if (!payload.telefono) faltan.push('Teléfono');
+  if (!payload.email) faltan.push('Correo');
+  if (!payload.servicio) faltan.push('Servicio');
+  if (!payload.fecha_servicio) faltan.push('Fecha');
+  if (!payload.que_ocurrio) faltan.push('¿Qué ocurrió?');
+  if (faltan.length) { err.textContent = 'Por favor completa: ' + faltan.join(', '); err.classList.remove('hidden'); return; }
+
+  const btn = document.getElementById('btnEnviar');
+  btn.disabled = true;
+  enviar(payload).then(ok => {
+    if (ok) {
+      document.getElementById('panelPQR').innerHTML =
+        '<div class="exito"><div class="icon-big">💛</div><h3 style="margin:12px 0 6px">¡GRACIAS POR CONTARNOS!</h3>' +
+        '<p style="color:var(--gray);font-size:13px">Tu PQR fue enviada. Nuestro equipo te contactará muy pronto.</p></div>';
+    } else {
+      btn.disabled = false;
+      err.textContent = 'No se pudo enviar. Intenta nuevamente.'; err.classList.remove('hidden');
+    }
+  });
+});
+
+async function enviar(payload) {
+  try {
+    const r = await fetch(API_URL + '/api/experiencia/registros/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return r.ok || r.status === 429; // 429 = ya envió antes, no mostrar error
+  } catch (e) { return false; }
+}
+</script>
+</body>
+</html>

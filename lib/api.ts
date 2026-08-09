@@ -729,6 +729,25 @@ async subirComprobantePago(pagoId: number, file: File) {
   return await res.json();
 },
 
+// ← ← ← MÓDULO EXPERIENCIA / PQRs (CORREGIDO) ← ← ←
+
+// GET /api/experiencia/config/ → configuración pública de la página
+async getExperienciaConfig() {
+  const res = await fetch(`${API_URL}/experiencia/config/`);
+  if (!res.ok) throw new Error('Error cargando configuración de experiencia');
+  return res.json();
+},
+
+// POST /api/experiencia/registros/ → crea valoración (4-5) o PQR (1-3) + envía email
+async createRegistroExperiencia(data: Record<string, unknown>) {
+  const res = await fetch(`${API_URL}/experiencia/registros/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res; // retornamos la respuesta completa para validar status (201/429)
+},
+
 /**
  * Obtener pagos de una cita
  */
@@ -747,4 +766,8 @@ async getCitaPagos(citaId: number) {
   
   return await res.json();
 },
+
+
 };
+
+

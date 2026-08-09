@@ -131,6 +131,12 @@ export default function Footer() {
                   Servicios
                 </Link>
               </li>*/}
+
+              <li>
+                <Link href="/experiencia" className="text-gray-400 hover:text-white transition-colors">
+                  ⭐ Tu Opinión
+                </Link>
+              </li>
               <li>
                 <Link href="/categorias" className="text-gray-400 hover:text-white transition-colors">
                   Servicios
