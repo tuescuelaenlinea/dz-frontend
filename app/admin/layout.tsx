@@ -20,6 +20,7 @@ const TODOS_LOS_MENU_ITEMS: MenuItem[] = [
   { href: '/admin', label: 'Dashboard', icon: '📊', moduloCodigo: 'dashboard' },
   { href: '/admin/profesional', label: 'Mi Panel', icon: '👨‍💼', moduloCodigo: 'dashboard_profesional' },
   { href: '/admin/publicidad', label: 'Publicidades', icon: '📢', moduloCodigo: 'publicidad' },
+  { href: '/admin/experiencia', label: 'Experiencia / PQRs', icon: '⭐', moduloCodigo: 'exp'},
   { href: '/admin/citas', label: 'Citas', icon: '📅', moduloCodigo: 'citas' },
   { href: '/admin/aliados', label: 'Aliados', icon: '🤝', moduloCodigo: 'aliados' },
   { href: '/admin/clientes', label: 'Clientes', icon: '👥', moduloCodigo: 'clientes' },
@@ -33,6 +34,7 @@ const TODOS_LOS_MENU_ITEMS: MenuItem[] = [
   { href: '/admin/configuracion', label: 'Configuración', icon: '⚙️', moduloCodigo: 'configuracion' },
   { href: '/admin/roles', label: 'Roles', icon: '🎭', moduloCodigo: 'roles' },
   { href: '/admin/profesionales-accesos', label: 'Accesos', icon: '🔐', moduloCodigo: 'accesos' },
+
 ];
 
 // ==========================================

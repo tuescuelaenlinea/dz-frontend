@@ -64,7 +64,7 @@ export default function ExperienciaPage() {
   const [serviciosSug, setServiciosSug] = useState<Sugerencia[]>([]);
   const [profesionalesSug, setProfesionalesSug] = useState<Sugerencia[]>([]);
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  //const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const API_DOMAIN = 'https://api.dzsalon.com';
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080';
@@ -136,25 +136,35 @@ export default function ExperienciaPage() {
     }
   }
 
-  // ==========================================
+    // ==========================================
   // SELECCIÓN DE ESTRELLAS (lógica condicional)
   // ==========================================
   const seleccionar = (n: number) => {
     setCalificacion(n);
     setMsgError(null);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setEnviado(false); // ← Resetear estado al cambiar calificación
+    
 
     if (n >= 4) {
-      // ═══ FLUJO POSITIVO: solo guarda la calificación ═══
+      // ═══ FLUJO POSITIVO: mostrar botón "Enviar valoración" ═══
+      // NO se envía automáticamente - espera clic del usuario
       setPanel('positivo');
-      setEnviado(false);
-      debounceRef.current = setTimeout(() => {
-        enviarRegistro({ calificacion: n, token_sesion: token });
-      }, 1500);
     } else {
       // ═══ FLUJO PQR: muestra el formulario ═══
       setPanel('pqr');
-      setEnviado(false);
+    }
+  };
+
+  // ← ← ← NUEVA FUNCIÓN: Enviar valoración positiva (4-5⭐) ← ← ←
+  const enviarValoracionPositiva = async () => {
+    setEnviando(true);
+    setMsgError(null);
+    const ok = await enviarRegistro({ calificacion, token_sesion: token });
+    setEnviando(false);
+    if (ok) {
+      setEnviado(true); // ← Muestra enlaces externos después de enviar
+    } else {
+      setMsgError('No se pudo enviar. Intenta nuevamente.');
     }
   };
 
@@ -318,66 +328,107 @@ export default function ExperienciaPage() {
           <p className="text-gray-500 text-xs md:text-sm mt-2">Selecciona de 1 a 5 estrellas</p>
         </header>
 
-        {/* ══════════════════ PANEL 4-5 ESTRELLAS ══════════════════ */}
-        {panel === 'positivo' && !enviado && (
+                {/* ══════════════════ PANEL 4-5 ESTRELLAS ══════════════════ */}
+        {panel === 'positivo' && (
           <section className="max-w-md mx-auto mt-10 px-4">
             <div className="bg-white rounded-2xl border border-[#e8e0cf] shadow-xl px-6 pb-6 pt-0 text-center relative">
               <span className="inline-block bg-[#0d0d0d] text-[#C6A15B] text-[11px] font-semibold tracking-widest px-5 py-2 rounded-md -mt-4 mb-4">
                 SI CALIFICAS CON 4 O 5 ESTRELLAS
               </span>
-              <div className="text-4xl text-[#C6A15B]">♡</div>
-              <h3 className="font-semibold text-gray-900 mt-2 leading-snug">
-                ¡NOS ALEGRA SABER QUE<br />DISFRUTASTE TU EXPERIENCIA!
-              </h3>
-              <p className="dz-script text-2xl text-[#C6A15B] my-3">¿Nos ayudas dejando una reseña?</p>
 
-              {/* ← Botón Google ← */}
-                <a
-                  href={config?.url_google || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => enviarRegistro({ calificacion, token_sesion: token })}
-                  className="flex items-stretch bg-white border border-gray-100 rounded-xl overflow-hidden max-w-[320px] mx-auto my-3 shadow-md hover:shadow-lg transition-shadow text-left"
-                >
-                  <span className="w-14 flex items-center justify-center bg-white p-2">
-                    <img 
-                      src={`${API_DOMAIN}/media/experiencia/google.jpg`} 
-                      alt="Google" 
-                      className="w-10 h-10 object-contain"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
-                  </span>
-                  <span className="flex-1 border-l border-gray-100 px-3 py-2">
-                    <small className="block text-gray-500 text-[11px]">Calificar en</small>
-                    <b className="text-gray-900 text-lg">Google</b>
-                  </span>
-                  <span className="bg-[#C6A15B] text-white flex items-center px-4 text-xl">›</span>
-                </a>
+              {/* ← ← ← PASO 1: BOTÓN ENVIAR VALORACIÓN (antes de enviar) ← ← ← */}
+              {!enviado && (
+                <>
+                  <div className="text-4xl text-[#C6A15B]">♡</div>
+                  <h3 className="font-semibold text-gray-900 mt-2 leading-snug">
+                    ¡NOS ALEGRA SABER QUE<br />DISFRUTASTE TU EXPERIENCIA!
+                  </h3>
+                  <p className="dz-script text-2xl text-[#C6A15B] my-3">
+                    ¿Nos compartes tu opinión?
+                  </p>
 
-              {/* ← Botón Tripadvisor ← */}
-              <a
-                href={config?.url_tripadvisor || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => enviarRegistro({ calificacion, token_sesion: token })}
-                className="flex items-stretch bg-white border border-gray-100 rounded-xl overflow-hidden max-w-[320px] mx-auto my-3 shadow-md hover:shadow-lg transition-shadow text-left"
-              >
-                <span className="w-14 flex items-center justify-center bg-white p-2">
-                  <img 
-                    src={`${API_DOMAIN}/media/experiencia/tripadvisor.jpg`} 
-                    alt="Tripadvisor" 
-                    className="w-10 h-10 object-contain rounded"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
-                </span>
-                <span className="flex-1 border-l border-gray-100 px-3 py-2">
-                  <small className="block text-gray-500 text-[11px]">Calificar en</small>
-                  <b className="text-gray-900 text-lg">Tripadvisor</b>
-                </span>
-                <span className="bg-[#C6A15B] text-white flex items-center px-4 text-xl">›</span>
-              </a>
+                  {/* ← ← ← BOTÓN PRINCIPAL: ENVIAR VALORACIÓN ← ← ← */}
+                  <button
+                    type="button"
+                    onClick={enviarValoracionPositiva}
+                    disabled={enviando}
+                    className="w-full max-w-[320px] mx-auto flex items-center justify-center gap-2 bg-[#0d0d0d] text-[#C6A15B] font-bold tracking-[0.2em] text-sm py-3.5 rounded-lg hover:bg-black transition-colors disabled:opacity-60 shadow-lg"
+                  >
+                    {enviando ? (
+                      <>
+                        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        ENVIANDO...
+                      </>
+                    ) : (
+                      <>✉️ ENVIAR VALORACIÓN</>
+                    )}
+                  </button>
 
-              <p className="dz-script text-2xl text-[#C6A15B] mt-4">¡Gracias por recomendarnos!</p>
+                  {msgError && (
+                    <p className="text-red-600 text-xs text-center mt-3">{msgError}</p>
+                  )}
+                </>
+              )}
+
+              {/* ← ← ← PASO 2: ENLACES EXTERNOS (después de enviar) ← ← ← */}
+              {enviado && (
+                <>
+                  <div className="text-5xl mb-2">🎉</div>
+                  <h3 className="font-semibold text-gray-900 mt-2 leading-snug">
+                    ¡GRACIAS POR TU<br />VALORACIÓN!
+                  </h3>
+                  <p className="dz-script text-2xl text-[#C6A15B] my-3">¿Nos ayudas dejando una reseña pública?</p>
+
+                  {/* ← Botón Google ← */}
+                  <a
+                    href={config?.url_google || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-stretch bg-white border border-gray-100 rounded-xl overflow-hidden max-w-[320px] mx-auto my-3 shadow-md hover:shadow-lg transition-shadow text-left"
+                  >
+                    <span className="w-14 flex items-center justify-center bg-white p-2">
+                      <img 
+                        src={`${API_DOMAIN}/media/experiencia/google.jpg`} 
+                        alt="Google" 
+                        className="w-10 h-10 object-contain"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    </span>
+                    <span className="flex-1 border-l border-gray-100 px-3 py-2">
+                      <small className="block text-gray-500 text-[11px]">Calificar en</small>
+                      <b className="text-gray-900 text-lg">Google</b>
+                    </span>
+                    <span className="bg-[#C6A15B] text-white flex items-center px-4 text-xl">›</span>
+                  </a>
+
+                  {/* ← Botón Tripadvisor ← */}
+                  <a
+                    href={config?.url_tripadvisor || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-stretch bg-white border border-gray-100 rounded-xl overflow-hidden max-w-[320px] mx-auto my-3 shadow-md hover:shadow-lg transition-shadow text-left"
+                  >
+                    <span className="w-14 flex items-center justify-center bg-white p-2">
+                      <img 
+                        src={`${API_DOMAIN}/media/experiencia/tripadvisor.jpg`} 
+                        alt="Tripadvisor" 
+                        className="w-10 h-10 object-contain rounded"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    </span>
+                    <span className="flex-1 border-l border-gray-100 px-3 py-2">
+                      <small className="block text-gray-500 text-[11px]">Calificar en</small>
+                      <b className="text-gray-900 text-lg">Tripadvisor</b>
+                    </span>
+                    <span className="bg-[#C6A15B] text-white flex items-center px-4 text-xl">›</span>
+                  </a>
+
+                  <p className="dz-script text-2xl text-[#C6A15B] mt-4">¡Gracias por recomendarnos!</p>
+                </>
+              )}
             </div>
           </section>
         )}
