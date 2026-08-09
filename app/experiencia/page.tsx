@@ -253,7 +253,7 @@ export default function ExperienciaPage() {
       `}</style>
 
       {/* ← ← ← FONDOS RESPONSIVE (desktop / móvil) ← ← ← */}
-      <div className="fixed inset-0 -z-10">
+      <div className="fixed inset-0 -z-0">
         {fondoDesktop && (
           <div
             className="hidden md:block absolute inset-0 bg-cover bg-center"
