@@ -341,7 +341,7 @@ export default function ExperienciaPage() {
                 >
                   <span className="w-14 flex items-center justify-center bg-white p-2">
                     <img 
-                      src={`${API_DOMAIN}/media/experiencia/google.png`} 
+                      src={`${API_DOMAIN}/media/experiencia/google.jpg`} 
                       alt="Google" 
                       className="w-10 h-10 object-contain"
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -354,9 +354,9 @@ export default function ExperienciaPage() {
                   <span className="bg-[#C6A15B] text-white flex items-center px-4 text-xl">›</span>
                 </a>
 
-              {/* ← Botón Google ← */}
+              {/* ← Botón Tripadvisor ← */}
               <a
-                href={config?.url_google || '#'}
+                href={config?.url_tripadvisor || '#'}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => enviarRegistro({ calificacion, token_sesion: token })}
@@ -364,15 +364,15 @@ export default function ExperienciaPage() {
               >
                 <span className="w-14 flex items-center justify-center bg-white p-2">
                   <img 
-                    src={`${API_DOMAIN}/media/experiencia/google.png`} 
-                    alt="Google" 
-                    className="w-10 h-10 object-contain"
+                    src={`${API_DOMAIN}/media/experiencia/tripadvisor.jpg`} 
+                    alt="Tripadvisor" 
+                    className="w-10 h-10 object-contain rounded"
                     onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                   />
                 </span>
                 <span className="flex-1 border-l border-gray-100 px-3 py-2">
                   <small className="block text-gray-500 text-[11px]">Calificar en</small>
-                  <b className="text-gray-900 text-lg">Google</b>
+                  <b className="text-gray-900 text-lg">Tripadvisor</b>
                 </span>
                 <span className="bg-[#C6A15B] text-white flex items-center px-4 text-xl">›</span>
               </a>
