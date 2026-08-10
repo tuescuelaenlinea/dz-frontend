@@ -126,7 +126,14 @@ function StatsTab() {
         `${API_URL}/experiencia/registros/estadisticas/?fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}`,
         { headers: getAuthHeaders() }
       );
-      if (res.ok) setStats(await res.json());
+      if (res.ok) {
+        setStats(await res.json());
+      } else {
+        // ← NUEVO: Mostrar error en consola si la API falla
+        const errText = await res.text();
+        console.error('❌ Error API estadísticas:', res.status, errText);
+        alert('Error al consultar las estadísticas. Revisa la consola (F12) o los logs del servidor.');
+      }
     } finally {
       setCargando(false);
     }
@@ -254,6 +261,11 @@ function PQRSTab() {
       if (res.ok) {
         const data = await res.json();
         setRegistros(data.results || data);
+      } else {
+        // ← NUEVO: Mostrar error en consola si la API falla
+        const errText = await res.text();
+        console.error('❌ Error API PQRs:', res.status, errText);
+        alert('Error al cargar las PQRs. Revisa la consola (F12).');
       }
     } finally {
       setCargando(false);

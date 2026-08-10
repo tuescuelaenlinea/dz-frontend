@@ -46,6 +46,9 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [sidebarOpenMobile, setSidebarOpenMobile] = useState(false);
   const [showPublicidadModal, setShowPublicidadModal] = useState(false);
+  const [showExperienciaModal, setShowExperienciaModal] = useState(false);
+
+
 
   const redireccionEnCurso = useRef(false);
   const ultimaRedireccion = useRef<string | null>(null);
@@ -114,6 +117,18 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
       }
     };
   }, []);
+
+  // Opcional: agregar en useEffect para cerrar con ESC
+useEffect(() => {
+  const handleEsc = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      setShowPublicidadModal(false);
+      setShowExperienciaModal(false);
+    }
+  };
+  window.addEventListener('keydown', handleEsc);
+  return () => window.removeEventListener('keydown', handleEsc);
+}, []);
 
   // ==========================================
   // VERIFICAR AUTENTICACIÓN
@@ -378,14 +393,22 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   // HANDLER PARA CLICK EN MENÚ (intercepta Publicidades)
   // ==========================================
   const handleMenuClick = (item: MenuItem, e: React.MouseEvent) => {
-    // ← ← ← CLAVE: Si es el item de Publicidades, abrir modal ← ← ←
+    // ← ← ← PUBLICIDADES: abrir modal de Blog Novias / Publicidad Modal ← ← ←
     if (item.href === '/admin/publicidad') {
       e.preventDefault();
       setShowPublicidadModal(true);
       setSidebarOpenMobile(false);
       return;
     }
-    
+
+    // ← ← ← EXPERIENCIA: abrir modal de Experiencia/PQRs / Encuesta ← ← ←
+    if (item.href === '/admin/experiencia') {
+      e.preventDefault();
+      setShowExperienciaModal(true);
+      setSidebarOpenMobile(false);
+      return;
+    }
+
     // Para otros items, cerrar sidebar mobile
     setSidebarOpenMobile(false);
   };
@@ -395,6 +418,23 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   // ==========================================
   return (
     <div className="min-h-screen bg-gray-100 flex">
+
+        <style jsx global>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px) scale(0.97);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+      `}</style>
       {sidebarOpenMobile && (
         <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
@@ -526,6 +566,159 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+      {/* ==========================================
+      MODAL DE EXPERIENCIA (NUEVO)
+      ========================================== */}
+      {showExperienciaModal && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out]"
+          onClick={() => setShowExperienciaModal(false)}
+        >
+          <div
+            className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl shadow-2xl max-w-3xl w-full border-2 border-amber-500/30 overflow-hidden animate-[slideUp_0.3s_ease-out]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header del Modal */}
+            <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-6 border-b border-amber-500/30">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center">
+                    <span className="text-3xl">✨</span>
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">
+                      Opinión del Cliente
+                    </h2>
+                    <p className="text-amber-100 text-sm mt-1">
+                      Selecciona el módulo que deseas administrar
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowExperienciaModal(false)}
+                  className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors"
+                  title="Cerrar"
+                >
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Contenido del Modal - Dos Botones */}
+            <div className="p-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                {/* BOTÓN 1: Experiencia / PQRs (Valoración rápida + PQRs) */}
+                <button
+                  onClick={() => {
+                    setShowExperienciaModal(false);
+                    router.push('/admin/experiencia');
+                  }}
+                  className="group relative bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 rounded-xl p-8 text-left transition-all duration-300 transform hover:scale-105 hover:shadow-2xl overflow-hidden"
+                >
+                  {/* Efecto de brillo */}
+                  <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/10 to-white/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+
+                  <div className="relative z-10">
+                    <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                      <span className="text-4xl">⭐</span>
+                    </div>
+                    <h3 className="text-2xl font-bold text-white mb-2">
+                      Experiencia / PQRs
+                    </h3>
+                    <p className="text-amber-100 text-sm leading-relaxed mb-4">
+                      Gestiona valoraciones rápidas (1-5 ⭐) y PQRs. Incluye tabulación, respuestas al cliente y configuración.
+                    </p>
+                    <ul className="space-y-1.5 text-xs text-amber-50 mb-4">
+                      <li className="flex items-center gap-2">
+                        <span className="text-white/80">✓</span>
+                        <span>Valoración 4-5 ⭐ → Google/Tripadvisor</span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="text-white/80">✓</span>
+                        <span>PQR 1-3 ⭐ → Formulario privado</span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="text-white/80">✓</span>
+                        <span>Respuesta por email al cliente</span>
+                      </li>
+                    </ul>
+                    <div className="flex items-center justify-between pt-3 border-t border-white/20">
+                      <span className="text-white/80 text-xs">⏱️ 1 min por cliente</span>
+                      <span className="text-white font-semibold flex items-center gap-2">
+                        Abrir
+                        <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                        </svg>
+                      </span>
+                    </div>
+                  </div>
+                </button>
+
+                {/* BOTÓN 2: Encuesta de Satisfacción */}
+                <button
+                  onClick={() => {
+                    setShowExperienciaModal(false);
+                    router.push('/admin/encuesta');
+                  }}
+                  className="group relative bg-gradient-to-br from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 rounded-xl p-8 text-left transition-all duration-300 transform hover:scale-105 hover:shadow-2xl overflow-hidden"
+                >
+                  {/* Efecto de brillo */}
+                  <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/10 to-white/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+
+                  <div className="relative z-10">
+                    <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                      <span className="text-4xl">📋</span>
+                    </div>
+                    <h3 className="text-2xl font-bold text-white mb-2">
+                      Encuesta de Satisfacción
+                    </h3>
+                    <p className="text-emerald-100 text-sm leading-relaxed mb-4">
+                      Gestiona la encuesta detallada: 12 preguntas Sí/No, servicios, comentarios y tabulación completa.
+                    </p>
+                    <ul className="space-y-1.5 text-xs text-emerald-50 mb-4">
+                      <li className="flex items-center gap-2">
+                        <span className="text-white/80">✓</span>
+                        <span>12 preguntas Sí / No configurables</span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="text-white/80">✓</span>
+                        <span>Listado de servicios recibidos</span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="text-white/80">✓</span>
+                        <span>% SÍ/NO por pregunta + comentarios</span>
+                      </li>
+                    </ul>
+                    <div className="flex items-center justify-between pt-3 border-t border-white/20">
+                      <span className="text-white/80 text-xs">⏱️ 3 min por cliente</span>
+                      <span className="text-white font-semibold flex items-center gap-2">
+                        Abrir
+                        <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                        </svg>
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              {/* Botón Cancelar */}
+              <div className="mt-8 text-center">
+                <button
+                  onClick={() => setShowExperienciaModal(false)}
+                  className="px-6 py-2 text-gray-400 hover:text-white transition-colors text-sm"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
        {/* ==========================================
           MODAL DE PUBLICIDADES (NUEVO)
