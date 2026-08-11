@@ -3,7 +3,16 @@
 import { useEffect, useState } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
+// ← Deriva el dominio de media desde la propia API (quita el /api final)
+const API_DOMAIN = API_URL.replace(/\/api\/?$/, '');
 
+/** ← ← ← NUEVO: Convierte rutas relativas (/media/...) en URLs absolutas del backend */
+const fullMediaUrl = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url; // ya es absoluta
+  if (url.startsWith('/')) return `${API_DOMAIN}${url}`;                   // /media/... → https://api.../media/...
+  return `${API_DOMAIN}/${url}`;
+};
 interface ConfigEncuesta {
   titulo: string; subtitulo: string; texto_comentario: string; activo: boolean;
   encabezado_url_full: string | null; pie_url_full: string | null;
@@ -101,9 +110,26 @@ export default function EncuestaPage() {
         .dz-sans { font-family: 'Montserrat', sans-serif; }
       `}</style>
 
-      {/* ═══ ENCABEZADO CONFIGURADO ═══ */}
-      {config?.encabezado_url_full ? (
-        <img src={config.encabezado_url_full} alt="Encabezado encuesta" className="w-full object-cover" />
+      {/* ═══ ENCABEZADO: desktop = campo "encabezado" | móvil = campo "pie" ═══ */}
+      {config?.encabezado_url_full || config?.pie_url_full ? (
+        <header>
+          {/* ← Desktop (md en adelante): imagen del campo "encabezado" */}
+          {config?.encabezado_url_full && (
+            <img
+              src={fullMediaUrl(config.encabezado_url_full) || undefined}
+              alt="Encabezado encuesta"
+              className="hidden md:block w-full h-auto"
+            />
+          )}
+          {/* ← Móvil: reutilizamos el campo "pie" como encabezado móvil */}
+          {config?.pie_url_full && (
+            <img
+              src={fullMediaUrl(config.pie_url_full) || undefined}
+              alt="Encabezado encuesta móvil"
+              className="md:hidden w-full h-auto"
+            />
+          )}
+        </header>
       ) : (
         <header className="bg-[#0d0d0d] text-center py-10 px-4">
           <div className="dz-serif text-5xl text-[#C6A15B]">DZ</div>
@@ -205,12 +231,7 @@ export default function EncuestaPage() {
         </form>
       )}
 
-      {/* ═══ PIE CONFIGURADO ═══ */}
-      {config?.pie_url_full && (
-        <footer className="mt-6">
-          <img src={config.pie_url_full} alt="Pie de encuesta" className="w-full object-cover" />
-        </footer>
-      )}
+     
     </div>
   );
 }

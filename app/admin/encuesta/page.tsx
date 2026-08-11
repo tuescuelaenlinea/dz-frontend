@@ -4,6 +4,13 @@ import { useEffect, useState } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
 
+const API_DOMAIN = 'https://api.dzsalon.com';
+const fullMediaUrl = (url: string | null | undefined): string => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return url.startsWith('/') ? `${API_DOMAIN}${url}` : `${API_DOMAIN}/${url}`;
+};
+
 // ==========================================
 // INTERFACES
 // ==========================================
@@ -164,18 +171,25 @@ function ConfigTab() {
       {/* ← Encabezado / pie / textos */}
       <div className="bg-white rounded-xl shadow p-6">
         <h3 className="text-sm font-semibold text-gray-700 mb-4">🖼️ Encabezado, pie y textos</h3>
-        <div className="grid md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-xs text-gray-500 mb-2">Encabezado (imagen superior)</label>
-            <div className="h-32 rounded-lg border border-gray-200 bg-gray-50 bg-cover bg-center mb-2"
-              style={{ backgroundImage: `url(${prevEnc || config?.encabezado_url_full || ''})` }} />
+                <div className="grid md:grid-cols-2 gap-6">
+          {/* BLOQUE ENCABEZADO */}
+          <div>            
+            <label className="block text-xs text-gray-500 mb-2">🖥️ Encabezado Desktop (1920×420 px)</label>
+            <div 
+              className="h-32 rounded-lg border border-gray-200 bg-gray-50 bg-cover bg-center mb-2"              
+              style={{ backgroundImage: `url(${prevEnc || fullMediaUrl(config?.encabezado_url_full)})` }} 
+            /> {/* <--- ¡AQUÍ FALTABA CERRAR EL DIV! */}
             <input type="file" accept="image/*" className="text-xs w-full"
               onChange={(e) => { const f = e.target.files?.[0] || null; setFileEnc(f); if (f) setPrevEnc(URL.createObjectURL(f)); }} />
           </div>
+
+          {/* BLOQUE PIE  * En la BD se guarda como "pie", pero la página pública lo muestra como encabezado en celulares. */}
           <div>
-            <label className="block text-xs text-gray-500 mb-2">Pie (imagen inferior)</label>
-            <div className="h-32 rounded-lg border border-gray-200 bg-gray-50 bg-cover bg-center mb-2"
-              style={{ backgroundImage: `url(${prevPie || config?.pie_url_full || ''})` }} />
+            <label className="block text-xs text-gray-500 mb-2"> 📱 Encabezado Móvil (768×1024 px)</label>
+            <div 
+              className="h-32 rounded-lg border border-gray-200 bg-gray-50 bg-cover bg-center mb-2"              
+              style={{ backgroundImage: `url(${prevPie || fullMediaUrl(config?.pie_url_full)})` }} 
+            /> {/* <--- ¡AQUÍ TAMBIÉN FALTABA CERRAR EL DIV! */}
             <input type="file" accept="image/*" className="text-xs w-full"
               onChange={(e) => { const f = e.target.files?.[0] || null; setFilePie(f); if (f) setPrevPie(URL.createObjectURL(f)); }} />
           </div>
