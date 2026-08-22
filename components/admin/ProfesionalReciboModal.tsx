@@ -1,7 +1,7 @@
 // components/admin/ProfesionalReciboModal.tsx
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import ProfessionalModal from '@/components/booking/ProfessionalModal';
 
 // ← ← ← INTERFACES ← ← ←
@@ -82,6 +82,11 @@ export default function ProfesionalReciboModal({
   const [items, setItems] = useState<ReciboItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingRecibo, setLoadingRecibo] = useState(false);
+
+  // ← ← ← INICIO: BLOQUEO SÍNCRONO PARA EVITAR DOBLE CLIC ← ← ←
+  const guardandoRef = useRef(false);  // Bloqueo síncrono (no depende de React state)
+  const agregandoItemRef = useRef(false);  // Bloqueo para agregar items
+  // ← ← ← FIN: BLOQUEO SÍNCRONO ← ← ←
 
   // ← ← ← NUEVO: Estado para observaciones ← ← ←
   const [observaciones, setObservaciones] = useState('');
@@ -202,13 +207,34 @@ export default function ProfesionalReciboModal({
 
   // ← Agregar item (creando cita para servicios)
   const agregarItem = async (itemData: Servicio | Producto, tipo: 'servicio' | 'producto') => {
-    try {
-      if (tipo === 'servicio') {
-        const servicio = itemData as Servicio;
-        const precio = typeof servicio.precio_min === 'string'
-          ? parseFloat(servicio.precio_min) : servicio.precio_min;
-
-        setLoading(true);
+      // ← ← ← BLOQUEO SÍNCRONO: Prevenir agregar el mismo item múltiples veces ← ← ←
+      if (agregandoItemRef.current) {
+        console.warn('⚠️ [agregarItem] Ya hay una petición de item en curso, ignorando clic duplicado');
+        return;
+      }
+      
+      // ← ← ← VERIFICAR que el servicio/producto no esté ya en los items ← ← ←
+      const yaExiste = items.some(item => {
+        if (tipo === 'servicio') {
+          return item.servicioId === (itemData as Servicio).id;
+        } else {
+          return item.productoId === (itemData as Producto).id;
+        }
+      });
+      
+      if (yaExiste) {
+        alert(`⚠️ Este ${tipo} ya está en el recibo. Modifica la cantidad en lugar de agregarlo otra vez.`);
+        return;
+      }
+      
+      agregandoItemRef.current = true;
+      
+      try {
+        if (tipo === 'servicio') {
+          const servicio = itemData as Servicio;
+          const precio = typeof servicio.precio_min === 'string'
+            ? parseFloat(servicio.precio_min) : servicio.precio_min;
+          setLoading(true);
 
         // 1. Crear cita en backend
         const resCita = await fetch(`${apiUrl}/citas/crear-para-recibo/`, {
@@ -282,10 +308,12 @@ export default function ProfesionalReciboModal({
 
       setSearchTerm('');
       setSearchResults([]);
-    } catch (err: any) {
+        } catch (err: any) {
       console.error('❌ Error agregando item:', err);
       alert(`⚠️ No se pudo agregar: ${err.message}`);
     } finally {
+      // ← ← ← LIBERAR BLOQUEO ← ← ←
+      agregandoItemRef.current = false;
       setLoading(false);
     }
   };
@@ -395,14 +423,23 @@ export default function ProfesionalReciboModal({
 
   // ← ← ← GUARDAR: Actualizar recibo como borrador ← ← ←
   const handleGuardar = async () => {
-    if (items.length === 0) {
-      alert('⚠️ Agrega al menos un item al recibo');
-      return;
-    }
-
-    setLoading(true);
-
-    try {
+      // ← ← ← BLOQUEO SÍNCRONO: Prevenir doble clic inmediatamente ← ← ←
+      if (guardandoRef.current) {
+        console.warn('⚠️ [handleGuardar] Ya hay una petición en curso, ignorando clic duplicado');
+        return;
+      }
+      
+      if (items.length === 0) {
+        alert('⚠️ Agrega al menos un item al recibo');
+        return;
+      }
+      
+      // ← ← ← ACTIVAR BLOQUEO ANTES de cualquier operación asíncrona ← ← ←
+      guardandoRef.current = true;
+      setLoading(true);
+      console.log('🔒 [handleGuardar] Bloqueo activado - procesando guardado...');
+      
+      try {
       const payload: any = {
         tipo: 'venta',
         estado: 'borrador',
@@ -463,11 +500,14 @@ export default function ProfesionalReciboModal({
       }
 
       onClose();
-    } catch (err: any) {
+        } catch (err: any) {
       console.error('❌ Error guardando recibo:', err);
       alert(`❌ Error: ${err.message}`);
     } finally {
+      // ← ← ← LIBERAR BLOQUEO ← ← ←
+      guardandoRef.current = false;
       setLoading(false);
+      console.log('🔓 [handleGuardar] Bloqueo liberado');
     }
   };
 
@@ -571,10 +611,11 @@ export default function ProfesionalReciboModal({
                   {searchResults.length > 0 && (
                     <div className="mt-3 max-h-64 overflow-y-auto border border-gray-700 rounded-lg">
                       {searchResults.map((item: any) => (
-                        <button
-                          key={item.id}
-                          onClick={() => agregarItem(item, searchType)}
-                          className="w-full p-3 text-left hover:bg-gray-700 transition-colors border-b border-gray-700 last:border-b-0"
+                       <button
+                            key={item.id}
+                            onClick={() => agregarItem(item, searchType)}
+                            disabled={loading || agregandoItemRef.current}
+                            className="w-full p-3 text-left hover:bg-gray-700 transition-colors border-b border-gray-700 last:border-b-0 disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           <p className="font-medium text-white text-sm">{item.nombre}</p>
                           <p className="text-xs text-gray-400">
@@ -746,10 +787,10 @@ export default function ProfesionalReciboModal({
           >
             Cancelar
           </button>
-          <button
-            onClick={handleGuardar}
-            disabled={loading || items.length === 0}
-            className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+         <button
+              onClick={handleGuardar}
+              disabled={loading || items.length === 0 || guardandoRef.current}
+              className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {loading ? (
               <>
