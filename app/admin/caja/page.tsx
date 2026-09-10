@@ -96,7 +96,8 @@ interface ValeEmpleado {
   metodo_pago?: string;
   metodo_pago_display?: string;
   session_caja?: number | null;  // ← ← ← AGREGAR ESTA LÍNEA
-   notas?: string;
+  notas?: string;
+  fecha_pago?: string | null;
 }
 
 interface CajaCategoria {
@@ -446,31 +447,31 @@ const cargarRecibos = useCallback(async () => {
 // ← Cargar datos principales
 // Modificar cargarDatosCaja para que también cargue el resumen
 // 🔁 REEMPLAZAR esta función completa:
-const cargarDatosCaja = async (cacheBuster?: number) => {
-  setLoading(true);
-  try {
-    // ← ← ← CARGAR SESIÓN PRIMERO Y GUARDAR EL ID
-    const session = await cargarSessionActiva();
-    const sessionId = session?.id || null;  // ← ← ← CLAVE: guardar ID localmente
-    
-    // ← ← ← CARGAR RESUMEN SI HAY SESIÓN
-    if (sessionId) {
-      await cargarResumenSesion(sessionId);
+const cargarDatosCaja = async (cacheBuster?: number, isSuperParam?: boolean) => {
+    setLoading(true);
+    try {
+        const currentIsSuper = isSuperParam !== undefined ? isSuperParam : esSuperadmin;
+        // ← ← ← PASAR isSuperParam a cargarSessionActiva
+        const session = await cargarSessionActiva(currentIsSuper);
+        const sessionId = session?.id || null;
+
+        if (sessionId) {
+            await cargarResumenSesion(sessionId);
+        }
+
+        await Promise.all([
+            cargarRecibosRecientes(sessionId, !!session, cacheBuster),
+            cargarVales(sessionId),
+            cargarCategorias(),
+            cargarProfesionalesParaVales()
+        ]);
+    } catch (err) {
+        console.error('❌ Error cargando datos de caja:', err);
+    } finally {
+        setLoading(false);
     }
-    
-    // ← ← ← PASAR sessionId EXPLÍCITO a todas las funciones
-    await Promise.all([
-      cargarRecibosRecientes(sessionId, !!session, cacheBuster),
-      cargarVales(sessionId),  // ← ← ← PASAR ID EXPLÍCITO
-      cargarCategorias(),
-      cargarProfesionalesParaVales()
-    ]);
-  } catch (err) {
-    console.error('❌ Error cargando datos de caja:', err);
-  } finally {
-    setLoading(false);
-  }
 };
+
 
 // Agregar esta función para cargar el resumen (después de cargarDatosCaja)
 const cargarResumenSesion = async (sessionId: number) => {
@@ -1634,10 +1635,11 @@ const handleAbrirModalComisiones = () => {
 
   // ← Cargar datos al montar
   useEffect(() => {
-  detectarSuperadmin().then(() => {
-  cargarDatosCaja();
-  });
-  }, []);
+    detectarSuperadmin().then((isSuper) => {
+        // ← ← ← CLAVE: Pasar el valor detectado directamente, no esperar al estado de React
+        cargarDatosCaja(undefined, isSuper);
+    });
+}, []);
 // Agregar este useEffect (después del useEffect que carga citas count)
 useEffect(() => {
   const sessionId = sesionSeleccionada?.id || sessionActiva?.id;
@@ -1726,36 +1728,35 @@ window.removeEventListener('reciboComisionesPagado', handleReciboComisionesPagad
   };
 
 // ← Cargar sesión activa (CORREGIDO PARA SUPERADMIN)
-const cargarSessionActiva = async (): Promise<CajaSession | null> => {
-try {
-// ← ← ← CLAVE: Superadmin usa endpoint global, usuario normal usa el suyo
-const urlSesion = esSuperadmin
-? `${apiUrl}/caja/sesiones/activa-global/`
-: `${apiUrl}/caja/sesiones/activa/`;
-
-console.log(`🔍 [cargarSessionActiva] esSuperadmin=${esSuperadmin} → URL: ${urlSesion}`);
-
-const res = await fetch(urlSesion, {
-headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-});
-if (res.ok) {
-const data = await res.json();
-setSessionActiva(data);
-if (data?.id) {
-setNuevoVale(prev => ({ ...prev, session_caja: data.id.toString() }));
-}
-return data;
-}
-// ← ← ← Si es superadmin y no hay sesión global, intentar cargar todas
-if (esSuperadmin && res.status === 404) {
-console.log('👑 [superadmin] No hay sesión activa global, cargando lista de sesiones...');
-await cargarSesionesActivasSuperadmin();
-}
-return null;
-} catch (err) {
-console.error('❌ Error cargando sesión activa:', err);
-return null;
-}
+const cargarSessionActiva = async (isSuperParam?: boolean): Promise<CajaSession | null> => {
+    try {
+        // Usar el parámetro si se proporciona, sino el estado (para llamadas posteriores)
+        const currentIsSuper = isSuperParam !== undefined ? isSuperParam : esSuperadmin;
+        const urlSesion = currentIsSuper
+            ? `${apiUrl}/caja/sesiones/activa-global/`
+            : `${apiUrl}/caja/sesiones/activa/`;
+        console.log(`🔍 [cargarSessionActiva] esSuperadmin=${currentIsSuper} → URL: ${urlSesion}`);
+        
+        const res = await fetch(urlSesion, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+        if (res.ok) {
+            const data = await res.json();
+            setSessionActiva(data);
+            if (data?.id) {
+                setNuevoVale(prev => ({ ...prev, session_caja: data.id.toString() }));
+            }
+            return data;
+        }
+        if (currentIsSuper && res.status === 404) {
+            console.log('👑 [superadmin] No hay sesión activa global, cargando lista de sesiones...');
+            await cargarSesionesActivasSuperadmin();
+        }
+        return null;
+    } catch (err) {
+        console.error('❌ Error cargando sesión activa:', err);
+        return null;
+    }
 };
 
 
@@ -1836,40 +1837,56 @@ const cargarVales = async (sessionIdExplicito?: number | null) => {
     console.log('🔍 [cargarVales] sessionId final:', sessionId);
 
     // ← ← ← CARGAR VALES DE LA SESIÓN ACTIVA/HISTÓRICA
-    if (sessionId) {
-      const urlSesion = `${apiUrl}/caja/vales/?session_caja=${sessionId}&ordering=-fecha&limit=50`;
-      console.log('📡 Fetch vales de sesión:', urlSesion);
-      const resSesion = await fetch(urlSesion, {
+// 🔥 CLAVE: Solo traer vales PENDIENTES (estado=registrado)
+// Los vales pagados/cancelados NO deben aparecer en la UI operativa
+if (sessionId) {
+    const urlSesion = `${apiUrl}/caja/vales/?session_caja=${sessionId}&estado=registrado&ordering=-fecha&limit=50`;
+    console.log('📡 Fetch vales PENDIENTES de sesión:', urlSesion);
+    const resSesion = await fetch(urlSesion, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      if (resSesion.ok) {
+    });
+    if (resSesion.ok) {
         const data = await resSesion.json();
         setValesSesion(Array.isArray(data) ? data : (data.results || []));
-      } else {
-        setValesSesion([]);
-      }
     } else {
-      setValesSesion([]);
+        setValesSesion([]);
     }
+} else {
+    setValesSesion([]);
+}
 
     // ← ← ← NUEVO: CARGAR VALES PENDIENTES GLOBALES (estado='registrado')
-    // Esto asegura que cualquier vale pendiente aparezca aunque no tenga sesión asignada aún
+    // 🔥 CLAVE: Filtrar también por fecha_pago=null para excluir vales ya pagados
+    // ← ← ← CARGAR VALES PENDIENTES GLOBALES
     const urlPendientes = `${apiUrl}/caja/vales/?estado=registrado&ordering=-fecha&limit=100`;
     console.log('📡 Fetch vales pendientes globales:', urlPendientes);
     const resPendientes = await fetch(urlPendientes, {
-      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
     });
-    
     if (resPendientes.ok) {
-      const data = await resPendientes.json();
-      const todosPendientes = Array.isArray(data) ? data : (data.results || []);
-      
-      // Filtrar solo los que NO están ya en valesSesion para evitar duplicados visuales
-      const idsEnSesion = new Set(valesSesion.map(v => v.id));
-      const pendientesFiltrados = todosPendientes.filter((v: ValeEmpleado) => !idsEnSesion.has(v.id));
-      
-      setValesPendientes(pendientesFiltrados);
-      console.log(`✅ Vales pendientes cargados: ${pendientesFiltrados.length} (total API: ${todosPendientes.length})`);
+        const data = await resPendientes.json();
+        const todosPendientes = Array.isArray(data) ? data : (data.results || []);
+        
+        // Filtrar vales que:
+        // 1. NO están ya en la sesión actual
+        // 2. Tienen estado 'registrado'
+        // 3. NO tienen fecha_pago (doble verificación de seguridad)
+        const idsEnSesion = new Set(valesSesion.map(v => v.id));
+        const pendientesFiltrados = todosPendientes.filter((v: ValeEmpleado) => {
+            const noEstaEnSesion = !idsEnSesion.has(v.id);
+            const esRegistrado = v.estado === 'registrado';
+            const sinFechaPago = !v.fecha_pago; 
+            
+            // Log para depuración (solo si falla)
+            if (!sinFechaPago || !esRegistrado) {
+                console.warn(`⚠️ Vale ${v.codigo_vale} excluido: estado=${v.estado}, fecha_pago=${v.fecha_pago}`);
+            }
+            
+            return noEstaEnSesion && esRegistrado && sinFechaPago;
+        });
+        
+        setValesPendientes(pendientesFiltrados);
+        console.log(`✅ Vales pendientes cargados: ${pendientesFiltrados.length} (total API: ${todosPendientes.length}, excluidos: ${todosPendientes.length - pendientesFiltrados.length})`);
     } else {
       console.error('❌ Error cargando vales pendientes:', resPendientes.status);
       setValesPendientes([]);
