@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import PublicidadModal from '@/components/admin/PublicidadModal';
+import CotizacionForm from '@/components/cotizacion/CotizacionForm';
 
 interface Categoria {
   id: number;
@@ -16,8 +17,6 @@ interface Categoria {
   activo: boolean;
 }
 
-// app/page.tsx - interfaz Servicio
-
 interface Servicio {
   id: number;
   nombre: string;
@@ -25,9 +24,9 @@ interface Servicio {
   descripcion?: string;
   descripcion_corta?: string;  
   tipo_precio?: string;
-  precio_min: string | number | null;        // ← AGREGAR | null
-  precio_max?: string | number | null;        // ← AGREGAR | null
-  adicional_domicilio?: string | number | null; // ← AGREGAR | null si existe  
+  precio_min: string | number | null;
+  precio_max?: string | number | null;
+  adicional_domicilio?: string | number | null;
   duracion?: string;
   sesiones_incluidas?: string | number | null;
   es_medico?: boolean;
@@ -76,6 +75,9 @@ export default function Home() {
   const [configuracion, setConfiguracion] = useState<Configuracion | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // ← ← ← NUEVO: Estado para controlar el modal de cotización ← ← ←
+  const [showCotizacionModal, setShowCotizacionModal] = useState(false);
 
   const API_DOMAIN = 'https://api.dzsalon.com';
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080';
@@ -98,14 +100,12 @@ export default function Home() {
 
         const serviciosData = await api.getServicios();
         const todosServicios = serviciosData.results || serviciosData;
-        // ← ← ← USAR endpoint dedicado para destacados ← ← ←
         try {
           const destacados = await api.getServiciosDestacados();
-          setServiciosDestacados(destacados.slice(0, 6)); // Limitar a 6 para UI
+          setServiciosDestacados(destacados.slice(0, 6));
           console.log(`✅ Servicios destacados cargados: ${destacados.length}`);
         } catch (err) {
           console.error('❌ Error cargando destacados:', err);
-          // Fallback: intentar filtrar manualmente si falla el endpoint
           const serviciosData = await api.getServicios();
           const todosServicios = serviciosData.results || serviciosData;
           const destacados = todosServicios.filter((s: Servicio) => s.destacado).slice(0, 6);
@@ -152,16 +152,15 @@ export default function Home() {
     return `${API_DOMAIN}${imagePath}`;
   };
 
-
-const heroDesktopImage = getImageUrl(
-  configuracion?.hero_imagen ?? null,
-  configuracion?.hero_imagen_url ?? null
-);
-const heroMobileImage = getImageUrl(
-  configuracion?.hero_imagen_mobile ?? null,
-  configuracion?.hero_imagen_mobile_url ?? null
-);
- const logoUrl = getImageUrl(configuracion?.logo ?? null, configuracion?.logo_url ?? null);
+  const heroDesktopImage = getImageUrl(
+    configuracion?.hero_imagen ?? null,
+    configuracion?.hero_imagen_url ?? null
+  );
+  const heroMobileImage = getImageUrl(
+    configuracion?.hero_imagen_mobile ?? null,
+    configuracion?.hero_imagen_mobile_url ?? null
+  );
+  const logoUrl = getImageUrl(configuracion?.logo ?? null, configuracion?.logo_url ?? null);
 
   if (loading) {
     return (
@@ -190,25 +189,47 @@ const heroMobileImage = getImageUrl(
     );
   }
 
-  // ← ← ← FUNCIÓN HELPER PARA FORMATEAR PRECIOS ← ← ←
-const formatPrice = (value: string | number | null | undefined): string => {
-  if (value === null || value === undefined) return '0';
-  const num = typeof value === 'string' ? parseFloat(value) : value;
-  return num.toLocaleString('es-CO', { maximumFractionDigits: 0 });
-};
+  const formatPrice = (value: string | number | null | undefined): string => {
+    if (value === null || value === undefined) return '0';
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    return num.toLocaleString('es-CO', { maximumFractionDigits: 0 });
+  };
 
   return (
     <div className="min-h-screen bg-white">
       
-      {/* ← ← ← MODAL DE PUBLICIDAD ← ← ← */}
-<PublicidadModal 
-  token={typeof window !== 'undefined' ? (
-    localStorage.getItem('user_token') || 
-    localStorage.getItem('admin_token') || 
-    localStorage.getItem('token') || 
-    undefined
-  ) : undefined}
-/>
+      {/* MODAL DE PUBLICIDAD */}
+      <PublicidadModal 
+        token={typeof window !== 'undefined' ? (
+          localStorage.getItem('user_token') || 
+          localStorage.getItem('admin_token') || 
+          localStorage.getItem('token') || 
+          undefined
+        ) : undefined}
+      />
+
+      {/* ← ← ← NUEVO: MODAL DE COTIZACIÓN ← ← ← */}
+{showCotizacionModal && (
+  <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+    {/* Overlay oscuro */}
+    <div 
+      className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+      onClick={() => setShowCotizacionModal(false)}
+    />
+    
+    {/* Modal Container */}
+    <div className="relative w-full max-w-4xl mx-auto animate-in fade-in zoom-in duration-200">
+      
+      
+
+      {/* El formulario */}
+      <CotizacionForm 
+        onSuccess={() => setShowCotizacionModal(false)}
+        onCancel={() => setShowCotizacionModal(false)}
+      />
+    </div>
+  </div>
+)}
       {/* Hero Section */}
       <section className="relative h-screen min-h-[600px] overflow-hidden">
         {/* Imagen de fondo */}
@@ -237,9 +258,7 @@ const formatPrice = (value: string | number | null | undefined): string => {
         <div className="relative z-10 h-full flex flex-col">
           
           {/* === VISTA DESKTOP === */}
-           <div  className="hidden md:flex items-center h-full pl-32 lg:pl-24 pr-560 lg:pr-24">
-
-            {/* Contenedor del contenido - CENTRADO internamente */}
+          <div className="hidden md:flex items-center h-full pl-32 lg:pl-24 pr-560 lg:pr-24">
             <div className="text-center max-w-3xl mx-auto pr-100">
               {/* Logo */}
               {logoUrl && (
@@ -251,14 +270,6 @@ const formatPrice = (value: string | number | null | undefined): string => {
                   />
                 </div>
               )}
-              
-              {/* Título principal 
-              <h1 className="text-5xl lg:text-7xl font-bold text-white mb-4 drop-shadow-2xl">
-                <span className="block text-7xl lg:text-9xl mb-3 tracking-tight">DZ</span>
-                <span className="block text-3xl lg:text-5xl font-light tracking-wide">
-                  {configuracion?.hero_titulo || 'Dorian Zambrano Salón'}
-                </span>
-              </h1>*/}
               
               {/* Slogan */}
               {configuracion?.slogan && (
@@ -274,22 +285,43 @@ const formatPrice = (value: string | number | null | undefined): string => {
               </p>
               
               {/* Botones CTA - Mejorados */}
-              <div className="flex flex-col sm:flex-row gap-5 justify-center items-center ">
-                <Link
-                  href="/citas"
-                  className="group relative px-10 py-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-full text-lg font-semibold shadow-2xl hover:shadow-blue-500/50 transition-all duration-300 transform hover:-translate-y-1 hover:scale-105 overflow-hidden"
-                >
-                  <span className="relative z-10">Reservar Cita</span>
-                  <div className="absolute inset-0 bg-gradient-to-r from-blue-700 to-blue-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300 opacity-50" ></div>
-                </Link>
-                
-                <Link
-                  href="/categorias"
-                  className="group relative px-10 py-4 bg-white/95 backdrop-blur-md text-gray-900 rounded-full text-lg font-semibold shadow-2xl hover:shadow-white/50 transition-all duration-300 transform hover:-translate-y-1 hover:scale-105 border-2 border-white/50"
-                >
-                  <span className="relative z-10">Ver Servicios</span>
-                </Link>
-              </div>
+<div className="flex flex-col gap-5 justify-center items-center max-w-md mx-auto">
+  {/* Primera fila: Reservar Cita y Ver Servicios */}
+  <div className="flex flex-col sm:flex-row gap-4 w-full justify-center">
+    <Link
+      href="/citas"
+      className="group relative flex-1 sm:flex-none px-8 py-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-full text-lg font-semibold shadow-2xl hover:shadow-blue-500/50 transition-all duration-300 transform hover:-translate-y-1 hover:scale-105 overflow-hidden text-center min-w-[200px]"
+    >
+      <span className="relative z-10">Reservar Cita</span>
+      {/* Overlay corregido: sin opacity-50 conflictivo y con group-hover funcional */}
+      <div className="absolute inset-0 bg-gradient-to-r from-blue-700 to-blue-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+    </Link>
+    
+    <Link
+      href="/categorias"
+      className="group relative flex-1 sm:flex-none px-8 py-4 bg-white/95 backdrop-blur-md text-gray-900 rounded-full text-lg font-semibold shadow-2xl hover:shadow-white/50 transition-all duration-300 transform hover:-translate-y-1 hover:scale-105 border-2 border-white/50 text-center min-w-[200px]"
+    >
+      <span className="relative z-10">Ver Servicios</span>
+      <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+    </Link>
+  </div>
+  
+  {/* Segunda fila: Botón Cotizar */}
+  <button
+  onClick={() => setShowCotizacionModal(true)}
+  className="group relative px-10 py-4 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-full text-lg font-semibold shadow-2xl hover:shadow-amber-500/50 transition-all duration-300 transform hover:-translate-y-1 hover:scale-105 overflow-hidden"
+>
+  <span className="relative z-10 flex items-center justify-center gap-2">
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+    Cotizar
+  </span>
+  <div className="absolute inset-0 bg-gradient-to-r from-amber-700 to-amber-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+</button>
+</div>
+
+
             </div>
           </div>
 
@@ -306,14 +338,6 @@ const formatPrice = (value: string | number | null | undefined): string => {
                   />
                 </div>
               )}
-              
-              {/* Título 
-              <h1 className="text-4xl font-bold text-white mb-2 drop-shadow-xl">
-                <span className="block text-6xl mb-1">DZ</span>
-                <span className="block text-2xl font-light">
-                  {configuracion?.hero_titulo || 'Dorian Zambrano Salón'}
-                </span>
-              </h1>*/}
               
               {/* Slogan */}
               {configuracion?.slogan && (
@@ -336,6 +360,18 @@ const formatPrice = (value: string | number | null | undefined): string => {
                 >
                   Reservar Cita
                 </Link>
+                
+                {/* ← ← ← NUEVO: Botón Cotizar Móvil ← ← ← */}
+                <button
+                  onClick={() => setShowCotizacionModal(true)}
+                  className="px-8 py-3 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-full text-sm font-semibold shadow-xl transition-all duration-300 transform hover:-translate-y-0.5 flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Cotizar
+                </button>
+                
                 <Link
                   href="/categorias"
                   className="px-8 py-3 bg-white/95 backdrop-blur-md text-gray-900 rounded-full text-sm font-semibold shadow-xl border-2 border-white/50 transition-all duration-300"
@@ -377,10 +413,10 @@ const formatPrice = (value: string | number | null | undefined): string => {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
             {categorias.slice(0, 8).map((categoria) => (
               <Link
-                  key={categoria.id}
-                  href={`/categorias/${categoria.slug}`}  // ← Esto lleva a /categorias/barberia
-                  className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow group"
-                >
+                key={categoria.id}
+                href={`/categorias/${categoria.slug}`}
+                className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow group"
+              >
                 <div className="relative h-40 overflow-hidden">
                   {categoria.imagen_url || categoria.imagen ? (
                     <img
