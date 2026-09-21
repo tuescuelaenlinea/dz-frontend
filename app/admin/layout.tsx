@@ -22,6 +22,7 @@ const TODOS_LOS_MENU_ITEMS: MenuItem[] = [
   { href: '/admin/publicidad', label: 'Publicidades', icon: '📢', moduloCodigo: 'publicidad' },
   { href: '/admin/experiencia', label: 'Experiencia / PQRs', icon: '⭐', moduloCodigo: 'exp'},
   { href: '/admin/citas', label: 'Citas', icon: '📅', moduloCodigo: 'citas' },
+   { href: '/admin/cotizaciones', label: 'Cotizaciones', icon: '📄', moduloCodigo: 'cotizaciones' },
   { href: '/admin/aliados', label: 'Aliados', icon: '🤝', moduloCodigo: 'aliados' },
   { href: '/admin/clientes', label: 'Clientes', icon: '👥', moduloCodigo: 'clientes' },
   { href: '/admin/categorias', label: 'Categorías', icon: '📁', moduloCodigo: 'categorias' },
@@ -486,12 +487,12 @@ useEffect(() => {
             <Link
               key={item.href}
               href={item.href}
-              className={`
+                            className={`
                 flex items-start gap-3 text-gray-300 hover:bg-gray-800 rounded-lg transition-colors
                 ${pathname === item.href ? 'bg-gray-800 text-white font-medium' : ''}
                 ${sidebarCollapsed ? 'lg:px-0 lg:justify-start' : 'lg:px-4 lg:justify-start'}
-                px-4 py-3
-              `}              
+                px-4 py-2
+              `}                           
               onClick={(e) => handleMenuClick(item, e)}
               title={sidebarCollapsed ? item.label : undefined}
             >
@@ -522,7 +523,7 @@ useEffect(() => {
               className={`
                 w-full flex items-center gap-3 text-red-400 hover:bg-gray-800 rounded-lg transition-colors
                 ${sidebarCollapsed ? 'lg:px-0 lg:justify-center' : 'lg:px-4 lg:justify-start'}
-                px-4 py-3
+                px-4 py-2
               `}
               title={sidebarCollapsed ? 'Cerrar Sesión' : undefined}
             >

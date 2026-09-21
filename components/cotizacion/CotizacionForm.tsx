@@ -16,13 +16,35 @@ interface Categoria {
   nombre: string;
 }
 
+interface CotizacionData {
+  id: number;
+  codigo_cotizacion: string;
+  nombre_completo: string;        // ← CAMBIADO
+  whatsapp: string;                // ← CAMBIADO
+  correo_electronico: string;      // ← CAMBIADO
+  servicios_interes: string;
+  fecha_aproximada: string;
+  presupuesto_aproximado: number;
+  detalles_adicionales: string;
+  estado: string;
+  valor_total: number;
+  foto_referencia_url?: string;
+}
+
 // Agregar esta interfaz para las props
 interface CotizacionFormProps {
+  cotizacionInicial?: CotizacionData | null;
+  esEdicion?: boolean;
   onSuccess?: () => void;
   onCancel?: () => void;
 }
 
-export default function CotizacionForm({ onSuccess, onCancel }: CotizacionFormProps) {
+export default function CotizacionForm({ 
+  cotizacionInicial, 
+  esEdicion = false,
+  onSuccess, 
+  onCancel 
+}: CotizacionFormProps) {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +70,40 @@ export default function CotizacionForm({ onSuccess, onCancel }: CotizacionFormPr
   const [filtroCategoria, setFiltroCategoria] = useState<string>('');
   const [busqueda, setBusqueda] = useState('');
   const [loadingServicios, setLoadingServicios] = useState(false);
+
+  // ← ← ← NUEVO: Cargar datos iniciales cuando es edición
+  useEffect(() => {
+    if (esEdicion && cotizacionInicial) {
+      setFormData({
+        nombre_completo: cotizacionInicial.nombre_completo || '',        // ← CAMBIADO
+        whatsapp: cotizacionInicial.whatsapp || '',                      // ← CAMBIADO
+        correo_electronico: cotizacionInicial.correo_electronico || '',  // ← CAMBIADO
+        servicios_interes: cotizacionInicial.servicios_interes || '',
+        fecha_aproximada: cotizacionInicial.fecha_aproximada || '',
+        presupuesto_aproximado: cotizacionInicial.presupuesto_aproximado?.toString() || '',
+        detalles_adicionales: cotizacionInicial.detalles_adicionales || '',
+      });
+
+      // Cargar foto de referencia si existe
+      if (cotizacionInicial.foto_referencia_url) {
+        setPreviewFoto(cotizacionInicial.foto_referencia_url);
+      }
+
+      // Cargar servicios seleccionados
+      if (cotizacionInicial.servicios_interes) {
+        const serviciosNombres = cotizacionInicial.servicios_interes
+          .split(',')
+          .map(s => s.trim())
+          .filter(s => s.length > 0);
+        
+        // Buscar los servicios completos en la lista disponible
+        const serviciosEncontrados = serviciosDisponibles.filter(servicio => 
+          serviciosNombres.includes(servicio.nombre)
+        );
+        setServiciosSeleccionados(serviciosEncontrados);
+      }
+    }
+  }, [esEdicion, cotizacionInicial, serviciosDisponibles]);
 
   useEffect(() => {
     if (modalServiciosOpen) {
@@ -142,12 +198,19 @@ export default function CotizacionForm({ onSuccess, onCancel }: CotizacionFormPr
         formDataToSend.append(key, formData[key as keyof typeof formData]);
       });
       
-      if (fotoReferencia) {
+      if (fotoReferencia && fotoReferencia instanceof File) {
         formDataToSend.append('foto_referencia', fotoReferencia);
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/cotizaciones/`, {
-        method: 'POST',
+      // ← ← ← CAMBIO: Usar PUT para edición, POST para creación
+      const url = esEdicion && cotizacionInicial
+        ? `${process.env.NEXT_PUBLIC_API_URL}/cotizaciones/${cotizacionInicial.id}/`
+        : `${process.env.NEXT_PUBLIC_API_URL}/cotizaciones/`;
+      
+      const method = esEdicion ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method: method,
         body: formDataToSend,
       });
 
@@ -170,6 +233,10 @@ export default function CotizacionForm({ onSuccess, onCancel }: CotizacionFormPr
       setFotoReferencia(null);
       setPreviewFoto(null);
       
+      if (onSuccess) {
+        setTimeout(() => onSuccess(), 1500);
+      }
+      
     } catch (err: any) {
       setError(err.message || 'Error al enviar la cotización');
     } finally {
@@ -186,13 +253,19 @@ export default function CotizacionForm({ onSuccess, onCancel }: CotizacionFormPr
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-xl font-bold text-amber-400 mb-2">¡Cotización Enviada!</h2>
-          <p className="text-gray-300 text-sm mb-4">Nos pondremos en contacto contigo muy pronto.</p>
+          <h2 className="text-xl font-bold text-amber-400 mb-2">
+            ¡Cotización {esEdicion ? 'Actualizada' : 'Enviada'}!
+          </h2>
+          <p className="text-gray-300 text-sm mb-4">
+            {esEdicion ? 'Los cambios se guardaron correctamente.' : 'Nos pondremos en contacto contigo muy pronto.'}
+          </p>
           <button
-            onClick={() => setSuccess(false)}
+            onClick={() => {
+              if (onSuccess) onSuccess();
+            }}
             className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-semibold transition-colors"
           >
-            Nueva Cotización
+            {esEdicion ? 'Volver al listado' : 'Nueva Cotización'}
           </button>
         </div>
       </div>
@@ -214,8 +287,15 @@ export default function CotizacionForm({ onSuccess, onCancel }: CotizacionFormPr
 
       {/* Header compacto */}
       <div className="mb-5 pr-6">
-        <h2 className="text-2xl font-bold text-amber-400 mb-1">Cotización</h2>
-        <p className="text-gray-400 text-sm">Diligencia tus datos y te contactaremos </p>
+        <h2 className="text-2xl font-bold text-amber-400 mb-1">
+          {esEdicion ? 'Editar Cotización' : 'Cotización'}
+        </h2>
+        <p className="text-gray-400 text-sm">
+          {esEdicion 
+            ? 'Modifica los datos de la cotización' 
+            : 'Diligencia tus datos y te contactaremos'
+          }
+        </p>
       </div>
 
       {error && (
@@ -457,14 +537,14 @@ export default function CotizacionForm({ onSuccess, onCancel }: CotizacionFormPr
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
-              Enviando...
+              {esEdicion ? 'Actualizando...' : 'Enviando...'}
             </>
           ) : (
             <>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
               </svg>
-              ENVIAR COTIZACIÓN
+              {esEdicion ? 'ACTUALIZAR COTIZACIÓN' : 'ENVIAR COTIZACIÓN'}
             </>
           )}
         </button>
@@ -562,7 +642,7 @@ export default function CotizacionForm({ onSuccess, onCancel }: CotizacionFormPr
                             />
                           ) : (
                             <div className="w-12 h-12 rounded-lg bg-gray-700 flex items-center justify-center flex-shrink-0">
-                              <span className="text-xl">💆</span>
+                              <span className="text-xl"></span>
                             </div>
                           )}
                           <div className="flex-1 min-w-0">

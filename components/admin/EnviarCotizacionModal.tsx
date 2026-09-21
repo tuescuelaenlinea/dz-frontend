@@ -4,11 +4,12 @@ import { useState } from 'react';
 
 interface Cotizacion {
   id: number;
-  codigo_cotizacion: string;
-  cliente_nombre: string;
-  cliente_email: string;
-  cliente_telefono: string;
-  valor_total: number;
+  // codigo_cotizacion: string; // ← ELIMINADO: El backend usa directamente el 'id'
+  nombre_completo: string;
+  correo_electronico: string;
+  whatsapp: string;
+  valor_total?: number; // ← OPCIONAL: Por si no siempre viene en la respuesta
+  estado?: string;
 }
 
 interface EnviarCotizacionModalProps {
@@ -22,26 +23,50 @@ export default function EnviarCotizacionModal({ cotizacion, onClose, onSuccess }
   const [mensajePersonalizado, setMensajePersonalizado] = useState('');
   const [incluirTerminos, setIncluirTerminos] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleEnviar = async () => {
     try {
       setLoading(true);
+      setError('');
       
-      // Aquí iría la llamada al backend para enviar
-      // Por ahora simulamos el éxito
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const token = localStorage.getItem('admin_token'); 
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
-      console.log('Enviando cotización:', {
-        cotizacionId: cotizacion.id,
-        metodo: metodoEnvio,
-        mensaje: mensajePersonalizado,
-        incluirTerminos
+      // ✅ CORRECCIÓN 1: Agregar '/api/' a la ruta del endpoint
+      const response = await fetch(`${apiUrl}/cotizaciones/${cotizacion.id}/enviar/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`, 
+        },
+        body: JSON.stringify({
+          metodo_envio: metodoEnvio,
+          mensaje_personalizado: mensajePersonalizado,
+          incluir_terminos: incluirTerminos,
+        }),
       });
       
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || data.detail || 'Error al procesar la cotización');
+      }
+      
+      console.log('✅ Respuesta del servidor:', data);
+      
+      // ✅ CORRECCIÓN 2: Si el backend devuelve un enlace de WhatsApp, abrirlo en nueva pestaña
+      if (data.whatsapp_link) {
+        window.open(data.whatsapp_link, '_blank');
+      }
+      
+      alert(`✅ Cotización procesada exitosamente por: ${data.exitos.join(', ')}`);
+      
       onSuccess();
+      
     } catch (err) {
-      console.error('Error enviando cotización:', err);
-      alert('Error al enviar la cotización');
+      console.error('❌ Error enviando cotización:', err);
+      setError(err instanceof Error ? err.message : 'Error al procesar la cotización');
     } finally {
       setLoading(false);
     }
@@ -62,11 +87,19 @@ export default function EnviarCotizacionModal({ cotizacion, onClose, onSuccess }
 
         {/* Contenido */}
         <div className="p-6 space-y-6">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+              {error}
+            </div>
+          )}
+
           {/* Info de la cotización */}
           <div className="bg-gray-50 rounded-lg p-4">
-            <p className="text-sm text-gray-600">Cotización <span className="font-semibold text-gray-900">#{cotizacion.codigo_cotizacion}</span></p>
-            <p className="text-lg font-semibold text-gray-900 mt-1">{cotizacion.cliente_nombre}</p>
-            <p className="text-sm text-gray-600">Valor: <span className="font-semibold">${cotizacion.valor_total?.toLocaleString('es-CO')}</span></p>
+            <p className="text-sm text-gray-600">Cotización <span className="font-semibold text-gray-900">#{cotizacion.id}</span></p>            
+            <p className="text-lg font-semibold text-gray-900 mt-1">{cotizacion.nombre_completo}</p>
+            {cotizacion.valor_total && (
+              <p className="text-sm text-gray-600">Valor: <span className="font-semibold">${cotizacion.valor_total.toLocaleString('es-CO')}</span></p>
+            )}
           </div>
 
           {/* Método de envío */}
@@ -109,7 +142,7 @@ export default function EnviarCotizacionModal({ cotizacion, onClose, onSuccess }
                     : 'border-gray-200 hover:border-gray-300'
                 }`}
               >
-                <span className="text-2xl">📧📱</span>
+                <span className="text-2xl">📧</span>
                 <span className="text-sm font-medium">Ambos</span>
               </button>
             </div>
@@ -139,7 +172,7 @@ export default function EnviarCotizacionModal({ cotizacion, onClose, onSuccess }
               className="w-4 h-4 text-amber-600 border-gray-300 rounded focus:ring-amber-500"
             />
             <label htmlFor="terminos" className="text-sm text-gray-700">
-              Incluir términos y condiciones en el PDF
+              Incluir términos y condiciones
             </label>
           </div>
         </div>
@@ -148,7 +181,8 @@ export default function EnviarCotizacionModal({ cotizacion, onClose, onSuccess }
         <div className="border-t border-gray-200 px-6 py-4 flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+            disabled={loading}
+            className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
           >
             Cancelar
           </button>
@@ -163,7 +197,7 @@ export default function EnviarCotizacionModal({ cotizacion, onClose, onSuccess }
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-                Enviando...
+                Procesando...
               </>
             ) : (
               <>

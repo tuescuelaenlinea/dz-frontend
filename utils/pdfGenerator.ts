@@ -33,17 +33,18 @@ interface CotizacionPDF {
 export const generarPDFCotizacion = (cotizacion: CotizacionPDF) => {
   const doc = new jsPDF();
   
-const colors: {
-  primary: [number, number, number];
-  secondary: [number, number, number];
-  accent: [number, number, number];
-  white: [number, number, number];
-} = {
-  primary: [180, 120, 60],
-  secondary: [40, 40, 40],
-  accent: [200, 160, 100],
-  white: [255, 255, 255],
-};
+  const colors: {
+    primary: [number, number, number];
+    secondary: [number, number, number];
+    accent: [number, number, number];
+    white: [number, number, number];
+  } = {
+    primary: [180, 120, 60],
+    secondary: [40, 40, 40],
+    accent: [200, 160, 100],
+    white: [255, 255, 255],
+  };
+
   // Header
   doc.setFillColor(...colors.secondary);
   doc.rect(0, 0, 210, 40, 'F');
@@ -82,9 +83,9 @@ const colors: {
   
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
-  doc.text(cotizacion.cliente_nombre, 15, 62);
-  doc.text(`Cel: ${cotizacion.cliente_telefono}`, 15, 68);
-  doc.text(`Correo: ${cotizacion.cliente_email}`, 15, 74);
+  doc.text(cotizacion.cliente_nombre || 'No especificado', 15, 62);
+  doc.text(`Cel: ${cotizacion.cliente_telefono || 'No especificado'}`, 15, 68);
+  doc.text(`Correo: ${cotizacion.cliente_email || 'No especificado'}`, 15, 74);
 
   // Tabla de servicios
   const servicios = cotizacion.servicios || [];
@@ -96,7 +97,7 @@ const colors: {
     `$ ${servicio.total.toLocaleString('es-CO')}`
   ]);
 
-  // ← ← ← CLAVE: Usar autoTable como función importada ← ← ←
+  // ← ← ← CORREGIDO: Ajustar anchos para que no se pegue al borde derecho ← ← ←
   autoTable(doc, {
     startY: 90,
     head: [['Servicio', 'Cantidad', 'Valor unitario', 'Total']],
@@ -115,11 +116,12 @@ const colors: {
       cellPadding: 3,
       halign: 'left'
     },
+    margin: { left: 15, right: 15 },  // ← ← ← NUEVO: Márgenes laterales
     columnStyles: {
-      0: { cellWidth: 80 },
-      1: { cellWidth: 30, halign: 'center' },
-      2: { cellWidth: 45, halign: 'right' },
-      3: { cellWidth: 45, halign: 'right' }
+      0: { cellWidth: 75 },           // ← ← ← REDUCIDO de 80 a 75
+      1: { cellWidth: 25, halign: 'center' },  // ← ← ← REDUCIDO de 30 a 25
+      2: { cellWidth: 40, halign: 'right' },   // ← ← ← REDUCIDO de 45 a 40
+      3: { cellWidth: 40, halign: 'right' }    // ← ← ← REDUCIDO de 45 a 40
     }
   });
 

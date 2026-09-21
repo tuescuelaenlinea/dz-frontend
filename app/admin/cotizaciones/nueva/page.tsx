@@ -1,8 +1,23 @@
-// app/admin/cotizaciones/nueva/page.tsx
 'use client';
+// admin/cotizaciones/nueva.page.tsx
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import CotizacionForm from '@/components/admin/CotizacionForm';
+
+interface CotizacionData {
+  id: number;
+  codigo_cotizacion: string;
+   nombre_completo: string;        // en lugar de cliente_nombre
+  whatsapp: string;                // en lugar de cliente_telefono
+  correo_electronico: string;      // en lugar de cliente_email
+  servicios_interes: string;
+  fecha_aproximada: string;
+  presupuesto_aproximado: number;
+  detalles_adicionales: string;
+  estado: string;
+  valor_total: number;
+  // Agrega más campos según tu modelo
+}
 
 export default function NuevaCotizacionPage() {
   const router = useRouter();
@@ -10,26 +25,36 @@ export default function NuevaCotizacionPage() {
   const editId = searchParams.get('edit');
   
   const [loading, setLoading] = useState(!!editId);
-  const [cotizacionData, setCotizacionData] = useState(null);
+  const [cotizacionData, setCotizacionData] = useState<CotizacionData | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (editId) {
       cargarCotizacion(editId);
+    } else {
+      setLoading(false);
     }
   }, [editId]);
 
   const cargarCotizacion = async (id: string) => {
     try {
       setLoading(true);
+      setError(null);
       const token = localStorage.getItem('admin_token');
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/cotizaciones/${id}/`, {
+      
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/cotizaciones/${id}/`, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
-      const data = await res.json();
+      
+      if (!response.ok) {
+        throw new Error('Error al cargar la cotización');
+      }
+      
+      const data = await response.json();
       setCotizacionData(data);
     } catch (err) {
       console.error('❌ Error cargando cotización:', err);
-      alert('Error al cargar la cotización');
+      setError('No se pudo cargar la cotización');
     } finally {
       setLoading(false);
     }
@@ -39,6 +64,22 @@ export default function NuevaCotizacionPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-600"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-600 mb-4">{error}</p>
+          <button
+            onClick={() => router.push('/admin/cotizaciones')}
+            className="px-4 py-2 bg-amber-600 text-white rounded-lg"
+          >
+            Volver al listado
+          </button>
+        </div>
       </div>
     );
   }
@@ -61,7 +102,10 @@ export default function NuevaCotizacionPage() {
               {editId ? 'Editar Cotización' : 'Nueva Cotización'}
             </h1>
             <p className="text-gray-600 mt-1">
-              {editId ? 'Modifica los datos de la cotización' : 'Selecciona los servicios, ajusta cantidades y personaliza la cotización'}
+              {editId 
+                ? `Cotización #${cotizacionData?.codigo_cotizacion || editId}`
+                : 'Selecciona los servicios, ajusta cantidades y personaliza la cotización'
+              }
             </p>
           </div>
         </div>

@@ -16,9 +16,9 @@ interface Servicio {
 interface CotizacionData {
   id?: number;
   codigo_cotizacion?: string;
-  cliente_nombre: string;
-  cliente_telefono: string;
-  cliente_email: string;
+  nombre_completo: string;
+  whatsapp: string;
+  correo_electronico: string;
   fecha_aproximada?: string;
   detalles_adicionales?: string;
   servicios_interes: string;
@@ -44,6 +44,7 @@ export default function CotizacionForm({
   const [serviciosSeleccionados, setServiciosSeleccionados] = useState<Map<number, {cantidad: number, precio: number}>>(new Map());
   const [busqueda, setBusqueda] = useState('');
   const [loading, setLoading] = useState(false);
+  const [cargandoDatos, setCargandoDatos] = useState(esEdicion);
   
   // Datos del cliente
   const [clienteNombre, setClienteNombre] = useState('');
@@ -60,24 +61,6 @@ export default function CotizacionForm({
     cargarServicios();
   }, []);
 
-  // Cargar datos si es edición
-  useEffect(() => {
-    if (cotizacionInicial && esEdicion) {
-      setClienteNombre(cotizacionInicial.cliente_nombre || '');
-      setClienteTelefono(cotizacionInicial.cliente_telefono || '');
-      setClienteEmail(cotizacionInicial.cliente_email || '');
-      setFechaAproximada(cotizacionInicial.fecha_aproximada || '');
-      setMensajeAdicional(cotizacionInicial.detalles_adicionales || '');
-      setNotas(cotizacionInicial.detalles_adicionales || notas);
-      
-      // Parsear servicios seleccionados
-      if (cotizacionInicial.servicios_interes) {
-        // Aquí deberías parsear los servicios desde el backend
-        // Por ahora, lo dejamos vacío o lo cargas desde una API
-      }
-    }
-  }, [cotizacionInicial, esEdicion]);
-
   const cargarServicios = async () => {
     try {
       const token = localStorage.getItem('admin_token');
@@ -90,6 +73,46 @@ export default function CotizacionForm({
       console.error('❌ Error cargando servicios:', err);
     }
   };
+
+  // Cargar datos si es edición (espera a que los servicios estén cargados)
+  useEffect(() => {
+    if (cotizacionInicial && esEdicion && servicios.length > 0) {
+      setClienteNombre(cotizacionInicial.nombre_completo || '');
+      setClienteTelefono(cotizacionInicial.whatsapp || '');
+      setClienteEmail(cotizacionInicial.correo_electronico || '');
+      setFechaAproximada(cotizacionInicial.fecha_aproximada || '');
+      setMensajeAdicional(cotizacionInicial.detalles_adicionales || '');
+      setNotas(cotizacionInicial.detalles_adicionales || notas);
+      
+      // Parsear servicios seleccionados
+      if (cotizacionInicial.servicios_interes) {
+        const partes = cotizacionInicial.servicios_interes.split(',').map(s => s.trim());
+        const nuevasSeleccionadas = new Map<number, {cantidad: number, precio: number}>();
+        
+        partes.forEach(parte => {
+          const idNum = parseInt(parte);
+          let servicioEncontrado = servicios.find(s => s.id === idNum);
+          
+          if (!servicioEncontrado) {
+            servicioEncontrado = servicios.find(s => s.nombre.toLowerCase() === parte.toLowerCase());
+          }
+          
+          if (servicioEncontrado) {
+            nuevasSeleccionadas.set(servicioEncontrado.id, {
+              cantidad: 1,
+              precio: servicioEncontrado.precio_min
+            });
+          }
+        });
+        
+        setServiciosSeleccionados(nuevasSeleccionadas);
+      }
+      
+      setCargandoDatos(false);
+    } else if (!esEdicion) {
+      setCargandoDatos(false);
+    }
+  }, [cotizacionInicial, esEdicion, servicios]);
 
   const toggleServicio = (servicio: Servicio) => {
     setServiciosSeleccionados(prev => {
@@ -112,6 +135,18 @@ export default function CotizacionForm({
       const actual = nuevas.get(servicioId);
       if (actual) {
         nuevas.set(servicioId, { ...actual, cantidad: Math.max(1, cantidad) });
+      }
+      return nuevas;
+    });
+  };
+
+  // ← ← ← NUEVA FUNCIÓN: Actualizar precio unitario manualmente ← ← ←
+  const actualizarPrecio = (servicioId: number, nuevoPrecio: number) => {
+    setServiciosSeleccionados(prev => {
+      const nuevas = new Map(prev);
+      const actual = nuevas.get(servicioId);
+      if (actual) {
+        nuevas.set(servicioId, { ...actual, precio: Math.max(0, nuevoPrecio) });
       }
       return nuevas;
     });
@@ -170,15 +205,17 @@ export default function CotizacionForm({
       setLoading(true);
       const token = localStorage.getItem('admin_token');
       
+      const serviciosIds = Array.from(serviciosSeleccionados.keys()).join(',');
+      
       const payload = {
-        cliente_nombre: clienteNombre,
-        cliente_telefono: clienteTelefono,
-        cliente_email: clienteEmail,
+        nombre_completo: clienteNombre,
+        whatsapp: clienteTelefono,
+        correo_electronico: clienteEmail,
         fecha_aproximada: fechaAproximada,
         detalles_adicionales: mensajeAdicional,
-        servicios_interes: Array.from(serviciosSeleccionados.keys()).join(','),
+        servicios_interes: serviciosIds,
         presupuesto_aproximado: total,
-        estado: 'nueva',
+        estado: esEdicion ? (cotizacionInicial?.estado || 'nueva') : 'nueva',
         valor_total: total
       };
 
@@ -197,17 +234,28 @@ export default function CotizacionForm({
         body: JSON.stringify(payload)
       });
 
-      if (!res.ok) throw new Error('Error al guardar');
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || errorData.message || 'Error al guardar');
+      }
 
-      alert(esEdicion ? 'Cotización actualizada' : 'Cotización creada');
+      alert(esEdicion ? '✅ Cotización actualizada exitosamente' : '✅ Cotización creada exitosamente');
       onSuccess();
-    } catch (err) {
-      console.error(' Error guardando:', err);
-      alert('Error al guardar la cotización');
+    } catch (err: any) {
+      console.error('❌ Error guardando:', err);
+      alert(`Error al guardar la cotización: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
+
+  if (cargandoDatos) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px] bg-white rounded-xl border border-gray-200">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-12 gap-6">
@@ -291,7 +339,6 @@ export default function CotizacionForm({
       <div className="col-span-12 lg:col-span-5 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h2 className="text-lg font-bold text-gray-900 mb-4">2. Selecciona los servicios</h2>
         
-        {/* Buscador */}
         <div className="mb-4">
           <div className="relative">
             <input
@@ -307,7 +354,6 @@ export default function CotizacionForm({
           </div>
         </div>
 
-        {/* Lista de servicios */}
         <div className="space-y-2 max-h-[600px] overflow-y-auto">
           {serviciosFiltrados.map(servicio => {
             const seleccionado = serviciosSeleccionados.has(servicio.id);
@@ -340,75 +386,109 @@ export default function CotizacionForm({
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-gray-900 truncate">{servicio.nombre}</p>
                   <p className="text-sm text-gray-600">
-                    ${servicio.precio_min.toLocaleString('es-CO')}
+                    {/* ← ← ← Muestra el precio editado si existe, sino el original ← ← ← */}
+                    ${(datos?.precio || servicio.precio_min).toLocaleString('es-CO')}
                   </p>
                 </div>
-
-                {seleccionado && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => actualizarCantidad(servicio.id, (datos?.cantidad || 1) - 1)}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-300 hover:bg-gray-100"
-                    >
-                      -
-                    </button>
-                    <span className="w-8 text-center font-medium">
-                      {datos?.cantidad || 1}
-                    </span>
-                    <button
-                      onClick={() => actualizarCantidad(servicio.id, (datos?.cantidad || 1) + 1)}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-300 hover:bg-gray-100"
-                    >
-                      +
-                    </button>
-                  </div>
-                )}
               </div>
             );
           })}
+          {serviciosFiltrados.length === 0 && (
+            <p className="text-center text-gray-500 py-8">No se encontraron servicios</p>
+          )}
         </div>
       </div>
 
-      {/* SECCIÓN 3: Resumen */}
+      {/* SECCIÓN 3: Resumen (EDITABLE) */}
       <div className="col-span-12 lg:col-span-4 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h2 className="text-lg font-bold text-gray-900 mb-4">3. Resumen de la cotización</h2>
         
-        {/* Servicios seleccionados */}
-        <div className="space-y-2 mb-6 max-h-[300px] overflow-y-auto">
+               {/* Servicios seleccionados con campos editables */}
+        <div className="space-y-3 mb-6 max-h-[300px] overflow-y-auto pr-2">
           {Array.from(serviciosSeleccionados.entries()).map(([servicioId, datos]) => {
             const servicio = servicios.find(s => s.id === servicioId);
             if (!servicio) return null;
             
             return (
-              <div key={servicioId} className="flex justify-between items-center py-2 border-b border-gray-100">
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-900">{servicio.nombre}</p>
-                  <p className="text-xs text-gray-500">x{datos.cantidad}</p>
+              <div key={servicioId} className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                {/* Fila 1: Nombre + Subtotal + Eliminar */}
+                <div className="flex justify-between items-center mb-3">
+                  <p className="text-sm font-medium text-gray-900 flex-1">{servicio.nombre}</p>
+                  <p className="text-sm font-bold text-gray-900 mx-3 whitespace-nowrap">
+                    ${(datos.precio * datos.cantidad).toLocaleString('es-CO')}
+                  </p>
+                  <button
+                    onClick={() => toggleServicio(servicio)}
+                    className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition-colors flex-shrink-0"
+                    title="Quitar servicio"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
-                <p className="text-sm font-medium text-gray-900">
-                  ${(datos.precio * datos.cantidad).toLocaleString('es-CO')}
-                </p>
+                
+                {/* Fila 2: Cantidad + Precio unitario */}
+                <div className="flex items-end gap-4">
+                  {/* Cantidad editable */}
+                  <div className="flex-1">
+                    <label className="block text-xs text-gray-500 mb-1">Cantidad</label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => actualizarCantidad(servicioId, (datos.cantidad || 1) - 1)}
+                        className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 bg-white"
+                      >
+                        -
+                      </button>
+                      <span className="w-8 text-center text-sm font-medium">{datos.cantidad}</span>
+                      <button
+                        onClick={() => actualizarCantidad(servicioId, (datos.cantidad || 1) + 1)}
+                        className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 bg-white"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Precio unitario editable (sin decimales) */}
+                  <div className="flex-1">
+                    <label className="block text-xs text-gray-500 mb-1">Precio unit. ($)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={Math.round(datos.precio)}
+                      onChange={(e) => actualizarPrecio(servicioId, Number(e.target.value))}
+                      className="w-full px-2 py-1.5 text-right text-sm border border-gray-300 rounded focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                  </div>
+                </div>
               </div>
             );
           })}
+          {serviciosSeleccionados.size === 0 && (
+            <p className="text-center text-gray-500 py-4 text-sm bg-gray-50 rounded-lg border border-dashed border-gray-300">
+              No hay servicios seleccionados
+            </p>
+          )}
         </div>
 
         {/* Totales */}
-        <div className="space-y-2 mb-6">
+        <div className="space-y-2 mb-6 bg-gray-50 p-4 rounded-lg">
           <div className="flex justify-between text-sm">
             <span className="text-gray-600">Subtotal</span>
             <span className="font-medium">${subtotal.toLocaleString('es-CO')}</span>
           </div>
           
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">Descuento</span>
+            <span className="text-sm text-gray-600">Descuento global</span>
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500">%</span>
               <input
                 type="number"
                 value={descuento}
                 onChange={(e) => setDescuento(Math.min(100, Math.max(0, Number(e.target.value))))}
-                className="w-16 px-2 py-1 border border-gray-300 rounded text-right text-sm"
+                className="w-16 px-2 py-1 border border-gray-300 rounded text-right text-sm bg-white"
                 min="0"
                 max="100"
               />
@@ -418,9 +498,9 @@ export default function CotizacionForm({
             </span>
           </div>
           
-          <div className="flex justify-between items-center pt-3 border-t border-gray-200">
+          <div className="flex justify-between items-center pt-3 border-t border-gray-300">
             <span className="text-lg font-bold text-gray-900">Total</span>
-            <span className="text-2xl font-bold text-gray-900">
+            <span className="text-2xl font-bold text-amber-600">
               ${total.toLocaleString('es-CO')}
             </span>
           </div>
@@ -489,7 +569,7 @@ export default function CotizacionForm({
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                   </svg>
-                  Enviar por
+                  {esEdicion ? 'Actualizar' : 'Guardar'}
                 </>
               )}
             </button>
