@@ -214,8 +214,8 @@ export default function CotizacionForm({ onSuccess, onCancel }: CotizacionFormPr
 
       {/* Header compacto */}
       <div className="mb-5 pr-6">
-        <h2 className="text-2xl font-bold text-amber-400 mb-1">Formulario de Cotización</h2>
-        <p className="text-gray-400 text-sm">Diligencia tus datos y nos pondremos en contacto contigo</p>
+        <h2 className="text-2xl font-bold text-amber-400 mb-1">Cotización</h2>
+        <p className="text-gray-400 text-sm">Diligencia tus datos y te contactaremos </p>
       </div>
 
       {error && (
@@ -367,12 +367,14 @@ export default function CotizacionForm({ onSuccess, onCancel }: CotizacionFormPr
           </div>
         </div>
 
-        {/* Detalles adicionales */}
-        <div>
-          <label className="block text-xs font-medium text-gray-300 mb-1.5">
-            Cuéntanos más sobre lo que necesitas <span className="text-red-400">*</span>
-          </label>
-          <div className="relative">
+                {/* Detalles adicionales y Foto de referencia en una sola fila */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Detalles adicionales */}
+          <div className="flex flex-col">
+            <label className="block text-xs font-medium text-gray-300 mb-1.5">
+              Cuéntanos más sobre lo que necesitas <span className="text-red-400">*</span>
+            </label>
+            <div className="relative">
             <div className="absolute top-2.5 left-3">
               <svg className="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -388,45 +390,45 @@ export default function CotizacionForm({ onSuccess, onCancel }: CotizacionFormPr
               placeholder="Escribe aquí los detalles..."
             />
           </div>
-        </div>
+          </div>
 
-        {/* Foto de referencia */}
-        <div>
-          <label className="block text-xs font-medium text-gray-300 mb-1.5">
-            Adjunta una foto de referencia <span className="text-gray-500">(opcional)</span>
-          </label>
-          <div className="border-2 border-dashed border-gray-700 rounded-lg p-3 hover:border-amber-500/50 transition-colors bg-gray-800/30">
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleFileChange}
-              className="hidden"
-              id="foto-referencia"
-            />
-            <label htmlFor="foto-referencia" className="cursor-pointer flex items-center gap-3">
-              {previewFoto ? (
-                <div className="flex items-center gap-3 flex-1">
-                  <img src={previewFoto} alt="Preview" className="w-12 h-12 rounded object-cover" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-white truncate">Imagen seleccionada</p>
-                    <p className="text-xs text-gray-500">Click para cambiar</p>
+          {/* Foto de referencia */}
+          <div className="flex flex-col">
+            <label className="block text-xs font-medium text-gray-300 mb-1.5">
+              Adjunta una foto de referencia <span className="text-gray-500">(opcional)</span>
+            </label>
+            <div className="border-2 border-dashed border-gray-700 rounded-lg p-3 hover:border-amber-500/50 transition-colors bg-gray-800/30 flex-1 flex flex-col justify-center">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="hidden"
+                id="foto-referencia"
+              />
+              <label htmlFor="foto-referencia" className="cursor-pointer flex flex-col items-center justify-center gap-2 h-full text-center">
+                {previewFoto ? (
+                  <div className="flex items-center gap-3 w-full">
+                    <img src={previewFoto} alt="Preview" className="w-12 h-12 rounded object-cover flex-shrink-0" />
+                    <div className="flex-1 min-w-0 text-left">
+                      <p className="text-xs text-white truncate">Imagen seleccionada</p>
+                      <p className="text-xs text-gray-500">Click para cambiar</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setFotoReferencia(null);
+                        setPreviewFoto(null);
+                      }}
+                      className="text-gray-400 hover:text-red-400 transition-colors flex-shrink-0"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setFotoReferencia(null);
-                      setPreviewFoto(null);
-                    }}
-                    className="text-gray-400 hover:text-red-400 transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3">
+                ) : (
+                  <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center">
                     <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -437,8 +439,9 @@ export default function CotizacionForm({ onSuccess, onCancel }: CotizacionFormPr
                     <p className="text-xs text-gray-600">JPG, PNG (Máx. 5 MB)</p>
                   </div>
                 </div>
-              )}
-            </label>
+                )}
+              </label>
+            </div>
           </div>
         </div>
 

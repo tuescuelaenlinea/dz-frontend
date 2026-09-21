@@ -306,19 +306,19 @@ export default function Home() {
     </Link>
   </div>
   
-  {/* Segunda fila: Botón Cotizar */}
-  <button
-  onClick={() => setShowCotizacionModal(true)}
-  className="group relative px-10 py-4 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-full text-lg font-semibold shadow-2xl hover:shadow-amber-500/50 transition-all duration-300 transform hover:-translate-y-1 hover:scale-105 overflow-hidden"
->
-  <span className="relative z-10 flex items-center justify-center gap-2">
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-    </svg>
-    Cotizar
-  </span>
-  <div className="absolute inset-0 bg-gradient-to-r from-amber-700 to-amber-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-</button>
+    {/* Segunda fila: Botón Cotizar (Desktop/Tablet) */}
+  <Link
+    href="/cotizacion"
+    className="group relative px-10 py-4 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-full text-lg font-semibold shadow-2xl hover:shadow-amber-500/50 transition-all duration-300 transform hover:-translate-y-1 hover:scale-105 overflow-hidden text-center"
+  >
+    <span className="relative z-10 flex items-center justify-center gap-2">
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+      Cotizar
+    </span>
+    <div className="absolute inset-0 bg-gradient-to-r from-amber-700 to-amber-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+  </Link>
 </div>
 
 

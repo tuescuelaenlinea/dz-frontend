@@ -1891,5 +1891,7 @@ const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
         />
       )}
     </div>
+  
   );
 }
+
