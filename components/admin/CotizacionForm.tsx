@@ -13,6 +13,12 @@ interface Servicio {
   imagen_url?: string;
 }
 
+interface ServicioDetalle {
+  id: number;
+  cantidad: number;
+  precio: number;
+}
+
 interface CotizacionData {
   id?: number;
   codigo_cotizacion?: string;
@@ -22,7 +28,9 @@ interface CotizacionData {
   fecha_aproximada?: string;
   detalles_adicionales?: string;
   servicios_interes: string;
+  servicios_detalle?: string; // ← ← ← NUEVO
   presupuesto_aproximado?: number;
+  descuento?: number; // ← ← ← NUEVO
   estado?: string;
   valor_total?: number;
 }
@@ -74,7 +82,7 @@ export default function CotizacionForm({
     }
   };
 
-  // Cargar datos si es edición (espera a que los servicios estén cargados)
+  // Cargar datos si es edición
   useEffect(() => {
     if (cotizacionInicial && esEdicion && servicios.length > 0) {
       setClienteNombre(cotizacionInicial.nombre_completo || '');
@@ -84,18 +92,57 @@ export default function CotizacionForm({
       setMensajeAdicional(cotizacionInicial.detalles_adicionales || '');
       setNotas(cotizacionInicial.detalles_adicionales || notas);
       
-      // Parsear servicios seleccionados
-      if (cotizacionInicial.servicios_interes) {
+      // ← ← ← CARGAR DESCUENTO ← ← ←
+      if (cotizacionInicial.descuento !== undefined) {
+        const subtotal = Number(cotizacionInicial.presupuesto_aproximado || 0) + Number(cotizacionInicial.descuento || 0);
+        const porcentajeDescuento = subtotal > 0 ? (Number(cotizacionInicial.descuento || 0) / subtotal) * 100 : 0;
+        setDescuento(porcentajeDescuento);
+      }
+      
+      // ← ← ← CARGAR SERVICIOS DETALLE (valores personalizados) ← ← ←
+      if (cotizacionInicial.servicios_detalle) {
+        try {
+          const detalles: ServicioDetalle[] = JSON.parse(cotizacionInicial.servicios_detalle);
+          const nuevasSeleccionadas = new Map<number, {cantidad: number, precio: number}>();
+          
+          detalles.forEach(detalle => {
+            nuevasSeleccionadas.set(detalle.id, {
+              cantidad: detalle.cantidad,
+              precio: detalle.precio
+            });
+          });
+          
+          setServiciosSeleccionados(nuevasSeleccionadas);
+        } catch (err) {
+          console.error('Error parseando servicios_detalle:', err);
+          // Fallback: usar servicios_interes
+          if (cotizacionInicial.servicios_interes) {
+            const partes = cotizacionInicial.servicios_interes.split(',').map(s => s.trim());
+            const nuevasSeleccionadas = new Map<number, {cantidad: number, precio: number}>();
+            
+            partes.forEach(parte => {
+              const idNum = parseInt(parte);
+              const servicioEncontrado = servicios.find(s => s.id === idNum);
+              
+              if (servicioEncontrado) {
+                nuevasSeleccionadas.set(servicioEncontrado.id, {
+                  cantidad: 1,
+                  precio: servicioEncontrado.precio_min
+                });
+              }
+            });
+            
+            setServiciosSeleccionados(nuevasSeleccionadas);
+          }
+        }
+      } else if (cotizacionInicial.servicios_interes) {
+        // Fallback si no hay servicios_detalle
         const partes = cotizacionInicial.servicios_interes.split(',').map(s => s.trim());
         const nuevasSeleccionadas = new Map<number, {cantidad: number, precio: number}>();
         
         partes.forEach(parte => {
           const idNum = parseInt(parte);
-          let servicioEncontrado = servicios.find(s => s.id === idNum);
-          
-          if (!servicioEncontrado) {
-            servicioEncontrado = servicios.find(s => s.nombre.toLowerCase() === parte.toLowerCase());
-          }
+          const servicioEncontrado = servicios.find(s => s.id === idNum);
           
           if (servicioEncontrado) {
             nuevasSeleccionadas.set(servicioEncontrado.id, {
@@ -140,7 +187,6 @@ export default function CotizacionForm({
     });
   };
 
-  // ← ← ← NUEVA FUNCIÓN: Actualizar precio unitario manualmente ← ← ←
   const actualizarPrecio = (servicioId: number, nuevoPrecio: number) => {
     setServiciosSeleccionados(prev => {
       const nuevas = new Map(prev);
@@ -207,6 +253,13 @@ export default function CotizacionForm({
       
       const serviciosIds = Array.from(serviciosSeleccionados.keys()).join(',');
       
+      // ← ← ← NUEVO: Construir servicios_detalle como JSON ← ← ←
+      const serviciosDetalle: ServicioDetalle[] = Array.from(serviciosSeleccionados.entries()).map(([id, data]) => ({
+        id,
+        cantidad: data.cantidad,
+        precio: data.precio
+      }));
+      
       const payload = {
         nombre_completo: clienteNombre,
         whatsapp: clienteTelefono,
@@ -214,8 +267,10 @@ export default function CotizacionForm({
         fecha_aproximada: fechaAproximada,
         detalles_adicionales: mensajeAdicional,
         servicios_interes: serviciosIds,
+        servicios_detalle: JSON.stringify(serviciosDetalle), // ← ← ← NUEVO
         presupuesto_aproximado: total,
-        estado: esEdicion ? (cotizacionInicial?.estado || 'nueva') : 'nueva',
+        descuento: montoDescuento, // ← ← ← NUEVO: Enviar descuento calculado
+        estado: esEdicion ? (cotizacionInicial?.estado || 'pendiente') : 'pendiente',
         valor_total: total
       };
 
@@ -283,7 +338,7 @@ export default function CotizacionForm({
             </label>
             <div className="flex">
               <span className="inline-flex items-center px-3 rounded-l-lg border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">
-                🇨🇴 +57
+                🇨 +57
               </span>
               <input
                 type="tel"
@@ -386,7 +441,6 @@ export default function CotizacionForm({
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-gray-900 truncate">{servicio.nombre}</p>
                   <p className="text-sm text-gray-600">
-                    {/* ← ← ← Muestra el precio editado si existe, sino el original ← ← ← */}
                     ${(datos?.precio || servicio.precio_min).toLocaleString('es-CO')}
                   </p>
                 </div>
@@ -403,7 +457,7 @@ export default function CotizacionForm({
       <div className="col-span-12 lg:col-span-4 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h2 className="text-lg font-bold text-gray-900 mb-4">3. Resumen de la cotización</h2>
         
-               {/* Servicios seleccionados con campos editables */}
+        {/* Servicios seleccionados con campos editables */}
         <div className="space-y-3 mb-6 max-h-[300px] overflow-y-auto pr-2">
           {Array.from(serviciosSeleccionados.entries()).map(([servicioId, datos]) => {
             const servicio = servicios.find(s => s.id === servicioId);
