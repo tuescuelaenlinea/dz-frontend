@@ -139,94 +139,109 @@ export default function CotizacionesPage() {
   };
 
   const handleGenerarPDF = async (cotizacion: Cotizacion) => {
-    try {
-      // ← ← ← OBTENER DATOS COMPLETOS DESDE EL BACKEND ← ← ←
-      const token = localStorage.getItem('admin_token');
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/cotizaciones/${cotizacion.id}/`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      
-      if (!res.ok) throw new Error('Error al obtener detalles de la cotización');
-      
-      const cotizacionDetalles = await res.json();
-      
-      // ← ← ← 1. PROCESAR SERVICIOS DETALLE (valores personalizados) ← ← ←
-      let serviciosPersonalizados: Record<number, {cantidad: number, precio: number}> = {};
-      
-      if (cotizacionDetalles.servicios_detalle) {
-        try {
-          const detallesLista = JSON.parse(cotizacionDetalles.servicios_detalle);
-          for (const detalle of detallesLista) {
-            serviciosPersonalizados[detalle.id] = {
-              cantidad: detalle.cantidad || 1,
-              precio: Number(detalle.precio) || 0
-            };
-          }
-        } catch (e) {
-          console.error('Error parseando servicios_detalle:', e);
-        }
-      }
-      
-      // ← ← ← 2. Parsear IDs de servicios (CORREGIDO CON TIPOS) ← ← ←
-      const serviciosIds = (cotizacionDetalles.servicios_interes || '')
-        .split(',')
-        .map((id: string) => id.trim())
-        .filter((id: string) => id.length > 0)
-        .map((id: string) => parseInt(id, 10));
-      
-      // ← ← ← 3. Obtener información completa de cada servicio ← ← ←
-      const serviciosConDetalles = await Promise.all(
-        serviciosIds.map(async (id: number) => {
-          const servicio = servicios.find(s => s.id === id);
-          
-          // ← ← ← USAR valores personalizados SI existen, sino usar defaults ← ← ←
-          const cantidad = serviciosPersonalizados[id]?.cantidad || 1;
-          const precio_unitario = serviciosPersonalizados[id]?.precio || (servicio ? Number(servicio.precio_min) : 0);
-          
-          return {
-            id,
-            nombre: servicio ? servicio.nombre : `Servicio ${id}`,
-            precio_unitario: precio_unitario,
-            cantidad: cantidad
-          };
-        })
-      );
-      
-      // ← ← ← 4. Calcular totales correctamente ← ← ←
-      const subtotal = serviciosConDetalles.reduce(
-        (sum: number, serv) => sum + (serv.precio_unitario * serv.cantidad), 
-        0
-      );
-      
-      const descuento = Number(cotizacionDetalles.descuento || 0);
-      const total = subtotal - descuento;
+  try {
+    const token = localStorage.getItem('admin_token');
+    
+    // 1. Obtener detalles completos de la cotización
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/cotizaciones/${cotizacion.id}/`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    if (!res.ok) throw new Error('Error al obtener detalles de la cotización');
+    const cotizacionDetalles = await res.json();
 
-      // ← ← ← 5. Generar PDF con datos correctos ← ← ←
-      generarPDFCotizacion({
-        id: cotizacion.id,
-        codigo_cotizacion: `COT-${cotizacion.id}`,
-        cliente_nombre: cotizacionDetalles.nombre_completo || cotizacion.nombre_completo,
-        cliente_telefono: cotizacionDetalles.whatsapp || cotizacion.whatsapp,
-        cliente_email: cotizacionDetalles.correo_electronico || cotizacion.correo_electronico,
-        fecha_creacion: cotizacionDetalles.fecha_creacion || cotizacion.fecha_creacion,
-        servicios: serviciosConDetalles.map(serv => ({
-          nombre: serv.nombre,
-          cantidad: serv.cantidad,
-          precio_unitario: serv.precio_unitario,
-          total: serv.precio_unitario * serv.cantidad
-        })),
-        subtotal: subtotal,
-        descuento: descuento,
-        total: total,
-        notas: cotizacionDetalles.detalles_adicionales || cotizacion.detalles_adicionales || 'Gracias por confiar en DZSALON.\nEsta cotización tiene una validez de 15 días.',
-        foto_referencia_url: cotizacionDetalles.foto_referencia_url || cotizacion.foto_referencia_url || undefined
-      });
-      
-    } catch (error) {
-      console.error('❌ Error generando PDF:', error);
-      alert('Error al generar el PDF. Intente nuevamente.');
+    // 2. ← ← ← OBTENER LISTA COMPLETA DE SERVICIOS DEL BACKEND ← ← ←
+    const serviciosRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/servicios/?page_size=1000`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    const serviciosData = await serviciosRes.json();
+    const todosServicios = serviciosData.results || serviciosData;
+
+    // 3. Parsear IDs de servicios interesados
+    const serviciosIds = (cotizacionDetalles.servicios_interes || '')
+      .split(',')
+      .map((id: string) => id.trim())
+      .filter((id: string) => id.length > 0)
+      .map((id: string) => parseInt(id, 10));
+
+    // 4. Parsear servicios_detalle (valores personalizados)
+    let serviciosPersonalizados: Record<number, { cantidad: number; precio: number }> = {};
+    if (cotizacionDetalles.servicios_detalle) {
+      try {
+        const detallesLista = JSON.parse(cotizacionDetalles.servicios_detalle);
+        for (const detalle of detallesLista) {
+          serviciosPersonalizados[detalle.id] = {
+            cantidad: detalle.cantidad || 1,
+            precio: Number(detalle.precio) || 0
+          };
+        }
+      } catch (e) {
+        console.error('Error parseando servicios_detalle:', e);
+      }
     }
-  };
+
+    // 5. ← ← ← CONSTRUIR SERVICIOS CON TODOS LOS DATOS NECESARIOS ← ← ←
+    const serviciosConDetalles = serviciosIds.map((id: number) => {
+      const servicioBD = todosServicios.find((s: any) => s.id === id);
+      
+      const cantidad = serviciosPersonalizados[id]?.cantidad || 1;
+      const precio_unitario = serviciosPersonalizados[id]?.precio || 
+                            (servicioBD ? Number(servicioBD.precio_min) : 0);
+
+      return {
+        id: id,
+        nombre: servicioBD?.nombre || `Servicio ${id}`,
+        cantidad: cantidad,
+        precio_unitario: precio_unitario,
+        total: precio_unitario * cantidad,
+        imagen_url: servicioBD?.imagen_url || null,        // ← ← ← AHORA SÍ VIENE
+        descripcion_corta: servicioBD?.descripcion_corta || '' // ← ← ← AHORA SÍ VIENE
+      };
+    });
+
+        // 6. Calcular totales
+    const subtotal = serviciosConDetalles.reduce(
+      (sum: number, serv: { precio_unitario: number; cantidad: number }) => sum + (serv.precio_unitario * serv.cantidad),
+      0
+    );
+    const descuento = Number(cotizacionDetalles.descuento || 0);
+    const total = subtotal - descuento;
+
+    // 7. ← ← ← OBTENER LOGO ← ← ←
+    const configRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/configuracion/`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    const configData = await configRes.json();
+    const configuracion = configData.results?.[0] || configData;
+    // ← ← ← CLAVE: Construir URL absoluta si es relativa
+    let logo_url = configuracion?.logo_url || null;
+    if (!logo_url && configuracion?.logo) {
+      // Si solo tiene la ruta relativa, construir URL absoluta
+      logo_url = `${process.env.NEXT_PUBLIC_API_URL}${configuracion.logo}`;
+    }
+
+    // 8. Generar PDF
+    generarPDFCotizacion({
+      id: cotizacion.id,
+      codigo_cotizacion: `COT-${cotizacion.id}`,
+      cliente_nombre: cotizacionDetalles.nombre_completo,
+      cliente_telefono: cotizacionDetalles.whatsapp,
+      cliente_email: cotizacionDetalles.correo_electronico,
+      fecha_creacion: cotizacionDetalles.fecha_creacion,
+      servicios: serviciosConDetalles,
+      subtotal: subtotal,
+      descuento: descuento,
+      total: total,
+      notas: cotizacionDetalles.detalles_adicionales || undefined,
+      foto_referencia_url: cotizacionDetalles.foto_referencia_url || undefined,
+      logo_url: logo_url,  // ← ← ← PASAR LOGO
+      configuracion_salon: configuracion || undefined
+    });
+
+  } catch (error) {
+    console.error('❌ Error generando PDF:', error);
+    alert('Error al generar el PDF. Intente nuevamente.');
+  }
+};
 
   const getEstadoColor = (estado: string) => {
     const colors: Record<string, string> = {

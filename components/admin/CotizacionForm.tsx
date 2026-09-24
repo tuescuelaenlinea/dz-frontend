@@ -11,6 +11,9 @@ interface Servicio {
   duracion?: string;
   categoria_nombre?: string;
   imagen_url?: string;
+  descripcion_corta?: string;
+  disponible?: boolean;      // ← ← ← AGREGAR
+  visibilidad?: string;   
 }
 
 interface ServicioDetalle {
@@ -26,13 +29,29 @@ interface CotizacionData {
   whatsapp: string;
   correo_electronico: string;
   fecha_aproximada?: string;
+  fecha_creacion?: string;
   detalles_adicionales?: string;
   servicios_interes: string;
-  servicios_detalle?: string; // ← ← ← NUEVO
+  servicios_detalle?: string;
   presupuesto_aproximado?: number;
-  descuento?: number; // ← ← ← NUEVO
+  descuento?: number;
   estado?: string;
   valor_total?: number;
+}
+
+interface ConfiguracionSalon {
+  nombre_salon?: string;
+  slogan?: string;
+  direccion?: string;
+  telefono_1?: string;
+  telefono_2?: string;
+  whatsapp?: string;
+  email?: string;
+  instagram_url?: string;
+  facebook_url?: string;
+  web_url?: string;
+  logo?: string | null;       // ← ← ← AGREGAR: Ruta relativa del logo
+  logo_url?: string | null;
 }
 
 interface CotizacionFormProps {
@@ -53,6 +72,7 @@ export default function CotizacionForm({
   const [busqueda, setBusqueda] = useState('');
   const [loading, setLoading] = useState(false);
   const [cargandoDatos, setCargandoDatos] = useState(esEdicion);
+  const [configuracionSalon, setConfiguracionSalon] = useState<ConfiguracionSalon | null>(null); // ← ← ← NUEVO
   
   // Datos del cliente
   const [clienteNombre, setClienteNombre] = useState('');
@@ -64,21 +84,52 @@ export default function CotizacionForm({
   const [notas, setNotas] = useState('Gracias por confiar en DZSALON.\nEsta cotización tiene una validez de 15 días.');
   const [incluirTerminos, setIncluirTerminos] = useState(false);
 
-  // Cargar servicios disponibles
+  // Cargar servicios disponibles y configuración del salón
   useEffect(() => {
     cargarServicios();
+    cargarConfiguracionSalon(); // ← ← ← NUEVO
   }, []);
 
   const cargarServicios = async () => {
     try {
       const token = localStorage.getItem('admin_token');
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/servicios/?disponible=true&page_size=100`, {
+      
+      // ← ← ← CORRECCIÓN CLAVE: 
+      // 1. page_size=1000: Desactiva la paginación del backend (condición > 500) y trae TODOS los servicios.
+      // 2. incluir_solo_caja=true: Muestra servicios con visibilidad "Solo Caja".
+      // 3. incluir_inactivos=true: Muestra servicios desactivados (por si necesitas cotizar uno excepcionalmente).
+      const url = `${process.env.NEXT_PUBLIC_API_URL}/servicios/?incluir_solo_caja=true&incluir_inactivos=true&page_size=1000`;
+      
+      const res = await fetch(url, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      
+      const data = await res.json();
+      
+      // El backend devuelve un array plano cuando page_size > 500, 
+      // pero manejamos ambos formatos por seguridad.
+      const listaServicios = Array.isArray(data) ? data : (data.results || []);
+      
+      setServicios(listaServicios);
+      console.log(`✅ Servicios cargados: ${listaServicios.length} (incluyendo inactivos y solo caja)`);
+    } catch (err) {
+      console.error('❌ Error cargando servicios:', err);
+    }
+  };
+
+  // ← ← ← NUEVA FUNCIÓN: Cargar configuración del salón ← ← ←
+  const cargarConfiguracionSalon = async () => {
+    try {
+      const token = localStorage.getItem('admin_token');
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/configuracion/`, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
       const data = await res.json();
-      setServicios(data.results || data);
+      // La configuración puede venir como objeto o como array con un elemento
+      const config = data.results ? data.results[0] : data;
+      setConfiguracionSalon(config);
     } catch (err) {
-      console.error('❌ Error cargando servicios:', err);
+      console.error('❌ Error cargando configuración del salón:', err);
     }
   };
 
@@ -211,31 +262,52 @@ export default function CotizacionForm({
   const total = subtotal - montoDescuento;
 
   const handleGenerarPDF = () => {
+    const codigoReal = cotizacionInicial?.id ? `COT-${cotizacionInicial.id}` : 'COT-NUEVA';
+
+    // ← ← ← NUEVO: Construir la URL del logo desde la configuración del salón
+    let logoUrl: string | null = null;
+    if (configuracionSalon) {
+      if (configuracionSalon.logo_url) {
+        logoUrl = configuracionSalon.logo_url;
+      } else if (configuracionSalon.logo) {
+        // Si es una ruta relativa (ej: "/media/logo/logo2.png"), construir URL absoluta
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.dzsalon.com';
+        const logoPath = configuracionSalon.logo.startsWith('/') 
+          ? configuracionSalon.logo 
+          : `/${configuracionSalon.logo}`;
+        logoUrl = `${baseUrl}${logoPath}`;
+      }
+    }
+
     const cotizacion = {
       id: cotizacionInicial?.id || Date.now(),
-      codigo_cotizacion: cotizacionInicial?.codigo_cotizacion || `COT-${Date.now()}`,
+      codigo_cotizacion: codigoReal,
       cliente_nombre: clienteNombre,
       cliente_telefono: clienteTelefono,
       cliente_email: clienteEmail,
-      fecha_creacion: new Date().toISOString(),
+      fecha_creacion: cotizacionInicial?.fecha_creacion || new Date().toISOString(),
       servicios: Array.from(serviciosSeleccionados.entries()).map(([id, data]) => {
         const servicio = servicios.find(s => s.id === id);
         return {
+          id: servicio?.id || 0,
           nombre: servicio?.nombre || '',
           cantidad: data.cantidad,
           precio_unitario: data.precio,
-          total: data.precio * data.cantidad
+          total: data.precio * data.cantidad,
+          imagen_url: servicio?.imagen_url || null,
+          descripcion_corta: servicio?.descripcion_corta || ''
         };
       }),
       subtotal,
       descuento: montoDescuento,
       total,
-      notas
+      notas,
+      logo_url: logoUrl, // ← ← ← CLAVE: Ahora pasa la URL real del logo en lugar de null
+      configuracion_salon: configuracionSalon || undefined
     };
     
     generarPDFCotizacion(cotizacion);
   };
-
   const handleGuardar = async () => {
     if (!clienteNombre || !clienteTelefono || !clienteEmail) {
       alert('Por favor completa los datos del cliente');
@@ -267,9 +339,9 @@ export default function CotizacionForm({
         fecha_aproximada: fechaAproximada,
         detalles_adicionales: mensajeAdicional,
         servicios_interes: serviciosIds,
-        servicios_detalle: JSON.stringify(serviciosDetalle), // ← ← ← NUEVO
+        servicios_detalle: JSON.stringify(serviciosDetalle),
         presupuesto_aproximado: total,
-        descuento: montoDescuento, // ← ← ← NUEVO: Enviar descuento calculado
+        descuento: montoDescuento,
         estado: esEdicion ? (cotizacionInicial?.estado || 'pendiente') : 'pendiente',
         valor_total: total
       };
@@ -439,8 +511,22 @@ export default function CotizacionForm({
                 )}
                 
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 truncate">{servicio.nombre}</p>
-                  <p className="text-sm text-gray-600">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-medium text-gray-900 truncate">{servicio.nombre}</p>
+                    
+                    {/* ← ← ← BADGES INFORMATIVOS PARA EL ADMIN ← ← ← */}
+                    {servicio.visibilidad === 'solo_caja' && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-700 rounded border border-amber-200">
+                        SOLO CAJA
+                      </span>
+                    )}
+                    {servicio.disponible === false && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-bold bg-gray-200 text-gray-600 rounded border border-gray-300">
+                        INACTIVO
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-600 mt-1">
                     ${(datos?.precio || servicio.precio_min).toLocaleString('es-CO')}
                   </p>
                 </div>

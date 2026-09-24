@@ -1,5 +1,5 @@
 'use client';
-// admin/cotizaciones/nueva.page.tsx
+// admin/cotizaciones/nueva/page.tsx
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import CotizacionForm from '@/components/admin/CotizacionForm';
