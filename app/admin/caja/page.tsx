@@ -495,6 +495,25 @@ const cargarResumenSesion = async (sessionId: number) => {
   }
 };
 
+    // ← ← ← ESCUCHAR EVENTO DE RECIBO ANULADO PARA ACTUALIZAR LA CAJA ← ← ←
+  useEffect(() => {
+    const handleReciboAnulado = (event: CustomEvent) => {
+      console.log('🔄 [CajaPage] Recibo anulado, recargando datos...', event.detail);
+      
+      // Recargar datos de caja para reflejar los cambios
+      cargarDatosCaja();
+      
+      // Opcional: Mostrar una alerta de confirmación rápida
+      // alert(`✅ Recibo anulado exitosamente.\n${event.detail?.mensaje || 'Los registros han sido revertidos.'}`);
+    };
+    
+    window.addEventListener('reciboAnulado', handleReciboAnulado as EventListener);
+    
+    return () => {
+      window.removeEventListener('reciboAnulado', handleReciboAnulado as EventListener);
+    };
+  }, [cargarDatosCaja]);
+
 // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
 // ← ← ← NUEVO: Escuchar eventos de recibo actualizado/creado ← ← ←
 // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
@@ -597,7 +616,7 @@ observaciones_apertura: ''
     profesional: '',
     monto: '',
     session_caja: '',
-    metodo_pago: 'bold',  // ← ← ← NUEVO: default efectivo
+    metodo_pago: '',  // ← ← ← NUEVO: default efectivo
     notas: '',
     notificar_whatsapp: false
   });
@@ -2096,6 +2115,74 @@ if (sessionActiva?.id) {
     }
   };
 
+  // ← ← ← NUEVA FUNCIÓN: Eliminar vale completamente (solo superadmin) ← ← ←
+const handleEliminarVale = async (vale: ValeEmpleado) => {
+  // Doble confirmación por seguridad
+  const primeraConfirmacion = window.confirm(
+    `⚠️ ACCIÓN IRREVERSIBLE\n\n` +
+    `¿Estás seguro de ELIMINAR COMPLETAMENTE el vale ${vale.codigo_vale}?\n\n` +
+    `• Profesional: ${vale.profesional_nombre}\n` +
+    `• Monto: ${formatMoney(vale.monto)}\n` +
+    `• Método: ${vale.metodo_pago_display || vale.metodo_pago}\n\n` +
+    `Esto eliminará:\n` +
+    `✓ El vale\n` +
+    `✓ El recibo de salida asociado\n` +
+    `✓ Los items del recibo\n` +
+    `✓ Los pagos vinculados\n\n` +
+    `Esta acción NO se puede deshacer.`
+  );
+  
+  if (!primeraConfirmacion) return;
+  
+  // Segunda confirmación escribiendo el código
+  const codigoIngresado = window.prompt(
+    `Para confirmar, escribe el código del vale: ${vale.codigo_vale}`
+  );
+  
+  if (codigoIngresado !== vale.codigo_vale) {
+    alert('❌ Código incorrecto. La eliminación fue cancelada.');
+    return;
+  }
+  
+  try {
+    const res = await fetch(`${apiUrl}/caja/vales/${vale.id}/eliminar-completo/`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      }
+    });
+    
+    if (res.ok) {
+      const resultado = await res.json();
+      alert(
+        `✅ Vale eliminado completamente\n\n` +
+        `Vale: ${resultado.eliminado.vale.codigo}\n` +
+        `Recibo: ${resultado.eliminado.recibo?.codigo || 'N/A'}\n` +
+        `Pagos eliminados: ${resultado.eliminado.pagos_eliminados.length}\n` +
+        `Items eliminados: ${resultado.eliminado.items_eliminados}`
+      );
+      
+      // Recargar datos
+      await cargarVales();
+      if (sessionActiva?.id) {
+        await cargarRecibosRecientes(sessionActiva.id, true, Date.now());
+        await cargarResumenSesion(sessionActiva.id);
+      }
+    } else {
+      const error = await res.json();
+      if (res.status === 403) {
+        alert('⛔ Acceso denegado. Solo superadministradores pueden eliminar vales.');
+      } else {
+        alert(`❌ Error: ${error.error || 'No se pudo eliminar el vale'}`);
+      }
+    }
+  } catch (err: any) {
+    console.error('❌ Error eliminando vale:', err);
+    alert(` Error de conexión: ${err.message}`);
+  }
+};
+
   // ← ← ← NUEVA FUNCIÓN: Marcar vale como pagado ← ← ←
   const handlePagarVale = async (vale: ValeEmpleado) => {
     if (!confirm(`¿Marcar vale ${vale.codigo_vale} como pagado?\n\nEsto registrará el descuento en nómina.`)) return;
@@ -3080,251 +3167,305 @@ const formatDate = (dateStr: string): string => {
                 <div className="space-y-4">
                   
                   {/* ← ← ← SECCIÓN: VALES DE LA SESIÓN ACTUAL (ACORDEÓN) ← ← ← */}
-{valesSesion.length > 0 && (
-  <div>
-    <h4 className="text-xs font-semibold text-cyan-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-      <span className="w-2 h-2 bg-cyan-400 rounded-full"></span>
-      {sesionSeleccionada
-        ? `De sesión #${sesionSeleccionada?.id || sesionSeleccionada.id}`  // ← ← ← CORREGIDO
-        : 'De esta sesión'
-      } ({valesSesion.length})
-    </h4>
-    <div className="space-y-2">
-      {valesSesion.map((vale) => {
-        const isExpanded = valeExpandido === vale.id;
-        return (
-          <div key={vale.id} className="border border-gray-700 rounded-lg overflow-hidden bg-gray-900">
-            {/* Encabezado del Acordeón */}
-            <div
-              onClick={() => setValeExpandido(isExpanded ? null : vale.id)}
-              className="p-3 cursor-pointer hover:bg-gray-800 transition-colors flex items-center justify-between"
-            >
-              <div className="flex items-center gap-3 flex-1">
-                {/* Icono de expansión */}
-                <svg
-                  className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-                {/* Nombre del profesional */}
-                <span className="font-medium text-white text-sm truncate">
-                  {vale.profesional_nombre}
-                </span>
-              </div>
-              {/* Valor del vale */}
-              <span className="text-sm font-bold text-cyan-400">
-                {formatMoney(vale.monto)}
-              </span>
-            </div>
+                    {valesSesion.length > 0 && (
+                      <div>
+                        <h4 className="text-xs font-semibold text-cyan-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                          <span className="w-2 h-2 bg-cyan-400 rounded-full"></span>
+                          {sesionSeleccionada
+                            ? `De sesión #${sesionSeleccionada?.id || sesionSeleccionada.id}`  // ← ← ← CORREGIDO
+                            : 'De esta sesión'
+                          } ({valesSesion.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {valesSesion.map((vale) => {
+                            const isExpanded = valeExpandido === vale.id;
+                            return (
+                              <div key={vale.id} className="border border-gray-700 rounded-lg overflow-hidden bg-gray-900">
+                                {/* Encabezado del Acordeón */}
+                                <div
+                                  onClick={() => setValeExpandido(isExpanded ? null : vale.id)}
+                                  className="p-3 cursor-pointer hover:bg-gray-800 transition-colors flex items-center justify-between"
+                                >
+                                  <div className="flex items-center gap-3 flex-1">
+                                    {/* Icono de expansión */}
+                                    <svg
+                                      className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                    {/* Nombre del profesional */}
+                                    <span className="font-medium text-white text-sm truncate">
+                                      {vale.profesional_nombre}
+                                    </span>
+                                  </div>
+                                  {/* Valor del vale */}
+                                  <span className="text-sm font-bold text-cyan-400">
+                                    {formatMoney(vale.monto)}
+                                  </span>
+                                  {esSuperadmin && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (confirm(`¿ELIMINAR definitivamente el vale ${vale.codigo_vale}?\n\n⚠️ Esta acción NO se puede deshacer.`)) {
+                                          handleEliminarVale(vale);
+                                        }
+                                      }}
+                                      /*className="flex-1 min-w-[80px] px-3 py-2 bg-red-900 hover:bg-red-800 text-red-200 rounded text-xs font-medium transition-colors border border-red-700"*/
+                                      title="Solo superadmin puede eliminar"
+                                    >
+                                      ❌
+                                    </button>
+                                  )}
+                                </div>
 
-            {/* Contenido Expandido */}
-            {isExpanded && (
-              <div className="p-3 bg-gray-800/50 border-t border-gray-700 space-y-3">
-                {/* Información detallada */}
-                <div className="space-y-2 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Código:</span>
-                    <span className="text-white font-mono">{vale.codigo_vale}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Sesión:</span>
-                    <span className="text-cyan-300">
-                      #{vale.session_caja || 'N/A'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Método:</span>
-                    <span className="text-white">{vale.metodo_pago_display || vale.metodo_pago}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Fecha:</span>
-                    <span className="text-white">
-                      {new Date(vale.fecha).toLocaleDateString('es-CO', {
-                        day: '2-digit',
-                        month: 'short',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-start">
-                    <span className="text-gray-400">Estado:</span>
-                    <span className={`px-2 py-0.5 rounded text-xs ${
-                      vale.estado === 'registrado'
-                        ? 'bg-yellow-900/50 text-yellow-400 border border-yellow-700'
-                        : vale.estado === 'pagado'
-                        ? 'bg-green-900/50 text-green-400 border border-green-700'
-                        : 'bg-red-900/50 text-red-400 border border-red-700'
-                    }`}>
-                      {vale.estado === 'registrado' ? 'Registrado' :
-                       vale.estado === 'pagado' ? '✅ Pagado' : '❌ Cancelado'}
-                    </span>
-                  </div>
-                  {vale.notas && (
-                    <div className="pt-2 border-t border-gray-700">
-                      <span className="text-gray-400 block mb-1">Notas:</span>
-                      <span className="text-gray-300 text-xs">{vale.notas}</span>
-                    </div>
-                  )}
-                </div>
+                                {/* Contenido Expandido */}
+                                {isExpanded && (
+                                  <div className="p-3 bg-gray-800/50 border-t border-gray-700 space-y-3">
+                                    {/* Información detallada */}
+                                    <div className="space-y-2 text-xs">
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-400">Código:</span>
+                                        <span className="text-white font-mono">{vale.codigo_vale}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-400">Sesión:</span>
+                                        <span className="text-cyan-300">
+                                          #{vale.session_caja || 'N/A'}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-400">Método:</span>
+                                        <span className="text-white">{vale.metodo_pago_display || vale.metodo_pago}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-400">Fecha:</span>
+                                        <span className="text-white">
+                                          {new Date(vale.fecha).toLocaleDateString('es-CO', {
+                                            day: '2-digit',
+                                            month: 'short',
+                                            year: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                          })}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between items-start">
+                                        <span className="text-gray-400">Estado:</span>
+                                        <span className={`px-2 py-0.5 rounded text-xs ${
+                                          vale.estado === 'registrado'
+                                            ? 'bg-yellow-900/50 text-yellow-400 border border-yellow-700'
+                                            : vale.estado === 'pagado'
+                                            ? 'bg-green-900/50 text-green-400 border border-green-700'
+                                            : 'bg-red-900/50 text-red-400 border border-red-700'
+                                        }`}>
+                                          {vale.estado === 'registrado' ? 'Registrado' :
+                                           vale.estado === 'pagado' ? '✅ Pagado' : '❌ Cancelado'}
+                                        </span>
+                                      </div>
+                                      {vale.notas && (
+                                        <div className="pt-2 border-t border-gray-700">
+                                          <span className="text-gray-400 block mb-1">Notas:</span>
+                                          <span className="text-gray-300 text-xs">{vale.notas}</span>
+                                        </div>
+                                      )}
+                                    </div>
 
-                {/* Botones de acción 
-                {vale.estado === 'registrado' && (
-                  <div className="flex gap-2 pt-2 border-t border-gray-700">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handlePagarVale(vale);
-                      }}
-                      className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-medium transition-colors"
-                    >
-                      💰 Pagar
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleCancelarVale(vale);
-                      }}
-                      className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-medium transition-colors"
-                    >
-                      ❌ Cancelar
-                    </button>
-                  </div>
-                )}*/}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  </div>
-)}
+                                    {/* Botones de acción 
+                                    {vale.estado === 'registrado' && (
+                                      <div className="flex gap-2 pt-2 border-t border-gray-700">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handlePagarVale(vale);
+                                          }}
+                                          className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-medium transition-colors"
+                                        >
+                                          💰 Pagar
+                                        </button>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleCancelarVale(vale);
+                                          }}
+                                          className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-medium transition-colors"
+                                        >
+                                          ❌ Cancelar
+                                        </button>
+                                      </div>
+                                    )}*/}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
 
-{/* ← ← ← SECCIÓN: VALES PENDIENTES GLOBALES (ACORDEÓN) ← ← ← */}
-{valesPendientes.length > 0 && (
-  <div>
-    <h4 className="text-xs font-semibold text-yellow-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-      <span className="w-2 h-2 bg-yellow-400 rounded-full"></span>
-      Pendientes globales ({valesPendientes.length})
-    </h4>
-    <div className="space-y-2">
-      {valesPendientes.map((vale) => {
-        const isExpanded = valeExpandido === vale.id;
-        return (
-          <div key={vale.id} className="border border-gray-700 rounded-lg overflow-hidden bg-gray-900">
-            {/* Encabezado del Acordeón */}
-            <div
-              onClick={() => setValeExpandido(isExpanded ? null : vale.id)}
-              className="p-3 cursor-pointer hover:bg-gray-800 transition-colors flex items-center justify-between"
-            >
-              <div className="flex items-center gap-3 flex-1">
-                {/* Icono de expansión */}
-                <svg
-                  className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-                {/* Nombre del profesional */}
-                <span className="font-medium text-white text-sm truncate">
-                  {vale.profesional_nombre}
-                </span>
-              </div>
-              {/* Valor del vale */}
-              <span className="text-sm font-bold text-yellow-400">
-                {formatMoney(vale.monto)}
-              </span>
-            </div>
+                    {/* ← ← ← SECCIÓN: VALES PENDIENTES GLOBALES (ACORDEÓN) ← ← ← */}
+                    {valesPendientes.length > 0 && (
+                      <div>
+                        <h4 className="text-xs font-semibold text-yellow-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                          <span className="w-2 h-2 bg-yellow-400 rounded-full"></span>
+                          Pendientes globales ({valesPendientes.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {valesPendientes.map((vale) => {
+                            const isExpanded = valeExpandido === vale.id;
+                            return (
+                              <div key={vale.id} className="border border-gray-700 rounded-lg overflow-hidden bg-gray-900">
+                                {/* Encabezado del Acordeón */}
+                                <div
+                                  onClick={() => setValeExpandido(isExpanded ? null : vale.id)}
+                                  className="p-3 cursor-pointer hover:bg-gray-800 transition-colors flex items-center justify-between"
+                                >
+                                  <div className="flex items-center gap-3 flex-1">
+                                    {/* Icono de expansión */}
+                                    <svg
+                                      className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                    {/* Nombre del profesional */}
+                                    <span className="font-medium text-white text-sm truncate">
+                                      {vale.profesional_nombre}
+                                    </span>
+                                  </div>
+                                  {/* Valor del vale */}
+                                  <span className="text-sm font-bold text-yellow-400">
+                                    {formatMoney(vale.monto)}
+                                  </span>
+                                  {esSuperadmin && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (confirm(`¿ELIMINAR definitivamente el vale ${vale.codigo_vale}?\n\n⚠️ Esta acción NO se puede deshacer.`)) {
+                                          handleEliminarVale(vale);
+                                        }
+                                      }}
+                                      /*className="flex-1 min-w-[80px] px-3 py-2 bg-red-900 hover:bg-red-800 text-red-200 rounded text-xs font-medium transition-colors border border-red-700"*/
+                                      title="Solo superadmin puede eliminar"
+                                    >
+                                      ❌
+                                    </button>
+                                  )}
+                                </div>
+                                
 
-            {/* Contenido Expandido */}
-            {isExpanded && (
-              <div className="p-3 bg-gray-800/50 border-t border-gray-700 space-y-3">
-                {/* Información detallada */}
-                <div className="space-y-2 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Código:</span>
-                    <span className="text-white font-mono">{vale.codigo_vale}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Sesión:</span>
-                    <span className="text-yellow-300">
-                      #{vale.session_caja || 'Sin sesión'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Método:</span>
-                    <span className="text-white">{vale.metodo_pago_display || vale.metodo_pago}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Fecha:</span>
-                    <span className="text-white">
-                      {new Date(vale.fecha).toLocaleDateString('es-CO', {
-                        day: '2-digit',
-                        month: 'short',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-start">
-                    <span className="text-gray-400">Estado:</span>
-                    <span className={`px-2 py-0.5 rounded text-xs ${
-                      vale.estado === 'registrado'
-                        ? 'bg-yellow-900/50 text-yellow-400 border border-yellow-700'
-                        : vale.estado === 'pagado'
-                        ? 'bg-green-900/50 text-green-400 border border-green-700'
-                        : 'bg-red-900/50 text-red-400 border border-red-700'
-                    }`}>
-                      {vale.estado === 'registrado' ? 'Registrado' :
-                       vale.estado === 'pagado' ? '✅ Pagado' : '❌ Cancelado'}
-                    </span>
-                  </div>
-                  {vale.notas && (
-                    <div className="pt-2 border-t border-gray-700">
-                      <span className="text-gray-400 block mb-1">Notas:</span>
-                      <span className="text-gray-300 text-xs">{vale.notas}</span>
-                    </div>
-                  )}
-                </div>
+                                {/* Contenido Expandido */}
+                                {isExpanded && (
+                                  <div className="p-3 bg-gray-800/50 border-t border-gray-700 space-y-3">
+                                    {/* Información detallada */}
+                                    <div className="space-y-2 text-xs">
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-400">Código:</span>
+                                        <span className="text-white font-mono">{vale.codigo_vale}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-400">Sesión:</span>
+                                        <span className="text-yellow-300">
+                                          #{vale.session_caja || 'Sin sesión'}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-400">Método:</span>
+                                        <span className="text-white">{vale.metodo_pago_display || vale.metodo_pago}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-400">Fecha:</span>
+                                        <span className="text-white">
+                                          {new Date(vale.fecha).toLocaleDateString('es-CO', {
+                                            day: '2-digit',
+                                            month: 'short',
+                                            year: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                          })}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between items-start">
+                                        <span className="text-gray-400">Estado:</span>
+                                        <span className={`px-2 py-0.5 rounded text-xs ${
+                                          vale.estado === 'registrado'
+                                            ? 'bg-yellow-900/50 text-yellow-400 border border-yellow-700'
+                                            : vale.estado === 'pagado'
+                                            ? 'bg-green-900/50 text-green-400 border border-green-700'
+                                            : 'bg-red-900/50 text-red-400 border border-red-700'
+                                        }`}>
+                                          {vale.estado === 'registrado' ? 'Registrado' :
+                                           vale.estado === 'pagado' ? '✅ Pagado' : '❌ Cancelado'}
+                                        </span>
+                                      </div>
+                                      {vale.notas && (
+                                        <div className="pt-2 border-t border-gray-700">
+                                          <span className="text-gray-400 block mb-1">Notas:</span>
+                                          <span className="text-gray-300 text-xs">{vale.notas}</span>
+                                        </div>
+                                      )}
+                                    </div>
 
-                {/* Botones de acción 
-                {vale.estado === 'registrado' && (
-                  <div className="flex gap-2 pt-2 border-t border-gray-700">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handlePagarVale(vale);
-                      }}
-                      className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-medium transition-colors"
-                    >
-                      💰 Pagar
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleCancelarVale(vale);
-                      }}
-                      className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-medium transition-colors"
-                    >
-                      ❌ Cancelar
-                    </button>
-                  </div>
-                )}*/}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  </div>
-)}
+                                    {/* Botones de acción 
+                                      {vale.estado === 'registrado' && (
+                                        <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-700">
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handlePagarVale(vale);
+                                            }}
+                                            className="flex-1 min-w-[80px] px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-medium transition-colors"
+                                          >
+                                            💰 Pagar
+                                          </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleNotificarVale(vale);
+                                            }}
+                                            className="flex-1 min-w-[80px] px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors"
+                                          >
+                                            📱 Notificar
+                                          </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (confirm(`¿Cancelar vale ${vale.codigo_vale}?`)) {
+                                                handleCancelarVale(vale);
+                                              }
+                                            }}
+                                            className="flex-1 min-w-[80px] px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-medium transition-colors"
+                                          >
+                                            ❌ Cancelar
+                                          </button>
+                                          {esSuperadmin && (
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (confirm(`¿ELIMINAR definitivamente el vale ${vale.codigo_vale}?\n\n⚠️ Esta acción NO se puede deshacer.`)) {
+                                                  handleEliminarVale(vale);
+                                                }
+                                              }}
+                                              className="flex-1 min-w-[80px] px-3 py-2 bg-red-900 hover:bg-red-800 text-red-200 rounded text-xs font-medium transition-colors border border-red-700"
+                                              title="Solo superadmin puede eliminar"
+                                            >
+                                              ❌ Eliminar
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}*/}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   
                 </div>
               )}
@@ -3997,6 +4138,16 @@ const formatDate = (dateStr: string): string => {
                 <label className="block text-sm font-semibold text-gray-300 mb-1">
                   💳 Método de Pago *
                 </label>
+                 {/* ← ← ← BADGE DE ADVERTENCIA SI NO ESTÁ SELECCIONADO ← ← ← */}
+                  {!nuevoVale.metodo_pago && (
+                    <div className="mb-3 p-2.5 bg-yellow-900/30 border border-yellow-600/50 rounded-lg flex items-center gap-2 text-yellow-400 text-xs font-bold animate-pulse">
+                      <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      ⚠️ Debes escoger un método de pago para continuar
+                    </div>
+                  )}
+
                 <div className="grid grid-cols-2 gap-2">
                   {[
                     { value: 'efectivo', label: '💵 Efectivo' },
@@ -4062,7 +4213,7 @@ const formatDate = (dateStr: string): string => {
                     profesional: '', 
                     monto: '', 
                     session_caja: sessionActiva?.id?.toString() || '', 
-                    metodo_pago: 'efectivo',  // ← ← ← NUEVO: reset a default
+                    metodo_pago: '',  // ← ← ← NUEVO: reset a default
                     notas: '', 
                     notificar_whatsapp: false 
                   });
@@ -4075,7 +4226,7 @@ const formatDate = (dateStr: string): string => {
               </button>
               <button
                 onClick={handleCrearVale}
-                disabled={loadingVale || !nuevoVale.profesional || !nuevoVale.monto || !nuevoVale.session_caja || validacionSaldo?.excedido}
+                disabled={loadingVale || !nuevoVale.profesional || !nuevoVale.monto || !nuevoVale.session_caja || !nuevoVale.metodo_pago || validacionSaldo?.excedido }
                 className="flex-1 py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {loadingVale ? (
@@ -5188,29 +5339,34 @@ function ReciboCard({
   );
 }
 
-{/* ← ← ← COMPONENTE REUTILIZABLE: CARD DE VALE ← ← ← */}
+// ← ← ← COMPONENTE REUTILIZABLE: CARD DE VALE ← ← ←
 function ValeCard({
   vale,
   onPagar,
   onCancelar,
   onNotificar,
+  onEliminar,
   formatMoney,
   apiUrl,
   token,
   onValeActualizado,
+  esSuperadmin, // ← ← ← 1. MOVIDO AQUÍ (dentro de los parámetros)
 }: {
   vale: ValeEmpleado;
   onPagar: (vale: ValeEmpleado) => void;
   onCancelar: (vale: ValeEmpleado) => void;
   onNotificar: (vale: ValeEmpleado) => void;
+  onEliminar?: (vale: ValeEmpleado) => void;
   formatMoney: (value: string | number) => string;
   apiUrl?: string;
   token?: string | null;
   onValeActualizado?: (vale: ValeEmpleado) => void;
+  esSuperadmin: boolean; // ← ← ← 2. TIPO DEFINIDO EXPLÍCITAMENTE AQUÍ
 }) {
   // ← ← ← ESTADOS PARA EDITAR MÉTODO DE PAGO ← ← ←
   const [editandoMetodo, setEditandoMetodo] = useState(false);
-  const [metodoTemporal, setMetodoTemporal] = useState(vale.metodo_pago || '');
+  const [metodoTemporal, setMetodoTemporal] = useState(vale.metodo_pago || ''); 
+  
 
   // ← ← ← FUNCIÓN: Guardar método de pago del vale ← ← ←
   const handleGuardarMetodoVale = async (nuevoMetodo: string) => {
@@ -5312,7 +5468,7 @@ function ValeCard({
         </p>
       )} */}
       
-      {/* Acciones - solo si está registrado */}
+     {/* Acciones - solo si está registrado */}
       {vale.estado === 'registrado' && (
         <div className="flex items-center gap-2">
           {/* Notificar WhatsApp */}
@@ -5328,6 +5484,21 @@ function ValeCard({
               📱
             </button>
           )}
+          
+          {/* ← ← ← NUEVO: Botón Eliminar (SOLO SUPERADMIN) ← ← ← */}
+          {esSuperadmin && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEliminar?.(vale);
+              }}
+              className="flex-1 px-2 py-1.5 bg-red-900/30 hover:bg-red-900/50 border border-red-700 rounded text-xs text-red-300 transition-colors flex items-center justify-center gap-1"
+              title="Eliminar vale y todos sus registros (solo superadmin)"
+            >
+              🗑️
+            </button>
+          )}
+          
           {/* Cancelar */}
           <button
             onClick={(e) => {

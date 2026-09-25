@@ -3,6 +3,9 @@
 
 import { useState, useEffect } from 'react';
 import { useDeviceDetection } from '@/hooks/useDeviceDetection'; 
+import EliminarReciboModal from '@/components/admin/EliminarReciboModal';
+
+
 
 // ← ← ← INTERFACES ← ← ←
 interface PagoRelacionado {
@@ -44,6 +47,7 @@ interface ReciboImpresionModalProps {
   token?: string | null;
   cargarAbonosInternamente?: boolean;
   abonos?: AbonoRecibo[];
+  onEliminar?: (recibo: ReciboCaja) => void;
 }
 
 interface ReciboCaja {
@@ -93,6 +97,7 @@ export default function ReciboImpresionModal({
   token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null,
   cargarAbonosInternamente = true,
   abonos: abonosExternos = [],
+  onEliminar,
 }: ReciboImpresionModalProps) {
   
   const [abonosInternos, setAbonosInternos] = useState<AbonoRecibo[]>([]);
@@ -105,6 +110,9 @@ export default function ReciboImpresionModal({
   const { isAndroid } = useDeviceDetection();
   const [isPrinting, setIsPrinting] = useState(false);
 
+  
+  const [reciboAEliminar, setReciboAEliminar] = useState<ReciboCaja | null>(null);
+  const [showEliminarModal, setShowEliminarModal] = useState(false);
   const abonos = cargarAbonosInternamente ? abonosInternos : abonosExternos;
 
   const OPCIONES_METODO = [
@@ -127,10 +135,16 @@ export default function ReciboImpresionModal({
       
       if (res.ok) {
         const data = await res.json();
-        const abonosMapeados = (data.abonos || []).map((a: any) => ({ ...a, tipo: 'abono' as const, tabla: 'abonos' as const }));
-        const pagosMapeados = (data.pagos || []).map((p: any) => ({ ...p, tipo: 'pago' as const, tabla: 'pagos' as const }));
         
-        const todos = [...abonosMapeados, ...pagosMapeados]
+        // ← ← ← CORRECCIÓN: Solo mapear y mostrar los ABONOS para evitar duplicados ← ← ←
+        const abonosMapeados = (data.abonos || []).map((a: any) => ({ 
+          ...a, 
+          tipo: 'abono' as const, 
+          tabla: 'abonos' as const 
+        }));
+        
+        // Ordenar por fecha descendente
+        const todos = [...abonosMapeados]
           .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
         
         setPagosRelacionados(todos);
@@ -651,6 +665,17 @@ export default function ReciboImpresionModal({
           >
             Cerrar
           </button>
+          {/* ← ← ← BOTÓN PARA ABRIR MODAL DE ANULACIÓN ← ← ← */}
+          <button
+            onClick={(e) => { 
+              e.stopPropagation(); 
+              setShowEliminarModal(true); 
+            }}
+            className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+            title="Anular recibo y revertir/eliminar citas"
+          >
+            🗑️ Anular
+          </button>
           <button
             onClick={handlePrint}
             disabled={isPrinting || (loadingAbonos && cargarAbonosInternamente)}
@@ -671,6 +696,26 @@ export default function ReciboImpresionModal({
           </button>
         </div>
       </div>
+                  {/* ← ← ← MODAL DE CONFIRMACIÓN DE ANULACIÓN ← ← ← */}
+      {showEliminarModal && recibo && (
+        <EliminarReciboModal
+          isOpen={showEliminarModal}
+          onClose={() => setShowEliminarModal(false)}
+          reciboId={recibo.id}
+          reciboCodigo={recibo.codigo_recibo}
+          apiUrl={apiUrl || 'https://api.dzsalon.com/api'}
+          token={token}
+          onSuccess={() => {  // ← ← ← ELIMINADO EL PARÁMETRO 'reporte'
+            setShowEliminarModal(false);
+            onClose(); // Cierra también el modal de impresión
+            
+            // Notifica al componente padre (ej. CajaPage) para que recargue la lista
+            window.dispatchEvent(new CustomEvent('reciboAnulado', { 
+              detail: { reciboId: recibo.id, codigo: recibo.codigo_recibo } 
+            }));
+          }}
+        />
+      )}
     </div>
   );
 }

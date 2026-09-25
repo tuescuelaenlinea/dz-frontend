@@ -279,7 +279,7 @@ const [nuevoClienteData, setNuevoClienteData] = useState<NuevoClienteData>({
   const [showAbonoModal, setShowAbonoModal] = useState(false);
   const [montoAbono, setMontoAbono] = useState('');
   const [recibido, setRecibido] = useState('');
-  const [metodoPagoAbono, setMetodoPagoAbono] = useState('bold');
+  const [metodoPagoAbono, setMetodoPagoAbono] = useState('');
   const [referenciaExterna, setReferenciaExterna] = useState<string>('');
 
   const [itemToDelete, setItemToDelete] = useState<ReciboItem | null>(null);
@@ -2469,7 +2469,7 @@ const handleAbrirModalAbono = async () => {
                 total: total,
                 propina_total: tipoRecibo === 'venta' ? propinaTotal : 0,
                 propina_metodo_distribucion: tipoRecibo === 'venta' && propinaTotal > 0 ? propinaMetodo : null,
-                metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
+                metodo_pago: (tipoRecibo === 'venta' || tipoRecibo === 'entrada') ? metodoPago : null,  // ← ← ← CAMBIO: incluir entrada
                 session_caja: sessionCajaId,
                 cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : (clienteNombre?.trim() || 'Movimiento Operativo'),
                 cliente_telefono: tipoRecibo === 'venta' ? (clienteTelefono?.trim() || 'No proporcionado') : '',
@@ -4012,54 +4012,78 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
              
 
               {/* ← ← ← MÉTODO DE PAGO: SOLO PARA ENTRADAS Y SALIDAS ← ← ← */}
-              {(tipoRecibo === 'entrada' || tipoRecibo === 'salida') && (
-                <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
+              {tipoRecibo === 'salida' && (
+              <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
                   <label className="block text-sm font-semibold text-gray-300 mb-3">
-                    💳 Método de {tipoRecibo === 'entrada' ? 'Recepción' : 'Pago'}
+                      💳 Método de Pago
                   </label>
                   <select
-                    value={metodoPago}
-                    onChange={(e) => setMetodoPago(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                      value={metodoPago}
+                      onChange={(e) => setMetodoPago(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
                   >
-                    <option value="efectivo">💵 Efectivo</option>
-                    <option value="transferencia">🏦 Transferencia</option>
-                    <option value="nequi">📱 Nequi</option>
-                    <option value="daviplata">📱 Daviplata</option>
-                    <option value="bold">💳 Bold</option>
-                    <option value="tarjeta">💳 Tarjeta en sitio</option>
+                      <option value="efectivo">💵 Efectivo</option>
+                      <option value="transferencia">🏦 Transferencia</option>
+                      <option value="nequi">📱 Nequi</option>
+                      <option value="daviplata">📱 Daviplata</option>
+                      <option value="bold">💳 Bold</option>
+                      <option value="tarjeta">💳 Tarjeta en sitio</option>
                   </select>
-                </div>
-              )}
+              </div>
+          )}
+
+          {/* ← ← ← NUEVO: Método de recepción por DEFECTO para ingresos (se define en cada abono) ← ← ← 
+          {tipoRecibo === 'entrada' && (
+              <div className="bg-gray-900 rounded-xl p-4 border border-green-700/50">
+                  <label className="block text-sm font-semibold text-gray-300 mb-3">
+                      💳 Método de Recepción (default)
+                  </label>
+                  <select
+                      value={metodoPago}
+                      onChange={(e) => setMetodoPago(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-green-500 focus:outline-none"
+                  >
+                      <option value="efectivo">💵 Efectivo</option>
+                      <option value="transferencia">🏦 Transferencia</option>
+                      <option value="nequi">📱 Nequi</option>
+                      <option value="daviplata">📱 Daviplata</option>
+                      <option value="bold">💳 Bold</option>
+                      <option value="tarjeta">💳 Tarjeta en sitio</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-2">
+                      💡 Este es el método por defecto. Puedes registrar abonos con diferentes métodos.
+                  </p>
+              </div>
+          )}*/}
 
               {/* ← ← ← SECCIÓN DE ABONOS REGISTRADOS (CORREGIDA) ← ← ← */}
-        {modoEdicion && reciboId && estadoRecibo === 'borrador' && tipoRecibo === 'venta' && (
-          <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
-            <label className="block text-sm font-semibold text-gray-300 mb-3">
-              💰 Pagos Registrados
-            </label>
+        {modoEdicion && reciboId && estadoRecibo === 'borrador' && (tipoRecibo === 'venta' || tipoRecibo === 'entrada') && (
+    <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
+        <label className="block text-sm font-semibold text-gray-300 mb-3">
+            💰 Pagos Registrados ({tipoRecibo === 'entrada' ? 'Ingreso' : 'Venta'})
+        </label>
             
             {/* ← ← ← MOSTRAR RESUMEN DE ABONOS ← ← ← */}
             {resumenAbonos ? (
               <div className="space-y-3 mb-4">
                {/* ← ← ← BARRA DE PROGRESO (cambia a rojo si excede) ← ← ← */}
-    <div className="w-full bg-gray-700 rounded-full h-3">
-        <div
-            className={`h-3 rounded-full transition-all duration-300 ${
-                resumenAbonos.excede_total ? 'bg-red-500 animate-pulse' :
-                resumenAbonos.puede_publicar ? 'bg-green-500' : 'bg-orange-500'
-            }`}
-            style={{ width: `${Math.min(100, resumenAbonos.porcentaje_abonado)}%` }}
-        />
-    </div>
+            <div className="w-full bg-gray-700 rounded-full h-3">
+                <div
+                    className={`h-3 rounded-full transition-all duration-300 ${
+                        resumenAbonos.excede_total ? 'bg-red-500 animate-pulse' :
+                        resumenAbonos.puede_publicar ? 'bg-green-500' : 'bg-orange-500'
+                    }`}
+                    style={{ width: `${Math.min(100, resumenAbonos.porcentaje_abonado)}%` }}
+                />
+            </div>
 
-    {/* ← ← ← ALERTA ROJA: Exceso de pago ← ← ← */}
-    {resumenAbonos.excede_total && (
-        <div className="text-xs text-red-300 bg-red-900/40 px-3 py-2 rounded border border-red-700">
-            ⚠️ <strong>Abonos exceden el total:</strong> Has abonado {formatMoney(resumenAbonos.total_abonado)} pero el recibo es {formatMoney(total)}.
-            <br/>Elimina o ajusta abonos para habilitar la publicación.
-        </div>
-    )}
+            {/* ← ← ← ALERTA ROJA: Exceso de pago ← ← ← */}
+            {resumenAbonos.excede_total && (
+                <div className="text-xs text-red-300 bg-red-900/40 px-3 py-2 rounded border border-red-700">
+                    ⚠️ <strong>Abonos exceden el total:</strong> Has abonado {formatMoney(resumenAbonos.total_abonado)} pero el recibo es {formatMoney(total)}.
+                    <br/>Elimina o ajusta abonos para habilitar la publicación.
+                </div>
+            )}
                 
                 {/* Stats */}
                 <div className="grid grid-cols-2 gap-2 text-sm">
@@ -4708,29 +4732,86 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
             </>
           )}
           
-          {/* ← ← ← BOTÓN REGISTRAR MOVIMIENTO: Exclusivo para Entradas/Salidas ← ← ← */}
-          {(tipoRecibo === 'entrada' || tipoRecibo === 'salida') && (
-            <button
-              onClick={handleRegistrarMovimientoOperativo}
-              disabled={loading || items.length === 0 || !metodoPago}
-              className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
-                tipoRecibo === 'entrada'
-                  ? 'bg-green-600 hover:bg-green-700 text-white'
-                  : 'bg-orange-600 hover:bg-orange-700 text-white'
-              }`}
-            >
-              {loading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Procesando...
-                </>
-              ) : (
-                <>
-                  {tipoRecibo === 'entrada' ? '💰 Registrar Ingreso' : '💸 Registrar Gasto'}
-                </>
-              )}
-            </button>
-          )}
+         {/* ← ← ← CAMBIO: Ingresos ahora usan flujo de abonos (igual que ventas) ← ← ← */}
+{tipoRecibo === 'entrada' && (
+    <button
+        onClick={async () => {
+            // Validar que esté 100% abonado
+            if (!resumenAbonos?.puede_publicar) {
+                alert(`⚠️ El ingreso debe estar 100% abonado para publicar.
+Actual: ${resumenAbonos?.porcentaje_abonado.toFixed(1)}%
+Falta: ${formatMoney(resumenAbonos?.saldo_pendiente || 0)}`);
+                return;
+            }
+            if (items.length === 0) {
+                alert('⚠️ Agrega al menos un concepto al ingreso.');
+                return;
+            }
+            setEstadoRecibo('publicado');
+            const payloadBase = {
+                tipo: tipoRecibo,
+                estado: 'publicado',
+                subtotal: subtotal,
+                descuento: 0,
+                total: total,
+                propina_total: 0,
+                propina_metodo_distribucion: null,
+                metodo_pago: metodoPago,
+                session_caja: sessionCajaId,
+                cliente_nombre: clienteNombre?.trim() || 'Ingreso Operativo',
+                cliente_telefono: '',
+                cliente_email: '',
+                notas: notas || 'Ingreso operativo registrado desde caja',
+            };
+            if (modoEdicion && reciboId) {
+                await handleActualizarReciboConPayload(payloadBase);
+            } else {
+                await handleGuardarConPayload(payloadBase);
+            }
+        }}
+        disabled={
+            loading ||
+            items.length === 0 ||
+            !resumenAbonos?.puede_publicar
+        }
+        className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
+            !resumenAbonos?.puede_publicar
+                ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                : 'bg-green-600 hover:bg-green-700 text-white'
+        }`}
+    >
+        {loading ? (
+            <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Procesando...
+            </>
+        ) : !resumenAbonos ? (
+            '💰 Cargando abonos...'
+        ) : !resumenAbonos.puede_publicar ? (
+            `⏳ ${Math.round(resumenAbonos.porcentaje_abonado)}% - Faltan ${formatMoney(resumenAbonos.saldo_pendiente)}`
+        ) : (
+            '✅ Publicar Ingreso'
+        )}
+    </button>
+)}
+
+{/* ← ← ← Gastos/Salidas mantienen el flujo directo (un solo método) ← ← ← */}
+{tipoRecibo === 'salida' && (
+    <button
+        onClick={handleRegistrarMovimientoOperativo}
+        disabled={loading || items.length === 0 || !metodoPago}
+        className="flex-1 px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white"
+    >
+        {loading ? (
+            <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Procesando...
+            </>
+        ) : (
+            <>💸 Registrar Gasto</>
+        )}
+    </button>
+)}
         </div>
 
       </div>
@@ -4940,6 +5021,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                   className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-green-500 focus:outline-none"
                   autoFocus  // ← ← ← ESTO HACE QUE EL SELECT TENGA EL FOCO AL ABRIR
                 >
+                  <option value="" disabled>Seleccionar método de pago *</option>
                   <option value="bold">💳 Bold</option>
                   <option value="efectivo">💵 Efectivo</option>
                   <option value="transferencia">🏦 Transferencia</option>
@@ -5042,6 +5124,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
             disabled={
               loading ||
               !montoAbono ||
+              !metodoPagoAbono ||
               parseFloat(montoAbono) < 1000 ||
               // ← ← ← CORRECCIÓN: Calcular límite correcto en disabled ← ← ←
               parseFloat(montoAbono) > (() => {

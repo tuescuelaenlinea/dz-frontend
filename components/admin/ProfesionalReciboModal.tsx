@@ -237,24 +237,25 @@ export default function ProfesionalReciboModal({
           setLoading(true);
 
         // 1. Crear cita en backend
-        const resCita = await fetch(`${apiUrl}/citas/crear-para-recibo/`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-          },
-          body: JSON.stringify({
-            servicio_id: servicio.id,
-            profesional_id: undefined,
-            fecha_cita: new Date().toISOString().split('T')[0],
-            hora_inicio: new Date().toTimeString().substring(0, 5),
-            precio_total: precio,
-            cliente_nombre: clienteNombre,
-            cliente_telefono: 'No proporcionado',
-            cliente_email: 'no@proporcionado.com',
-            notas: ''
-          })
-        });
+          const resCita = await fetch(`${apiUrl}/citas/crear-para-recibo/`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({
+              servicio_id: servicio.id,
+              // ← ← ← CORREGIDO: Enviar el profesional actual en lugar de undefined
+              profesional_id: miProfesionalId || undefined, 
+              fecha_cita: new Date().toISOString().split('T')[0],
+              hora_inicio: new Date().toTimeString().substring(0, 5),
+              precio_total: precio,
+              cliente_nombre: clienteNombre,
+              cliente_telefono: 'No proporcionado',
+              cliente_email: 'no@proporcionado.com',
+              notas: ''
+            })
+          });
 
         if (!resCita.ok) {
           const error = await resCita.json();
@@ -520,7 +521,7 @@ export default function ProfesionalReciboModal({
         {/* ← Header */}
         <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between z-10">
           <div>
-            <h2 className="text-xl font-bold">🛍️ Nueva Ventsssa</h2>
+            <h2 className="text-xl font-bold">🛍️ Nueva Venta</h2>
             <p className="text-sm opacity-90 mt-1">Agrega servicios y productos al recibo</p>
           </div>
           <button
