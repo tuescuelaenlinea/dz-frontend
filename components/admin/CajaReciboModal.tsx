@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import ProfessionalModal from '@/components/booking/ProfessionalModal';
 import CitasPendientesModal from '@/components/admin/CitasPendientesModal';
 import CalcularComisionesModal from '@/components/admin/CalcularComisionesModal'; // ← AGREGAR
+import SeleccionarCostosFijosModal from '@/components/admin/costos-fijos/SeleccionarCostosFijosModal';
 
 // ← ← ← INTERFACES ← ← ←
 interface Servicio {
@@ -51,6 +52,7 @@ interface ReciboItem {
   productosAsociados?: any[];   // ← ← ← AGREGADO
   stockActual?: number;         // ← ← ← AGREGADO
   propinaItem?: number;  // Propina asignada a este item (para envío al backend)
+  costoFijoId?: number;
 }
 
 interface CajaReciboModalProps {
@@ -214,20 +216,21 @@ export default function CajaReciboModal({
   const montoPagarEditedRef = useRef(false);
   
   // ← ← ← NUEVOS ESTADOS PARA BÚSQUEDA DE CLIENTES ← ← ←
-const [showClientModal, setShowClientModal] = useState(false);
-const [showRegisterModal, setShowRegisterModal] = useState(false);
-const [clientes, setClientes] = useState<Cliente[]>([]);
-const [clienteSearchTerm, setClienteSearchTerm] = useState('');
-const [clienteSeleccionadoId, setClienteSeleccionadoId] = useState<number | null>(null);
-// ← ← ← NUEVO: Bandera para diferenciar búsqueda de cliente referente vs cliente del recibo ← ← ←
-const [buscandoClienteReferente, setBuscandoClienteReferente] = useState(false);
-const [nuevoClienteData, setNuevoClienteData] = useState<NuevoClienteData>({
-  nombre: '',
-  telefono: '',
-  email: ''
-});
+  const [showClientModal, setShowClientModal] = useState(false);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [clienteSearchTerm, setClienteSearchTerm] = useState('');
+  const [clienteSeleccionadoId, setClienteSeleccionadoId] = useState<number | null>(null);
+  // ← ← ← NUEVO: Bandera para diferenciar búsqueda de cliente referente vs cliente del recibo ← ← ←
+  const [buscandoClienteReferente, setBuscandoClienteReferente] = useState(false);
+  const [nuevoClienteData, setNuevoClienteData] = useState<NuevoClienteData>({
+    nombre: '',
+    telefono: '',
+    email: ''
+  });
 
-
+    // Dentro del componente, junto a los otros useState
+    const [showCostosFijosModal, setShowCostosFijosModal] = useState(false);
   // ← ← ← NUEVOS ESTADOS PARA MODO EDICIÓN ← ← ←
   const [modoEdicion, setModoEdicion] = useState(false);
   const [reciboEditando, setReciboEditando] = useState<any | null>(null);
@@ -481,6 +484,26 @@ const cargarResumenAbonos = async (reciboId: number) => {
   }
 };
 
+// Agregar esta función junto a las otras funciones del modal
+const handleAgregarCostosFijos = (costosSeleccionados: any[]) => {
+  // Convertir cada costo fijo en un item del recibo
+  const nuevosItems = costosSeleccionados.map((costo) => ({
+    id: `costo-fijo-${costo.id}-${Date.now()}`,
+    tipo: 'otro' as const,
+    descripcion: costo.nombre,
+    cantidad: 1,
+    precioUnitario: parseFloat(costo.monto),
+    subtotal: parseFloat(costo.monto),
+    costoFijoId: costo.id, // ← Campo especial para vincular
+    esNuevo: true,
+  }));
+
+  // Agregar items al estado
+  setItems(prev => [...prev, ...nuevosItems]);
+
+  // Mostrar confirmación
+  alert(`✅ ${costosSeleccionados.length} costo(s) fijo(s) agregado(s) al recibo`);
+};
 
 // ← ← ← NUEVA FUNCIÓN: Cargar clientes desde backend ← ← ←
 const loadClientes = async () => {
@@ -1107,8 +1130,13 @@ const handleRegistrarMovimientoOperativo = async () => {
                 cantidad: item.cantidad,
                 precio_unitario: item.precioUnitario,
                 subtotal: item.subtotal,
+                ...(item.costoFijoId && { costo_fijo_id: item.costoFijoId }),
             }))
         };
+
+        console.log('🔍 [handleRegistrarMovimientoOperativo] Payload items_data:', JSON.stringify(payload.items_data, null, 2));
+        const tieneCostosFijos = payload.items_data.some((i: any) => i.costo_fijo_id);
+        console.log(tieneCostosFijos ? '✅ PAYLOAD CONTIENE costo_fijo_id' : '❌ PAYLOAD NO CONTIENE costo_fijo_id');
 
         let reciboCreado;
 
@@ -1152,6 +1180,41 @@ const handleRegistrarMovimientoOperativo = async () => {
             reciboCreado = await res.json();
             console.log('✅ [handleRegistrarMovimientoOperativo] Recibo creado:', reciboCreado.codigo_recibo);
         }
+
+        // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+        // ← ← ← NUEVO: LLAMAR AL ENDPOINT PARA PROCESAR COSTOS FIJOS ← ← ←
+        // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+        const costosFijosIds = items
+            .filter(item => item.costoFijoId)
+            .map(item => Number(item.costoFijoId));
+
+        if (costosFijosIds.length > 0 && tipoRecibo === 'salida') {
+            console.log('💰 [handleRegistrarMovimientoOperativo] Actualizando estados de costos fijos:', costosFijosIds);
+            
+            try {
+                const resCostos = await fetch(`${apiUrl}/caja/recibos/${reciboCreado.id}/procesar-costos-fijos/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                    },
+                    body: JSON.stringify({ costos_fijos_ids: costosFijosIds })
+                });
+
+                if (resCostos.ok) {
+                    const result = await resCostos.json();
+                    console.log('✅ [handleRegistrarMovimientoOperativo] Costos fijos actualizados exitosamente:', result);
+                } else {
+                    const errorData = await resCostos.json();
+                    console.error('❌ [handleRegistrarMovimientoOperativo] Error del backend actualizando costos fijos:', errorData);
+                    alert(`⚠️ El recibo se creó, pero hubo un problema actualizando los costos fijos: ${errorData.detail || 'Error desconocido'}`);
+                }
+            } catch (errCostos) {
+                console.error('❌ [handleRegistrarMovimientoOperativo] Excepción de red actualizando costos fijos:', errCostos);
+                alert('⚠️ El recibo se creó, pero no se pudo conectar con el servidor para marcar los costos fijos como pagados. Revisa la consola.');
+            }
+        }
+        // ← ← ← FIN NUEVA LÓGICA DE COSTOS FIJOS ← ← ←
 
         // ← ← ← ÉXITO ← ← ←
         alert(`✅ ${tipoRecibo === 'entrada' ? 'Ingreso' : 'Gasto'} registrado exitosamente\nRecibo: ${reciboCreado.codigo_recibo}\nTotal: ${formatMoney(parseFloat(reciboCreado.total))}`);
@@ -2898,6 +2961,9 @@ if (metodoPago === 'pendiente') {
             ...(item.tipo !== 'otro' && item.servicioId && item.citaId && /^\d+$/.test(String(item.citaId)) && { cita_id: Number(item.citaId) }),
             ...(item.tipo !== 'otro' && item.servicioId && item.profesionalId && /^\d+$/.test(String(item.profesionalId)) && { profesional_id: Number(item.profesionalId) }),
             ...(item.tipo !== 'otro' && item.productoId && /^\d+$/.test(String(item.productoId)) && { producto_id: Number(item.productoId) }),
+
+            ...(item.tipo === 'otro' && item.costoFijoId && /^\d+$/.test(String(item.costoFijoId)) && { costo_fijo_id: Number(item.costoFijoId) }),
+    
             descripcion: item.descripcion,
             cantidad: item.cantidad,
             precio_unitario: item.precioUnitario,
@@ -2997,14 +3063,31 @@ const handleGuardarConPayload = async (payloadBase: any) => {
           tipo_item: item.tipo,
           ...(item.servicioId && { cita: item.citaId, profesional: item.profesionalId }),
           ...(item.productoId && { producto: item.productoId }),
+          
+          // ← ← ← CORRECCIÓN CLAVE: Agregar costo_fijo_id si existe (igual que en handleGuardar) ← ← ←
+          ...(item.tipo === 'otro' && item.costoFijoId && /^\d+$/.test(String(item.costoFijoId)) && { 
+            costo_fijo_id: Number(item.costoFijoId) 
+          }),
+          
           descripcion: item.descripcion,
           cantidad: item.cantidad,
           precio_unitario: item.precioUnitario,
-          //subtotal: item.subtotal,
           propina_item: propinaDistribucion.find(d => d.profesionalId === item.profesionalId)?.monto || 0
         };
       })
     };
+
+    // ← ← ← LOGS DE DEBUG FRONTEND: Verificar qué se envía al backend ← ← ←
+    console.log('📦 [handleGuardarConPayload] Payload completo a enviar:', JSON.stringify(payload, null, 2));
+    
+    const itemsConCostoFijo = payload.items_data.filter((i: any) => i.costo_fijo_id);
+    console.log('🔗 [handleGuardarConPayload] Items con costo_fijo_id detectados:', itemsConCostoFijo);
+    
+    if (itemsConCostoFijo.length > 0) {
+      console.log('✅ [handleGuardarConPayload] Los costos fijos SÍ se están enviando al backend.');
+    } else {
+      console.warn('⚠️ [handleGuardarConPayload] NO se detectaron costos fijos en el payload.');
+    }
 
     const res = await fetch(`${apiUrl}/caja/recibos/`, {
       method: 'POST',
@@ -3014,15 +3097,16 @@ const handleGuardarConPayload = async (payloadBase: any) => {
 
     if (!res.ok) {
       const error = await res.json();
+      console.error('❌ [handleGuardarConPayload] Error del backend:', error);
       throw new Error(error.detail || JSON.stringify(error));
     }
 
     const reciboCreado = await res.json();
+    console.log('✅ [handleGuardarConPayload] Respuesta exitosa del backend:', reciboCreado.codigo_recibo);
     
     // ← ← ← MANEJAR RESPUESTA DE ABONO PARCIAL ← ← ←
     if (reciboCreado.nuevo_borrador_id) {
       alert(`✅ Abono registrado\nSaldo restante: ${formatMoney(parseFloat(reciboCreado.saldo_restante))}`);
-      // Cargar el nuevo borrador para continuar
       setReciboId(reciboCreado.nuevo_borrador_id);
       await cargarReciboParaEditar();
       return;
@@ -3049,7 +3133,7 @@ const handleGuardarConPayload = async (payloadBase: any) => {
     handleClose();
     
   } catch (err: any) {
-    console.error('❌ Error guardando:', err);
+    console.error('❌ [handleGuardarConPayload] Error guardando:', err);
     alert(`❌ Error: ${err.message}`);
   } finally {
     setLoading(false);
@@ -3129,7 +3213,10 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                     itemData.producto_id = Number(item.productoId);
                     console.debug(`🔗 [payload] producto_id=${itemData.producto_id} para item ${item.id}`);
                 }
-            }
+            } else if (item.tipo === 'otro' && item.costoFijoId) { // ← ← ← AGREGAR ESTE BLOQUE
+                itemData.costo_fijo_id = Number(item.costoFijoId);
+                console.debug(`🔗 [payload] costo_fijo_id=${itemData.costo_fijo_id} para item ${item.id}`);
+              }
             return itemData;
         });
         // ← ← ← LOGGING PARA DEBUG: Ver qué se envía al backend ← ← ←
@@ -4005,6 +4092,19 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                   >
                     + Agregar
                   </button>
+
+                  // En la sección de UI para tipo 'salida', agregar este botón:
+                  {tipoRecibo === 'salida' && (
+                    <button
+                      onClick={() => setShowCostosFijosModal(true)}
+                      className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2 mb-3"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      📥 Importar Costos Fijos Pendientes
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -6141,6 +6241,17 @@ Falta: ${formatMoney(resumenAbonos?.saldo_pendiente || 0)}`);
     </div>
   </div>
 )}
+
+      {/* ← ← ← MODAL DE COSTOS FIJOS SELECCIONAR ← ← ← NUEVO ← ← ← */}
+      {showCostosFijosModal && (
+        <SeleccionarCostosFijosModal
+          isOpen={showCostosFijosModal}
+          onClose={() => setShowCostosFijosModal(false)}
+          onSeleccionar={handleAgregarCostosFijos}
+          apiUrl={apiUrl}
+          token={token}
+        />
+      )}
       {/* ← ← ← MODAL DE PROFESIONAL ← ← ← NUEVO ← ← ← */}
       {showProfessionalModal && itemParaProfesional && (
         <ProfessionalModal

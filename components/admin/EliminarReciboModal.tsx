@@ -25,6 +25,7 @@ export default function EliminarReciboModal({
     setLoading(true);
     setError(null);
     try {
+      // 1. Ejecutar la eliminación
       const res = await fetch(`${apiUrl}/caja/recibos/${reciboId}/eliminar/`, {
         method: 'POST',
         headers: {
@@ -40,7 +41,7 @@ export default function EliminarReciboModal({
         throw new Error(data.error || data.detail || 'Error al procesar la solicitud');
       }
 
-      // El backend debe retornar un objeto 'reporte'. Usamos fallbacks por seguridad.
+      // 2. Preparar el reporte para mostrar al usuario
       if (data.reporte) {
         setReporte(data.reporte);
       } else {
@@ -53,12 +54,17 @@ export default function EliminarReciboModal({
           comisiones_eliminadas: data.comisiones_eliminadas || 0,
           propinas_eliminadas: data.propinas_eliminadas || 0,
           referidos_revertidos: data.referidos_revertidos || 0,
+          costos_fijos_revertidos: data.costos_fijos_revertidos || 0,
         });
       }
       
-      onSuccess(); // Notificar al padre para recargar la lista
+      // ← ← ← CLAVE: NO llamar a onSuccess() aquí. 
+      // Queremos que el usuario vea el reporte primero.
+      // onSuccess() se llamará cuando el usuario haga clic en "Entendido y Recargar".
+      
     } catch (err: any) {
       setError(err.message);
+    } finally {
       setLoading(false);
     }
   };
@@ -67,8 +73,15 @@ export default function EliminarReciboModal({
     setReporte(null);
     setError(null);
     setLoading(false);
+    
+    // ← ← ← CLAVE: Llamar a onSuccess AHORA, para que el padre recargue la lista
+    onSuccess(); 
+    
+    // Luego cerrar el modal
     onClose();
-  };
+  };;
+
+  
 
   // ==========================================
   // VISTA DEL REPORTE FINAL
@@ -98,6 +111,7 @@ export default function EliminarReciboModal({
                 <li>Comisiones eliminadas: <span className="font-medium text-gray-800">{reporte.comisiones_eliminadas}</span></li>
                 <li>Propinas eliminadas: <span className="font-medium text-gray-800">{reporte.propinas_eliminadas}</span></li>
                 <li>Descuentos referidos revertidos: <span className="font-medium text-gray-800">{reporte.referidos_revertidos}</span></li>
+                <li>Costos fijos revertidos a pendiente: <span className="font-medium text-gray-800">{reporte.costos_fijos_revertidos}</span></li>
               </ul>
             </div>
           </div>

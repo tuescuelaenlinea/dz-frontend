@@ -28,6 +28,7 @@ const TODOS_LOS_MENU_ITEMS: MenuItem[] = [
   { href: '/admin/categorias', label: 'Categorías', icon: '📁', moduloCodigo: 'categorias' },
   { href: '/admin/servicios', label: 'Servicios', icon: '🛠️', moduloCodigo: 'servicios' },
   { href: '/admin/productos', label: 'Productos', icon: '📦', moduloCodigo: 'productos' },
+  { href: '/admin/costos-fijos', label: 'Costos Fijos', icon: '💸', moduloCodigo: 'costos_fijos' },  
   { href: '/admin/horarios', label: 'Horarios', icon: '🕐', moduloCodigo: 'horarios' },
   { href: '/admin/profesionales', label: 'Profesionales', icon: '👨‍⚕️', moduloCodigo: 'profesionales' },
   { href: '/admin/galeria', label: 'Galería', icon: '📸', moduloCodigo: 'galeria' },
@@ -194,6 +195,17 @@ useEffect(() => {
       return;
     }
 
+       // ← ← ← CAMBIO QUIRÚRGICO: Si es Superadmin y está en /admin/profesional, redirigir al Dashboard principal
+    if (pathname === '/admin/profesional' && esSuperadmin) {
+      redireccionEnCurso.current = true;
+      ultimaRedireccion.current = '/admin';
+      router.replace('/admin');
+      setTimeout(() => {
+        redireccionEnCurso.current = false;
+      }, 500);
+      return; // Salimos para no seguir evaluando
+    }
+
     if (pathname === '/admin/profesional' && !tieneDashboardProfesional && !esSuperadmin) {
       if (tieneDashboardAdmin) {
         redireccionEnCurso.current = true;
@@ -240,12 +252,17 @@ useEffect(() => {
     }
   }, [pathname, modulos, esSuperadmin, loadingPermisos, loading, isAuthenticated, router]);
 
-  // ==========================================
+    // ==========================================
   // FILTRAR MENÚ SEGÚN PERMISOS
   // ==========================================
   const menuItemsFiltrados = TODOS_LOS_MENU_ITEMS.filter(item => {
     if (!item.moduloCodigo) return true;
-    if (esSuperadmin) return true;
+    
+    // ← ← ← CAMBIO QUIRÚRGICO: Superadmin tiene acceso a todo, EXCEPTO "Mi Panel"
+    if (esSuperadmin) {
+      return item.moduloCodigo !== 'dashboard_profesional';
+    }
+    
     if (loadingPermisos) return false;
     return modulos.includes(item.moduloCodigo);
   });
