@@ -8,8 +8,8 @@ export interface CostoFijoMensual {
   categoria: string;
   categoria_display: string;
   descripcion: string;
-  monto: string;
-  monto_proyectado: string | null;
+   monto: number | string;           // ← ← ← PERMITE NÚMERO O STRING
+  monto_proyectado: number | string | null; // ← ← ← PERMITE NÚMERO O STRING
   frecuencia: string;
   frecuencia_display: string;
   mes_referencia: number;
@@ -19,7 +19,7 @@ export interface CostoFijoMensual {
   fecha_pago_real: string | null;
   metodo_pago: string;
   metodo_pago_display: string;
-  proveedor: string;
+  
   referencia_pago: string;
   estado: string;
   estado_display: string;
@@ -35,7 +35,12 @@ export interface CostoFijoMensual {
   registrado_por_username: string | null;
   creado: string;
   actualizado: string;
-  proyeccion_anual: number;
+  proyeccion_anual: number; 
+  tipo_beneficiario?: 'proveedor' | 'profesional';
+  profesional?: number | null;
+  profesional_nombre?: string | null;
+  proveedor?: number | null;
+  proveedor_nombre?: string | null;
 }
 
 export interface ResumenMensual {

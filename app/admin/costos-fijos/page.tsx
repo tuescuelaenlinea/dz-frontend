@@ -281,6 +281,8 @@ export default function CostosFijosPage() {
           mode="crear"
           mesDefault={filtros.mes}
           anioDefault={filtros.anio}
+          apiUrl={apiUrl}       // ← ← ← AGREGAR ESTA LÍNEA
+          token={token}          // ← ← ← AGREGAR ESTA LÍNEA
         />
       )}
 
@@ -294,6 +296,8 @@ export default function CostosFijosPage() {
           onSubmit={handleEditar}
           mode="editar"
           costo={costoSeleccionado}
+          apiUrl={apiUrl}       // ← ← ← AGREGAR ESTA LÍNEA
+          token={token}          // ← ← ← AGREGAR ESTA LÍNEA
         />
       )}
 

@@ -11,6 +11,8 @@ import ReporteCierreCajaModal from '@/components/admin/ReporteCierreCajaModal';
 import ReportesModal from '@/components/admin/ReportesModal';
 import LibroDiarioModal from '@/components/admin/LibroDiarioModal';
 import LibroMayorModal from '@/components/admin/LibroMayorModal';
+import ModalValesPendientes from '@/components/admin/caja/ModalValesPendientes';
+
 // ← ← ← INTERFACES ← ← ←
 
 interface CajaSession {
@@ -214,6 +216,17 @@ export default function CajaPage() {
   const [modalCerrarCajaOpen, setModalCerrarCajaOpen] = useState(false);
   const [modalNuevoReciboOpen, setModalNuevoReciboOpen] = useState(false);
   const [modalNuevoValeOpen, setModalNuevoValeOpen] = useState(false);
+  const [modalSeleccionTipoValeOpen, setModalSeleccionTipoValeOpen] = useState(false);
+  const [modalNuevoValeNominaOpen, setModalNuevoValeNominaOpen] = useState(false);
+  const [profesionalesTodos, setProfesionalesTodos] = useState<Profesional[]>([]);
+  const [nuevoValeNomina, setNuevoValeNomina] = useState({
+    profesional: '',
+    monto: '',
+    session_caja: '',
+    metodo_pago: '', // Sin valor por defecto, obligatorio
+    notas: ''
+  });
+  const [loadingValeNomina, setLoadingValeNomina] = useState(false);
   const [modalEditarReciboOpen, setModalEditarReciboOpen] = useState(false);
   const [reciboEditarId, setReciboEditarId] = useState<number | null>(null);
 
@@ -299,9 +312,13 @@ export default function CajaPage() {
   const [sesionesActivasTodas, setSesionesActivasTodas] = useState<CajaSession[]>([]);
   const [sesionSuperadminSeleccionada, setSesionSuperadminSeleccionada] = useState<number | null>(null);
   const [loadingSesionesSuperadmin, setLoadingSesionesSuperadmin] = useState(false);
-  // ← ← ← FIN: ESTADOS PARA SUPERADMIN ← ← ←
-
-
+  
+  // ← ← ← ESTADOS PARA alertas de costos fijos ← ← ←
+  const [alertasCostosFijos, setAlertasCostosFijos] = useState<any[]>([]);
+  const [mostrarAlertaToast, setMostrarAlertaToast] = useState(false);
+  const [modalAlertasCostosOpen, setModalAlertasCostosOpen] = useState(false);
+  const [loadingAlertas, setLoadingAlertas] = useState(false);
+  const [modalAlertasOpen, setModalAlertasOpen] = useState(false);
 
   // ← ← ← CONSTANTE: Opciones de método de pago para vales ← ← ←
   const METODOS_PAGO_VALE = [
@@ -385,6 +402,22 @@ const cargarAbonosRecibo = async (reciboId: number) => {
   }
 };
 
+const cargarAlertasCostosFijos = async () => {
+    setLoadingAlertas(true);
+    try {
+        const res = await fetch(`${apiUrl}/costos-fijos/alertas-vencimiento/`, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+        if (res.ok) {
+            const data = await res.json();
+            setAlertasCostosFijos(data.alertas || []);
+        }
+    } catch (err) {
+        console.error('❌ Error cargando alertas de costos fijos:', err);
+    } finally {
+        setLoadingAlertas(false);
+    }
+};
 
 const handleVerReciboImpresion = async (recibo: ReciboCaja) => {
   if (recibo.estado !== 'publicado') {
@@ -1628,7 +1661,43 @@ const handleAbrirModalComisiones = () => {
     }
   };
   
- 
+ // ← ← ← EFECTO: Cargar alertas de costos fijos al entrar a la caja ← ← ←
+useEffect(() => {
+    let timer: NodeJS.Timeout;
+    
+    const cargarAlertasSutiles = async () => {
+        if (!sessionActiva) return;
+        
+        try {
+            const res = await fetch(`${apiUrl}/costos-fijos/alertas-vencimiento/`, {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
+            
+            if (res.ok) {
+                const data = await res.json();
+                // Solo mostrar si hay alertas
+                if (data.alertas && data.alertas.length > 0) {
+                    setAlertasCostosFijos(data.alertas);
+                    setMostrarAlertaToast(true);
+                    
+                    // Auto-ocultar después de 10 segundos (10000 ms)
+                    timer = setTimeout(() => {
+                        setMostrarAlertaToast(false);
+                    }, 10000);
+                }
+            }
+        } catch (err) {
+            console.error('❌ Error cargando alertas de costos fijos:', err);
+        }
+    };
+
+    cargarAlertasSutiles();
+
+    // Limpieza del timer si el componente se desmonta
+    return () => {
+        if (timer) clearTimeout(timer);
+    };
+}, [sessionActiva?.id, apiUrl, token]);
 
   // ← ← ← AGREGAR: Escuchar evento para abrir recibo borrador ← ← ←
     useEffect(() => {
@@ -1657,8 +1726,11 @@ const handleAbrirModalComisiones = () => {
     detectarSuperadmin().then((isSuper) => {
         // ← ← ← CLAVE: Pasar el valor detectado directamente, no esperar al estado de React
         cargarDatosCaja(undefined, isSuper);
+
     });
-}, []);
+    cargarAlertasCostosFijos();
+}, [sessionActiva?.id]); 
+
 // Agregar este useEffect (después del useEffect que carga citas count)
 useEffect(() => {
   const sessionId = sesionSeleccionada?.id || sessionActiva?.id;
@@ -1745,6 +1817,22 @@ window.removeEventListener('reciboComisionesPagado', handleReciboComisionesPagad
       console.error('❌ Error cargando profesionales para vales:', err);
     }
   };
+
+// ← ← ← NUEVA FUNCIÓN: Cargar TODOS los profesionales (para nómina/costos fijos) ← ← ←
+const cargarProfesionalesParaNomina = async () => {
+  try {
+    // Sin ?activo=true para traer también los inactivos
+    const res = await fetch(`${apiUrl}/profesionales/?incluir_inactivos=true`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setProfesionalesTodos(Array.isArray(data) ? data : (data.results || []));
+    }
+  } catch (err) {
+    console.error('❌ Error cargando todos los profesionales:', err);
+  }
+};
 
 // ← Cargar sesión activa (CORREGIDO PARA SUPERADMIN)
 const cargarSessionActiva = async (isSuperParam?: boolean): Promise<CajaSession | null> => {
@@ -2084,6 +2172,71 @@ if (sessionActiva?.id) {
       setLoadingVale(false);
     }
   };
+
+  // ← ← ← NUEVA FUNCIÓN: Crear vale de nómina / costos fijos (sin límite del 50%) ← ← ←
+const handleCrearValeNomina = async () => {
+  if (!nuevoValeNomina.profesional || !nuevoValeNomina.monto || !nuevoValeNomina.session_caja || !nuevoValeNomina.metodo_pago) {
+    alert('⚠️ Completa todos los campos obligatorios, incluyendo el método de pago.');
+    return;
+  }
+  const montoNum = parseFloat(nuevoValeNomina.monto);
+  if (isNaN(montoNum) || montoNum <= 0) {
+    alert('⚠️ Ingresa un monto válido mayor a 0');
+    return;
+  }
+  
+  setLoadingValeNomina(true);
+  try {
+    const payload = {
+      profesional: parseInt(nuevoValeNomina.profesional),
+      monto: parseFloat(nuevoValeNomina.monto),
+      // ← ← ← CORRECCIÓN CLAVE: Evitar enviar NaN si session_caja está vacío
+      session_caja: nuevoValeNomina.session_caja ? parseInt(nuevoValeNomina.session_caja) : null,
+      metodo_pago: nuevoValeNomina.metodo_pago,
+      notas: nuevoValeNomina.notas || '',
+      notificacion_whatsapp_enviada: false,
+      es_nomina: true, // ← ← ← CLAVE: Le dice al backend que salte las validaciones del 50%
+    };
+    const res = await fetch(`${apiUrl}/caja/vales/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(payload)
+    });
+    
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.monto?.[0] || error.detail || 'Error creando vale');
+    }
+    
+    const valeCreado = await res.json();
+    alert(`✅ Vale de nómina ${valeCreado.codigo_vale} creado exitosamente`);
+    
+    // Resetear estado
+    setModalNuevoValeNominaOpen(false);
+    setNuevoValeNomina({
+      profesional: '',
+      monto: '',
+      session_caja: sessionActiva?.id?.toString() || '',
+      metodo_pago: '',
+      notas: ''
+    });
+    
+    // Recargar datos de caja (el backend ya crea automáticamente el Recibo y el Pago)
+    if (sessionActiva?.id) {
+      await cargarRecibosRecientes(sessionActiva.id, true, Date.now());
+      await cargarResumenSesion(sessionActiva.id);
+    }
+    cargarVales();
+  } catch (err: any) {
+    console.error('❌ Error creando vale de nómina:', err);
+    alert(`❌ Error: ${err.message}`);
+  } finally {
+    setLoadingValeNomina(false);
+  }
+};
 
   // ← ← ← NUEVA FUNCIÓN: Cancelar vale ← ← ←
   const handleCancelarVale = async (vale: ValeEmpleado) => {
@@ -2847,7 +3000,7 @@ const formatDate = (dateStr: string): string => {
       {/* ← Acciones Rápidas */}
       <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
         <h3 className="text-lg font-semibold text-white mb-4">⚡ Acciones Rápidas</h3>
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-7 gap-3">
           
           <button
             onClick={() => router.push('/admin/caja/recibos')}
@@ -2958,7 +3111,7 @@ const formatDate = (dateStr: string): string => {
                 </p>
               </div>
             </div>
-            
+
             {/* ← ← ← BADGE DE NOTIFICACIÓN (si hay citas) ← ← ← */}
             {citasHuerfanasCount.total > 0 && !loadingCitasCount && (
               <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-gray-800 animate-pulse">
@@ -2967,6 +3120,29 @@ const formatDate = (dateStr: string): string => {
             )}
           </button>
 
+          {/* Botón de Alertas de Costos Fijos */}
+          <button
+              onClick={() => setModalAlertasOpen(true)}
+              className="relative p-4 bg-gray-900 hover:bg-gray-700 rounded-lg border border-gray-700 transition-colors text-left group"
+          >
+              <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-yellow-900/30 rounded-lg flex items-center justify-center group-hover:bg-yellow-900/50 transition-colors">
+                      <svg className="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                      </svg>
+                  </div>
+                  <div>
+                      <p className="font-medium text-white">Alertas de Costos</p>
+                      <p className="text-xs text-gray-400">Vencimientos próximos</p>
+                  </div>
+              </div>
+              {/* Badge de Notificación */}
+              {alertasCostosFijos.length > 0 && (
+                  <span className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center animate-pulse shadow-lg shadow-red-500/50">
+                      {alertasCostosFijos.length}
+                  </span>
+              )}
+          </button>
           {/* ← ← ← NUEVO: Botón Ver Historial de Sesiones ← ← ← */}
           <button
             onClick={() => {
@@ -3139,18 +3315,14 @@ const formatDate = (dateStr: string): string => {
                 </span>
               </h3>
               <button
-                onClick={() => {
-                  setNuevoVale(prev => ({ 
-                    ...prev, 
-                    session_caja: sessionActiva?.id?.toString() || '' 
-                  }));
-                  setModalNuevoValeOpen(true);
-                }}
-                disabled={!sessionActiva}
-                className="text-xs text-orange-400 hover:text-orange-300 disabled:opacity-50"
-              >
-                + Nuevo
-              </button>
+              onClick={() => {
+                setModalSeleccionTipoValeOpen(true);
+              }}
+              disabled={!sessionActiva}
+              className="text-xs text-orange-400 hover:text-orange-300 disabled:opacity-50"
+            >
+              + Nuevo
+            </button>
             </div>
             
             <div className="p-4">
@@ -4895,6 +5067,194 @@ const formatDate = (dateStr: string): string => {
           }}*/
         />
 
+  {/* ← ← ← MODAL: SELECCIÓN DE TIPO DE VALE ← ← ← */}
+  {modalSeleccionTipoValeOpen && (
+    <div className="fixed inset-0 z-[85] bg-black/70 flex items-center justify-center p-4">
+      <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg border border-gray-700">
+        <div className="p-6 border-b border-gray-700">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            🎫 ¿Qué tipo de vale deseas crear?
+          </h3>
+          <p className="text-sm text-gray-400 mt-1">
+            Selecciona el propósito del anticipo
+          </p>
+        </div>
+        <div className="p-6 space-y-4">
+          {/* Opción 1: Comisiones (Modal Actual) */}
+          <button
+            onClick={() => {
+              setModalSeleccionTipoValeOpen(false);
+              setNuevoVale(prev => ({ ...prev, session_caja: sessionActiva?.id?.toString() || '' }));
+              setModalNuevoValeOpen(true);
+            }}
+            className="w-full p-4 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 rounded-xl border-2 border-orange-500/50 transition-all hover:scale-[1.02] hover:shadow-lg text-left group"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+                💰
+              </div>
+              <div className="flex-1">
+                <h4 className="text-lg font-bold text-white">Vale por Comisiones</h4>
+                <p className="text-sm text-orange-100 mt-0.5">
+                  Anticipo a profesionales con comisión. Aplica validación de límite (50% del saldo ganado).
+                </p>
+              </div>
+              <svg className="w-6 h-6 text-white/70 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </div>
+          </button>
+
+          {/* Opción 2: Nómina / Costos Fijos (Nuevo Modal) */}
+          <button
+            onClick={() => {
+              setModalSeleccionTipoValeOpen(false);
+              cargarProfesionalesParaNomina(); // Cargar todos (activos e inactivos)
+              setNuevoValeNomina(prev => ({ ...prev, session_caja: sessionActiva?.id?.toString() || '' }));
+              setModalNuevoValeNominaOpen(true);
+            }}
+            className="w-full p-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl border-2 border-blue-500/50 transition-all hover:scale-[1.02] hover:shadow-lg text-left group"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+                📋
+              </div>
+              <div className="flex-1">
+                <h4 className="text-lg font-bold text-white">Vale para Nómina / Costos Fijos</h4>
+                <p className="text-sm text-blue-100 mt-0.5">
+                  Anticipo sin límite de saldo. Muestra todos los profesionales (activos e inactivos).
+                </p>
+              </div>
+              <svg className="w-6 h-6 text-white/70 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </div>
+          </button>
+        </div>
+        <div className="p-4 border-t border-gray-700">
+          <button
+            onClick={() => setModalSeleccionTipoValeOpen(false)}
+            className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  )}
+
+  {/* ← ← ← MODAL: CREAR VALE DE NÓMINA / COSTOS FIJOS (SIMPLIFICADO) ← ← ← */}
+  {modalNuevoValeNominaOpen && (
+    <div className="fixed inset-0 z-[80] bg-black/70 flex items-center justify-center p-4">
+      <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-gray-700">
+        <div className="p-6 border-b border-gray-700">
+          <h3 className="text-lg font-bold text-white">📋 Nuevo Vale (Nómina / Costos Fijos)</h3>
+          <p className="text-sm text-gray-400 mt-1">
+            Sin validación de límite de saldo. Incluye profesionales inactivos.
+          </p>
+        </div>
+        <div className="p-6 space-y-4">
+          {/* Profesional (TODOS, activos e inactivos) */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-300 mb-1">
+              👤 Profesional *
+            </label>
+            <select
+              value={nuevoValeNomina.profesional}
+              onChange={(e) => setNuevoValeNomina(prev => ({ ...prev, profesional: e.target.value }))}
+              className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
+            >
+              <option value="">Seleccionar profesional...</option>
+              {profesionalesTodos.map(prof => (
+                <option key={prof.id} value={prof.id}>
+                  {prof.nombre} {!prof.activo && '(Inactivo)'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Monto */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-300 mb-1">
+              💰 Monto *
+            </label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+              <input
+                type="number"
+                min="1000"
+                step="1000"
+                value={nuevoValeNomina.monto}
+                onChange={(e) => setNuevoValeNomina(prev => ({ ...prev, monto: e.target.value }))}
+                className="w-full px-4 py-3 pl-8 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
+                placeholder="0"
+              />
+            </div>
+          </div>
+
+          {/* Método de Pago (Lista desplegable sencilla, obligatoria, sin default) */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-300 mb-1">
+              💳 Método de Pago *
+            </label>
+            <select
+              value={nuevoValeNomina.metodo_pago}
+              onChange={(e) => setNuevoValeNomina(prev => ({ ...prev, metodo_pago: e.target.value }))}
+              className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
+            >
+              <option value="">Seleccionar método de pago...</option>
+              {METODOS_PAGO_VALE.map((metodo) => (
+                <option key={metodo.value} value={metodo.value}>
+                  {metodo.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Notas */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-300 mb-1">
+              📝 Notas (opcional)
+            </label>
+            <textarea
+              value={nuevoValeNomina.notas}
+              onChange={(e) => setNuevoValeNomina(prev => ({ ...prev, notas: e.target.value }))}
+              rows={2}
+              className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none resize-none"
+              placeholder="Motivo del anticipo..."
+            />
+          </div>
+        </div>
+        <div className="p-6 border-t border-gray-700 flex gap-3">
+          <button
+            onClick={() => {
+              setModalNuevoValeNominaOpen(false);
+              setNuevoValeNomina({ profesional: '', monto: '', session_caja: '', metodo_pago: '', notas: '' });
+            }}
+            disabled={loadingValeNomina}
+            className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleCrearValeNomina}
+            disabled={loadingValeNomina || !nuevoValeNomina.profesional || !nuevoValeNomina.monto || !nuevoValeNomina.session_caja || !nuevoValeNomina.metodo_pago}
+            className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {loadingValeNomina ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Creando...
+              </>
+            ) : (
+              '✅ Crear Vale'
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  )}
+
 <LibroDiarioModal
   isOpen={modalLibroDiarioOpen}
   onClose={() => setModalLibroDiarioOpen(false)}
@@ -4933,6 +5293,219 @@ const formatDate = (dateStr: string): string => {
   }}
 />
 
+{/* ← ← ← MODAL: ALERTAS DE COSTOS FIJOS ← ← ← */}
+{modalAlertasOpen && (
+    <div className="fixed inset-0 z-[100] bg-black/70 flex items-center justify-center p-4">
+        <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col border border-yellow-700/50">
+            {/* Header */}
+            <div className="p-6 border-b border-gray-700 flex items-center justify-between">
+                <div>
+                    <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                        <svg className="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        Alertas de Costos Fijos
+                    </h3>
+                    <p className="text-sm text-gray-400 mt-1">
+                        Costos pendientes que vencen en los próximos 2 días o ya están vencidos.
+                    </p>
+                </div>
+                <button
+                    onClick={() => setModalAlertasOpen(false)}
+                    className="text-gray-400 hover:text-white p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-6">
+                {loadingAlertas ? (
+                    <div className="flex items-center justify-center py-8">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-400"></div>
+                        <span className="ml-3 text-gray-400">Cargando alertas...</span>
+                    </div>
+                ) : alertasCostosFijos.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400">
+                        <svg className="w-16 h-16 mx-auto mb-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <p className="text-lg font-medium text-white">¡Todo en orden!</p>
+                        <p className="text-sm">No hay costos fijos próximos a vencer.</p>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {alertasCostosFijos.map((alerta) => (
+                            <div 
+                                key={alerta.id} 
+                                className={`p-4 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                                    alerta.es_vencido 
+                                        ? 'bg-red-900/20 border-red-700/50' 
+                                        : 'bg-yellow-900/20 border-yellow-700/50'
+                                }`}
+                            >
+                                <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                                            alerta.es_vencido ? 'bg-red-600 text-white' : 'bg-yellow-600 text-white'
+                                        }`}>
+                                            {alerta.es_vencido ? 'VENCIDO' : 'PRÓXIMO A VENCER'}
+                                        </span>
+                                        <span className="text-white font-semibold text-lg">{alerta.nombre}</span>
+                                    </div>
+                                    <div className="text-sm text-gray-400 flex flex-wrap items-center gap-x-4 gap-y-1">
+                                        <span className="flex items-center gap-1">
+                                            📅 {new Date(alerta.fecha_vencimiento).toLocaleDateString('es-CO')}
+                                        </span>
+                                        <span className="flex items-center gap-1 font-medium text-white">
+                                            💰 {formatMoney(alerta.monto)}
+                                        </span>
+                                        {alerta.categoria_display && (
+                                            <span className="flex items-center gap-1">📁 {alerta.categoria_display}</span>
+                                        )}
+                                    </div>
+                                    <div className={`text-xs mt-2 font-medium ${
+                                        alerta.es_vencido ? 'text-red-400' : 'text-yellow-400'
+                                    }`}>
+                                        {alerta.es_vencido 
+                                            ? `⚠️ Venció hace ${Math.abs(alerta.dias_restantes)} día(s)`
+                                            : `⏳ Vence en ${alerta.dias_restantes} día(s)`
+                                        }
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setModalAlertasOpen(false);
+                                        // Opcional: Aquí podrías abrir el modal de "Registrar Gasto" y preseleccionar este costo
+                                        alert(`Para pagar "${alerta.nombre}", ve a la sección "Gasto / Salida" y selecciónalo de la lista de costos fijos.`);
+                                    }}
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                                >
+                                    Pagar Ahora
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+            
+            {/* Footer */}
+            <div className="p-6 border-t border-gray-700 flex justify-end">
+                <button
+                    onClick={() => setModalAlertasOpen(false)}
+                    className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+                >
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+)}
+
+{/* ← ← ← ALERTA SUTIL (TOAST) DE COSTOS FIJOS CON LISTADO ← ← ← */}
+{mostrarAlertaToast && alertasCostosFijos.length > 0 && (
+    <div className="fixed top-4 right-4 z-[100] w-80 bg-gradient-to-br from-orange-600 to-red-700 text-white rounded-xl shadow-2xl border border-orange-400/30 overflow-hidden animate-in slide-in-from-top-5 fade-in duration-500">
+        {/* Header compacto */}
+        <div className="p-3 border-b border-orange-400/30 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                </div>
+                <div>
+                    <h4 className="font-bold text-sm">⚠️ Costos por Vencer</h4>
+                    <p className="text-[10px] text-orange-100">
+                        {alertasCostosFijos.length} costo(s) pendiente(s)
+                    </p>
+                </div>
+            </div>
+            <button
+                onClick={() => setMostrarAlertaToast(false)}
+                className="text-white/70 hover:text-white hover:bg-white/20 rounded-full p-1 transition-colors"
+                title="Cerrar alerta"
+            >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+        
+        {/* Listado de costos con scroll */}
+        <div className=" overflow-y-auto p-2 space-y-1.5">
+            {alertasCostosFijos.slice(0, 5).map((alerta) => (
+                <div 
+                    key={alerta.id} 
+                    className={`p-2 rounded-lg flex items-center justify-between text-xs ${
+                        alerta.es_vencido 
+                            ? 'bg-red-900/40 border border-red-500/50' 
+                            : 'bg-orange-900/40 border border-orange-500/50'
+                    }`}
+                >
+                    <div className="flex-1 min-w-0 mr-2">
+                        <p className="font-medium text-white truncate" title={alerta.nombre}>
+                            {alerta.nombre}
+                        </p>
+                        <p className={`text-[10px] mt-0.5 ${
+                            alerta.es_vencido ? 'text-red-300' : 'text-orange-200'
+                        }`}>
+                            {alerta.es_vencido 
+                                ? `⚠️ Venció hace ${Math.abs(alerta.dias_restantes)}d`
+                                : ` Vence en ${alerta.dias_restantes}d`
+                            }
+                        </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                        <p className="font-bold text-white">
+                            {formatMoney(alerta.monto)}
+                        </p>
+                    </div>
+                </div>
+            ))}
+            
+            {/* Si hay más de 5, mostrar contador */}
+            {alertasCostosFijos.length > 5 && (
+                <div className="text-center py-1 text-[10px] text-orange-200 bg-orange-900/30 rounded">
+                    + {alertasCostosFijos.length - 5} más pendientes
+                </div>
+            )}
+        </div>
+        
+        {/* Footer con acción */}
+        <div className="p-2 border-t border-orange-400/30 bg-black/20">
+            <button
+                onClick={() => {
+                    setMostrarAlertaToast(false);
+                    setModalAlertasOpen(true); // Abre el modal detallado
+                   
+                   
+                }}
+                className="w-full text-[10px] font-semibold text-white hover:text-orange-200 transition-colors flex items-center justify-center gap-1"
+            >
+                Ver detalles completos →
+            </button>
+        </div>
+        
+        {/* Barra de progreso de 10 segundos */}
+        <div 
+            className="absolute bottom-0 left-0 h-1 bg-white/40 rounded-b-xl"
+            style={{ 
+                width: '100%', 
+                animation: 'shrink 10s linear forwards' 
+            }}
+        ></div>
+        
+        <style jsx>{`
+            @keyframes shrink {
+                from { width: 100%; }
+                to { width: 0%; }
+            }
+        `}</style>
+    </div>
+)}
+
 {/* ← ← ← MODAL DE REPORTE DE CIERRE DE CAJA (El que te di en la respuesta anterior) ← ← ← */}
 <ReporteCierreCajaModal
   isOpen={modalReporteCierreOpen}
@@ -4947,7 +5520,10 @@ const formatDate = (dateStr: string): string => {
      
     </div>
   );
+
+
 }
+
 
 
 
@@ -5520,6 +6096,10 @@ function ValeCard({
           {vale.estado === 'pagado' ? '✓ Pagado' : '✗ Cancelado'}
         </p>
       )}*/}
+
     </div>
+
+
+
   );
 }

@@ -1,8 +1,20 @@
-// components/admin/costos-fijos/CostoFijoModal.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { CostoFijoMensual } from '@/lib/api/costosFijos';
+
+interface Proveedor {
+  id: number;
+  nombre: string;
+  numero_documento: string;
+  tipo: 'proveedor';
+}
+
+interface Profesional {
+  id: number;
+  nombre: string;
+  tipo: 'profesional';
+}
 
 interface Props {
   isOpen: boolean;
@@ -12,6 +24,8 @@ interface Props {
   costo?: CostoFijoMensual;
   mesDefault?: number;
   anioDefault?: number;
+  apiUrl: string;
+  token: string | null;
 }
 
 const CATEGORIAS = [
@@ -60,7 +74,14 @@ export default function CostoFijoModal({
   costo,
   mesDefault,
   anioDefault,
+  apiUrl,
+  token,
 }: Props) {
+  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
+  const [profesionales, setProfesionales] = useState<Profesional[]>([]);
+  const [beneficiarioSeleccionado, setBeneficiarioSeleccionado] = useState<number | null>(null);
+  const [showNuevoProveedorModal, setShowNuevoProveedorModal] = useState(false);
+  
   const [formData, setFormData] = useState({
     nombre: '',
     categoria: 'otros',
@@ -72,7 +93,6 @@ export default function CostoFijoModal({
     anio_referencia: anioDefault || new Date().getFullYear(),
     dia_pago: 1,
     metodo_pago: 'transferencia',
-    proveedor: '',
     referencia_pago: '',
     es_recurrente: true,
     es_esencial: false,
@@ -81,38 +101,98 @@ export default function CostoFijoModal({
 
   const [loading, setLoading] = useState(false);
 
+  // 🧠 LÓGICA DINÁMICA: El tipo de beneficiario se deriva directamente de la categoría
+  const tipoBeneficiario = formData.categoria === 'nomina_fija' ? 'profesional' : 'proveedor';
+
+  // Cargar beneficiarios y datos al abrir
   useEffect(() => {
-    if (mode === 'editar' && costo) {
-      setFormData({
-        nombre: costo.nombre,
-        categoria: costo.categoria,
-        descripcion: costo.descripcion || '',
-        monto: costo.monto.toString(),
-        monto_proyectado: costo.monto_proyectado?.toString() || '',
-        frecuencia: costo.frecuencia,
-        mes_referencia: costo.mes_referencia,
-        anio_referencia: costo.anio_referencia,
-        dia_pago: costo.dia_pago,
-        metodo_pago: costo.metodo_pago,
-        proveedor: costo.proveedor || '',
-        referencia_pago: costo.referencia_pago || '',
-        es_recurrente: costo.es_recurrente,
-        es_esencial: costo.es_esencial,
-        notas: costo.notas || '',
-      });
+    if (isOpen) {
+      cargarBeneficiarios();
+      
+      if (mode === 'editar' && costo) {
+        setFormData({
+          nombre: costo.nombre,
+          categoria: costo.categoria,
+          descripcion: costo.descripcion || '',
+          monto: costo.monto.toString(),
+          monto_proyectado: costo.monto_proyectado?.toString() || '',
+          frecuencia: costo.frecuencia,
+          mes_referencia: costo.mes_referencia,
+          anio_referencia: costo.anio_referencia,
+          dia_pago: costo.dia_pago,
+          metodo_pago: costo.metodo_pago,
+          referencia_pago: costo.referencia_pago || '',
+          es_recurrente: costo.es_recurrente,
+          es_esencial: costo.es_esencial,
+          notas: costo.notas || '',
+        });
+        
+        // Cargar el beneficiario guardado
+        if (costo.profesional) {
+          setBeneficiarioSeleccionado(costo.profesional);
+        } else if (costo.proveedor) {
+          setBeneficiarioSeleccionado(costo.proveedor);
+        }
+      } else {
+        // Resetear para modo crear
+        setBeneficiarioSeleccionado(null);
+      }
     }
-  }, [mode, costo]);
+  }, [isOpen, mode, costo, mesDefault, anioDefault]);
+
+  const cargarBeneficiarios = async () => {
+    try {
+      const [provRes, profRes] = await Promise.all([
+        fetch(`${apiUrl}/proveedores/para_costos_fijos/`, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        }),
+        
+        fetch(`${apiUrl}/profesionales/?incluir_inactivos=true`, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        })
+      ]);
+      
+      if (provRes.ok) {
+        const provData = await provRes.json();
+        setProveedores(provData);
+      }
+      
+      if (profRes.ok) {
+        const profData = await profRes.json();
+        setProfesionales(
+          Array.isArray(profData) ? profData : (profData.results || [])
+        );
+      }
+    } catch (error) {
+      console.error('Error cargando beneficiarios:', error);
+    }
+  };
+
+  // 🔄 Handler especial para la categoría: limpia la selección al cambiar para evitar inconsistencias
+  const handleCategoriaChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setFormData({ ...formData, categoria: e.target.value });
+    setBeneficiarioSeleccionado(null); // Forzar nueva selección
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!beneficiarioSeleccionado) {
+      alert(`Debe seleccionar un ${tipoBeneficiario === 'proveedor' ? 'proveedor' : 'profesional'}`);
+      return;
+    }
+
     setLoading(true);
 
     try {
       const data: Partial<CostoFijoMensual> = {
-      ...formData,
-      monto: parseFloat(formData.monto).toString(),  // ← Convertir a string
-      monto_proyectado: formData.monto_proyectado ? parseFloat(formData.monto_proyectado).toString() : null,
-    };
+        ...formData,
+        monto: parseFloat(formData.monto),
+        monto_proyectado: formData.monto_proyectado ? parseFloat(formData.monto_proyectado) : null,
+        tipo_beneficiario: tipoBeneficiario, // Se envía dinámicamente
+        proveedor: tipoBeneficiario === 'proveedor' ? beneficiarioSeleccionado : null,
+        profesional: tipoBeneficiario === 'profesional' ? beneficiarioSeleccionado : null,
+      };
 
       await onSubmit(data);
     } catch (error) {
@@ -136,11 +216,71 @@ export default function CostoFijoModal({
             {mode === 'crear'
               ? 'Registra un nuevo costo fijo mensual'
               : 'Modifica los datos del costo fijo'}
-          </p>
+7          </p>
         </div>
 
         {/* Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
+          
+          {/* Categoría (Ahora controla la lógica del beneficiario) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">
+              📂 Categoría *
+            </label>
+            <select
+              required
+              value={formData.categoria}
+              onChange={handleCategoriaChange}
+              className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-purple-500 focus:outline-none"
+            >
+              {CATEGORIAS.map((cat) => (
+                <option key={cat.value} value={cat.value}>
+                  {cat.label}
+                </option>
+              ))}
+            </select>
+            {formData.categoria === 'nomina_fija' && (
+              <p className="text-xs text-green-400 mt-1">💡 Se mostrarán los profesionales del equipo para este pago de nómina.</p>
+            )}
+          </div>
+
+          {/* Selector de Beneficiario (Dinámico) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">
+              {tipoBeneficiario === 'proveedor' ? '🏢 Proveedor *' : '👨‍⚕️ Profesional *'}
+            </label>
+            <div className="flex gap-2">
+              <select
+                value={beneficiarioSeleccionado || ''}
+                onChange={(e) => setBeneficiarioSeleccionado(Number(e.target.value))}
+                className="flex-1 px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-purple-500 focus:outline-none"
+                required
+              >
+                <option value="">
+                  Seleccionar {tipoBeneficiario === 'proveedor' ? 'proveedor' : 'profesional'}...
+                </option>
+                {(tipoBeneficiario === 'proveedor' ? proveedores : profesionales).map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.nombre} {'numero_documento' in item && item.numero_documento && `(${item.numero_documento})`}
+                  </option>
+                ))}
+              </select>
+              
+              {tipoBeneficiario === 'proveedor' && (
+                <button
+                  type="button"
+                  onClick={() => setShowNuevoProveedorModal(true)}
+                  className="px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                  title="Crear nuevo proveedor"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Nombre */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -152,27 +292,8 @@ export default function CostoFijoModal({
               value={formData.nombre}
               onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
               className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-purple-500 focus:outline-none"
-              placeholder="Ej: Arriendo local, Internet Tigo"
+              placeholder="Ej: Arriendo local, Internet Tigo, Nómina Marzo"
             />
-          </div>
-
-          {/* Categoría */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
-              📂 Categoría *
-            </label>
-            <select
-              required
-              value={formData.categoria}
-              onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}
-              className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-purple-500 focus:outline-none"
-            >
-              {CATEGORIAS.map((cat) => (
-                <option key={cat.value} value={cat.value}>
-                  {cat.label}
-                </option>
-              ))}
-            </select>
           </div>
 
           {/* Descripción */}
@@ -275,93 +396,92 @@ export default function CostoFijoModal({
             </div>
           </div>
 
-          {/* Día de pago */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
-              📆 Día de Pago (1-31)
-            </label>
-            <input
-              type="number"
-              min="1"
-              max="31"
-              value={formData.dia_pago}
-              onChange={(e) => setFormData({ ...formData, dia_pago: parseInt(e.target.value) })}
-              className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-purple-500 focus:outline-none"
-            />
-          </div>
-
-          {/* Método de Pago */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              💳 Método de Pago
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {METODOS_PAGO.map((metodo) => (
-                <button
-                  key={metodo.value}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, metodo_pago: metodo.value })}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-all border-2 ${
-                    formData.metodo_pago === metodo.value
-                      ? 'bg-purple-600 border-white text-white'
-                      : 'bg-gray-900 border-gray-600 text-gray-300 hover:border-gray-500'
-                  }`}
-                >
-                  {metodo.label}
-                </button>
-              ))}
+          {/* Día de pago y Método de Pago (Compactos) */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                📆 Día de Pago (1-31)
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="31"
+                value={formData.dia_pago}
+                onChange={(e) => setFormData({ ...formData, dia_pago: parseInt(e.target.value) })}
+                className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-purple-500 focus:outline-none"
+              />
+            </div>
+            
+            {/* ✅ MÉTODO DE PAGO SIMPLIFICADO A UN SELECTOR */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                💳 Método de Pago
+              </label>
+              <select
+                value={formData.metodo_pago}
+                onChange={(e) => setFormData({ ...formData, metodo_pago: e.target.value })}
+                className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-purple-500 focus:outline-none"
+              >
+                {METODOS_PAGO.map((metodo) => (
+                  <option key={metodo.value} value={metodo.value}>
+                    {metodo.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
-          {/* Proveedor */}
+          {/* Referencia de Pago */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
-              🏢 Proveedor
+              📄 Referencia de Pago
             </label>
             <input
               type="text"
-              value={formData.proveedor}
-              onChange={(e) => setFormData({ ...formData, proveedor: e.target.value })}
+              value={formData.referencia_pago}
+              onChange={(e) => setFormData({ ...formData, referencia_pago: e.target.value })}
               className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-purple-500 focus:outline-none"
-              placeholder="Nombre del proveedor"
+              placeholder="Número de factura, comprobante, etc."
             />
           </div>
 
           {/* Toggles */}
-          <div className="space-y-3">
-            <label className="flex items-center gap-3 cursor-pointer">
+          <div className="grid grid-cols-2 gap-4 pt-2">
+            <label className="flex items-center gap-3 cursor-pointer p-3 bg-gray-900/50 rounded-lg border border-gray-700 hover:border-purple-500/50 transition-colors">
               <input
                 type="checkbox"
                 checked={formData.es_recurrente}
                 onChange={(e) => setFormData({ ...formData, es_recurrente: e.target.checked })}
-                className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500"
+                className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500 bg-gray-800 border-gray-600"
               />
-              <span className="text-sm text-gray-300">
-                🔄 Es recurrente (se replica automáticamente cada mes)
-              </span>
+              <div className="flex flex-col">
+                <span className="text-sm font-medium text-gray-200">Recurrente</span>
+                <span className="text-xs text-gray-400">Se replica cada mes</span>
+              </div>
             </label>
-            <label className="flex items-center gap-3 cursor-pointer">
+            <label className="flex items-center gap-3 cursor-pointer p-3 bg-gray-900/50 rounded-lg border border-gray-700 hover:border-purple-500/50 transition-colors">
               <input
                 type="checkbox"
                 checked={formData.es_esencial}
                 onChange={(e) => setFormData({ ...formData, es_esencial: e.target.checked })}
-                className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500"
+                className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500 bg-gray-800 border-gray-600"
               />
-              <span className="text-sm text-gray-300">
-                ⭐ Es esencial para la operación
-              </span>
+              <div className="flex flex-col">
+                <span className="text-sm font-medium text-gray-200">Esencial</span>
+                <span className="text-xs text-gray-400">Crítico para operar</span>
+              </div>
             </label>
           </div>
 
           {/* Notas */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
-              📝 Notas Internas
+               📝 Notas Internas
             </label>
             <textarea
               value={formData.notas}
               onChange={(e) => setFormData({ ...formData, notas: e.target.value })}
-              rows={3}
+              rows={2}
               className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-purple-500 focus:outline-none resize-none"
               placeholder="Observaciones, recordatorios..."
             />
@@ -369,7 +489,7 @@ export default function CostoFijoModal({
         </form>
 
         {/* Footer */}
-        <div className="p-6 border-t border-gray-700 flex gap-3">
+        <div className="p-6 border-t border-gray-700 flex gap-3 bg-gray-800 rounded-b-2xl">
           <button
             onClick={onClose}
             disabled={loading}
@@ -379,7 +499,7 @@ export default function CostoFijoModal({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={loading}
+            disabled={loading || !beneficiarioSeleccionado}
             className="flex-1 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {loading ? (
@@ -394,6 +514,164 @@ export default function CostoFijoModal({
             )}
           </button>
         </div>
+      </div>
+
+      {/* Modal para crear nuevo proveedor */}
+      {showNuevoProveedorModal && (
+        <NuevoProveedorModal
+          isOpen={showNuevoProveedorModal}
+          onClose={() => setShowNuevoProveedorModal(false)}
+          onSave={(nuevoProveedor) => {
+            setProveedores([...proveedores, nuevoProveedor]);
+            setBeneficiarioSeleccionado(nuevoProveedor.id);
+            setShowNuevoProveedorModal(false);
+          }}
+          apiUrl={apiUrl}
+          token={token}
+        />
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// Componente NuevoProveedorModal
+// ==========================================
+interface NuevoProveedorModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (proveedor: Proveedor) => void;
+  apiUrl: string;
+  token: string | null;
+}
+
+function NuevoProveedorModal({ isOpen, onClose, onSave, apiUrl, token }: NuevoProveedorModalProps) {
+  const [formData, setFormData] = useState({
+    nombre: '',
+    numero_documento: '',
+    tipo_documento: 'nit',
+    email: '',
+    telefono: '',
+  });
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${apiUrl}/proveedores/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(formData)
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        onSave(data);
+        onClose();
+      } else {
+        const error = await res.json();
+        alert(`Error: ${error.detail || error.numero_documento?.[0] || 'Error al crear proveedor'}`);
+      }
+    } catch (error) {
+      console.error('Error creating proveedor:', error);
+      alert('Error al crear el proveedor');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
+      <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-gray-700">
+        <div className="p-6 border-b border-gray-700 flex justify-between items-center">
+          <h3 className="text-lg font-bold text-white">➕ Nuevo Proveedor</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Nombre *</label>
+            <input
+              type="text"
+              required
+              value={formData.nombre}
+              onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+              className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-green-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Tipo Doc.</label>
+              <select
+                value={formData.tipo_documento}
+                onChange={(e) => setFormData({ ...formData, tipo_documento: e.target.value })}
+                className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-green-500 focus:outline-none"
+              >
+                <option value="nit">NIT</option>
+                <option value="cedula">Cédula</option>
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Número *</label>
+              <input
+                type="text"
+                required
+                value={formData.numero_documento}
+                onChange={(e) => setFormData({ ...formData, numero_documento: e.target.value })}
+                className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-green-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Email</label>
+              <input
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-green-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Teléfono</label>
+              <input
+                type="tel"
+                value={formData.telefono}
+                onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
+                className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:border-green-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium disabled:opacity-50"
+            >
+              {loading ? 'Guardando...' : '💾 Guardar'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

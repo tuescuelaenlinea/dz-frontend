@@ -6,6 +6,8 @@ import ProfessionalModal from '@/components/booking/ProfessionalModal';
 import CitasPendientesModal from '@/components/admin/CitasPendientesModal';
 import CalcularComisionesModal from '@/components/admin/CalcularComisionesModal'; // ← AGREGAR
 import SeleccionarCostosFijosModal from '@/components/admin/costos-fijos/SeleccionarCostosFijosModal';
+import ModalValesPendientes from '@/components/admin/caja/ModalValesPendientes';
+
 
 // ← ← ← INTERFACES ← ← ←
 interface Servicio {
@@ -53,6 +55,8 @@ interface ReciboItem {
   stockActual?: number;         // ← ← ← AGREGADO
   propinaItem?: number;  // Propina asignada a este item (para envío al backend)
   costoFijoId?: number;
+  tipo_beneficiario?: 'proveedor' | 'profesional';
+  profesional_id?: number;
 }
 
 interface CajaReciboModalProps {
@@ -205,6 +209,19 @@ export default function CajaReciboModal({
   // ← Estados principales
   const [tipoRecibo, setTipoRecibo] = useState<'entrada' | 'salida' | 'venta'>('venta');
   const [items, setItems] = useState<ReciboItem[]>([]);
+  // ← ← ← NUEVOS ESTADOS PARA MÓDULO DE VALES EN NÓMINA ← ← ←
+  const [modalValesPendientesOpen, setModalValesPendientesOpen] = useState(false);
+  const [valesParaDescontar, setValesParaDescontar] = useState<Array<{
+    id: number;
+    codigo_vale: string;
+    monto: number;
+  }>>([]);
+  const [totalValesDescontados, setTotalValesDescontados] = useState(0);
+  const [profesionalParaVales, setProfesionalParaVales] = useState<{
+    id: number;
+    nombre: string;
+    montoCostoFijo: number;
+  } | null>(null);
   const [descuento, setDescuento] = useState<number>(0);
   const [propinaTotal, setPropinaTotal] = useState<number>(0);
   const [metodoPago, setMetodoPago] = useState<string>('bold');
@@ -361,36 +378,36 @@ console.log(`🧮 [descuentoAliadoCalculado] Subtotal servicios: $${subtotalServ
 
 // ← ← ← MODIFICAR: Incluir descuento de aliado en el total ← ← ←
 // ← ← ← REEMPLAZAR el useMemo de total por este:
+// ← ← ← DESPUÉS (CORRECTO) ← ← ←
 const total = useMemo(() => {
-    const descuentoManual = Number(descuento) || 0;
-    const descuentoAliado = descuentoAliadoCalculado;  // ← Solo cálculo, NO se suma si ya viene del backend
-    const descuentoReferidoTotal = badgesReferido.reduce(
-        (sum, badge) => sum + (Number(badge.montoDescuento) || 0),
-        0
-    );
-    
-    // ← ← ← CLAVE: El descuento total ya viene del backend
-    // Solo usamos los cálculos para mostrar en UI, NO para sumar
-    const descuentoTotal = descuentoManual + descuentoAliado + descuentoReferidoTotal;
-    
-    const totalCalculado = subtotal - descuentoTotal + (tipoRecibo === 'venta' ? propinaTotal : 0);
-    
-    console.log(
-        `🧮 [total] Cálculo:` +
-        `\n   Subtotal: $${subtotal}` +
-        `\n   Descuento Manual: $${descuentoManual}` +
-        `\n   Descuento Aliado: $${descuentoAliado}` +
-        `\n   Descuento Referido: $${descuentoReferidoTotal}` +
-        `\n   Descuento Total: $${descuentoTotal}` +
-        `\n   Propina: $${propinaTotal}` +
-        `\n   TOTAL: $${totalCalculado}`
-    );
-    
-    return Math.max(0, Math.round(totalCalculado * 100) / 100);
-}, [subtotal, descuento, descuentoAliadoCalculado, propinaTotal, tipoRecibo, badgesReferido]);
+  const descuentoManual = Number(descuento) || 0;
+  const descuentoAliado = descuentoAliadoCalculado;
+  const descuentoReferidoTotal = badgesReferido.reduce(
+    (sum, badge) => sum + (Number(badge.montoDescuento) || 0), 0
+  );
+  const descuentoTotal = descuentoManual + descuentoAliado + descuentoReferidoTotal;
   
- 
-
+  // ✅ CORRECCIÓN: NO restar valesDescontados aquí.
+  // Los vales YA fueron descontados del precio del item (subtotal),
+  // por lo que restarlos de nuevo causaría un "doble descuento".
+  // El badge "Vales descontados del costo fijo" es solo INFORMATIVO.
+  
+  const totalCalculado = subtotal - descuentoTotal + (tipoRecibo === 'venta' ? propinaTotal : 0);
+  
+  console.log(
+    `🧮 [total] Cálculo:` +
+    `\n  Subtotal: $${subtotal}` +
+    `\n  Descuento Manual: $${descuentoManual}` +
+    `\n  Descuento Aliado: $${descuentoAliado}` +
+    `\n  Descuento Referido: $${descuentoReferidoTotal}` +
+    `\n  Vales: (ya incluidos en el subtotal - no restar)` +
+    `\n  Propina: $${propinaTotal}` +
+    `\n  TOTAL: $${totalCalculado}`
+  );
+  return Math.max(0, Math.round(totalCalculado * 100) / 100);
+}, [subtotal, descuento, descuentoAliadoCalculado, propinaTotal, tipoRecibo, badgesReferido]);
+// ↑↑↑ Quitar totalValesDescontados de las dependencias
+    
 
 // ← ← ← RESUMEN DE ABONOS (reactivo + detección de exceso de pago) ← ← ←
 const resumenAbonos = useMemo(() => {
@@ -484,9 +501,8 @@ const cargarResumenAbonos = async (reciboId: number) => {
   }
 };
 
-// Agregar esta función junto a las otras funciones del modal
 const handleAgregarCostosFijos = (costosSeleccionados: any[]) => {
-  // Convertir cada costo fijo en un item del recibo
+  // 1. Convertir cada costo fijo en un item del recibo, trayendo los campos del beneficiario
   const nuevosItems = costosSeleccionados.map((costo) => ({
     id: `costo-fijo-${costo.id}-${Date.now()}`,
     tipo: 'otro' as const,
@@ -494,14 +510,29 @@ const handleAgregarCostosFijos = (costosSeleccionados: any[]) => {
     cantidad: 1,
     precioUnitario: parseFloat(costo.monto),
     subtotal: parseFloat(costo.monto),
-    costoFijoId: costo.id, // ← Campo especial para vincular
+    costoFijoId: costo.id,
+    tipo_beneficiario: costo.tipo_beneficiario,   // ← CLAVE: Traer el tipo del backend
+    profesional_id: costo.profesional,             // ← CLAVE: Traer el ID del profesional
+    profesional_nombre: costo.profesional_nombre,  // ← CLAVE: Traer el nombre
     esNuevo: true,
   }));
 
-  // Agregar items al estado
+  // 2. Agregar items al estado
   setItems(prev => [...prev, ...nuevosItems]);
 
-  // Mostrar confirmación
+  // 3. DETECCIÓN AUTOMÁTICA: Si es costo fijo tipo nómina, mostrar modal de vales
+  costosSeleccionados.forEach((costo) => {
+    if (costo.tipo_beneficiario === 'profesional' && costo.profesional) {
+      setProfesionalParaVales({
+        id: costo.profesional,
+        nombre: costo.profesional_nombre || 'Profesional',
+        montoCostoFijo: parseFloat(costo.monto) || 0
+      });
+      setModalValesPendientesOpen(true);
+    }
+  });
+
+  // 4. Mostrar confirmación
   alert(`✅ ${costosSeleccionados.length} costo(s) fijo(s) agregado(s) al recibo`);
 };
 
@@ -1107,6 +1138,10 @@ const handleRegistrarMovimientoOperativo = async () => {
 
     setLoading(true);
     try {
+      const costosFijosIds = items
+            .filter(item => item.costoFijoId)
+            .map(item => Number(item.costoFijoId));
+       const valesIds = valesParaDescontar.map(v => v.id);
         // ← ← ← PREPARAR PAYLOAD ← ← ←
         const payload: any = {
             tipo: tipoRecibo,
@@ -1131,7 +1166,9 @@ const handleRegistrarMovimientoOperativo = async () => {
                 precio_unitario: item.precioUnitario,
                 subtotal: item.subtotal,
                 ...(item.costoFijoId && { costo_fijo_id: item.costoFijoId }),
-            }))
+            })),
+             // ← ← ← AGREGAR vales_ids AL PAYLOAD ← ← ←
+              ...(valesIds.length > 0 && { vales_ids: valesIds })
         };
 
         console.log('🔍 [handleRegistrarMovimientoOperativo] Payload items_data:', JSON.stringify(payload.items_data, null, 2));
@@ -1184,13 +1221,11 @@ const handleRegistrarMovimientoOperativo = async () => {
         // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
         // ← ← ← NUEVO: LLAMAR AL ENDPOINT PARA PROCESAR COSTOS FIJOS ← ← ←
         // ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
-        const costosFijosIds = items
-            .filter(item => item.costoFijoId)
-            .map(item => Number(item.costoFijoId));
+        
 
-        if (costosFijosIds.length > 0 && tipoRecibo === 'salida') {
-            console.log('💰 [handleRegistrarMovimientoOperativo] Actualizando estados de costos fijos:', costosFijosIds);
-            
+        // ← ← ← ACTUALIZAR CONDICIÓN PARA INCLUIR VALES ← ← ←
+        if ((costosFijosIds.length > 0 || valesIds.length > 0) && tipoRecibo === 'salida') {
+            console.log('💰 [handleRegistrarMovimientoOperativo] Actualizando estados de costos fijos y vales:', { costosFijosIds, valesIds });
             try {
                 const resCostos = await fetch(`${apiUrl}/caja/recibos/${reciboCreado.id}/procesar-costos-fijos/`, {
                     method: 'POST',
@@ -1198,20 +1233,22 @@ const handleRegistrarMovimientoOperativo = async () => {
                         'Content-Type': 'application/json',
                         ...(token ? { 'Authorization': `Bearer ${token}` } : {})
                     },
-                    body: JSON.stringify({ costos_fijos_ids: costosFijosIds })
+                    body: JSON.stringify({ 
+                        costos_fijos_ids: costosFijosIds,
+                        vales_ids: valesIds  // ← ← ← ENVIAR TAMBIÉN LOS VALES
+                    })
                 });
-
                 if (resCostos.ok) {
                     const result = await resCostos.json();
-                    console.log('✅ [handleRegistrarMovimientoOperativo] Costos fijos actualizados exitosamente:', result);
+                    console.log('✅ [handleRegistrarMovimientoOperativo] Costos fijos y vales actualizados exitosamente:', result);
                 } else {
                     const errorData = await resCostos.json();
-                    console.error('❌ [handleRegistrarMovimientoOperativo] Error del backend actualizando costos fijos:', errorData);
-                    alert(`⚠️ El recibo se creó, pero hubo un problema actualizando los costos fijos: ${errorData.detail || 'Error desconocido'}`);
+                    console.error('❌ [handleRegistrarMovimientoOperativo] Error del backend:', errorData);
+                    alert(`⚠️ El recibo se creó, pero hubo un problema actualizando los costos/vales: ${errorData.detail || 'Error desconocido'}`);
                 }
             } catch (errCostos) {
-                console.error('❌ [handleRegistrarMovimientoOperativo] Excepción de red actualizando costos fijos:', errCostos);
-                alert('⚠️ El recibo se creó, pero no se pudo conectar con el servidor para marcar los costos fijos como pagados. Revisa la consola.');
+                console.error('❌ [handleRegistrarMovimientoOperativo] Excepción de red:', errCostos);
+                alert('⚠️ El recibo se creó, pero no se pudo conectar con el servidor para marcar los costos/vales como pagados.');
             }
         }
         // ← ← ← FIN NUEVA LÓGICA DE COSTOS FIJOS ← ← ←
@@ -1767,6 +1804,52 @@ if (recibo.cliente_email && recibo.cliente_email !== 'No@proporcionado.com') {
       }
       // ← ← ← NUEVO: Cargar badges de referido ← ← ←
       await cargarBadgesReferido(recibo.id);
+
+      // ← ← ← RECUPERAR VALES DESCONTADOS DESDE LAS NOTAS ← ← ←
+if (recibo.notas && recibo.notas.includes('--- VALES DESCONTADOS DE NÓMINA ---')) {
+  try {
+    // Extraer códigos de vale de las notas
+    const regexVales = /• (VALE-\d{8}-\d{3}): \$([0-9,.]+)/g;
+    const valesRecuperados: Array<{ id: number; codigo_vale: string; monto: number }> = [];
+    let match;
+    while ((match = regexVales.exec(recibo.notas)) !== null) {
+      const codigoVale = match[1];
+      const montoStr = match[2].replace(/\./g, '').replace(',', '');
+      valesRecuperados.push({
+        id: 0, // No tenemos el ID, pero el backend lo buscará por código
+        codigo_vale: codigoVale,
+        monto: parseFloat(montoStr) || 0,
+      });
+    }
+    if (valesRecuperados.length > 0) {
+      // Buscar los IDs reales de los vales por código
+      const resVales = await fetch(
+        `${apiUrl}/caja/vales/?estado=registrado,pagado&limit=200`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      if (resVales.ok) {
+        const dataVales = await resVales.json();
+        const todosVales = Array.isArray(dataVales) ? dataVales : (dataVales.results || []);
+        const valesMatched = valesRecuperados
+          .map(vr => {
+            const valeReal = todosVales.find((v: any) => v.codigo_vale === vr.codigo_vale);
+            return valeReal
+              ? { id: valeReal.id, codigo_vale: vr.codigo_vale, monto: vr.monto }
+              : null;
+          })
+          .filter(Boolean) as Array<{ id: number; codigo_vale: string; monto: number }>;
+        
+        if (valesMatched.length > 0) {
+          setValesParaDescontar(valesMatched);
+          setTotalValesDescontados(valesMatched.reduce((sum, v) => sum + v.monto, 0));
+          console.log(`🎫 Vales recuperados de notas: ${valesMatched.length}`);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ No se pudieron recuperar vales de las notas:', err);
+  }
+}
       
     } catch (err) {
       console.error('❌ [CajaReciboModal] Error cargando recibo:', err);
@@ -3017,13 +3100,29 @@ if (metodoPago === 'pendiente') {
       }
 
       if (estadoRecibo === 'publicado') {
-        await fetch(`${apiUrl}/caja/recibos/${reciboCreado.id}/publicar/`, {
+        const payloadPublicar: any = {};
+        if (valesParaDescontar.length > 0) {
+          payloadPublicar.vales_ids = valesParaDescontar.map(v => v.id);
+        }
+        
+        const resPublicar = await fetch(`${apiUrl}/caja/recibos/${reciboCreado.id}/publicar/`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-          }
+          },
+          body: JSON.stringify(payloadPublicar)
         });
+        
+        if (!resPublicar.ok) {
+          const errorPub = await resPublicar.json();
+          console.error('❌ Error publicando recibo con vales:', errorPub);
+        } else {
+          const dataPub = await resPublicar.json();
+          if (dataPub.vales_procesados && dataPub.vales_procesados.total > 0) {
+            console.log('✅ Vales procesados:', dataPub.vales_procesados);
+          }
+        }
       }
 
             // 🔍 EN handleGuardar (al final, antes de handleClose):
@@ -3051,7 +3150,7 @@ if (metodoPago === 'pendiente') {
 
   // ← ← ← AGREGAR ESTAS FUNCIONES AUXILIARES ← ← ←
 
-const handleGuardarConPayload = async (payloadBase: any) => {
+const handleGuardarConPayload = async (payloadBase: any, skipClose: boolean = false): Promise<any> => {
   setLoading(true);
   try {
     const payload = {
@@ -3094,25 +3193,21 @@ const handleGuardarConPayload = async (payloadBase: any) => {
       headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
       body: JSON.stringify(payload)
     });
-
     if (!res.ok) {
       const error = await res.json();
       console.error('❌ [handleGuardarConPayload] Error del backend:', error);
       throw new Error(error.detail || JSON.stringify(error));
     }
-
     const reciboCreado = await res.json();
     console.log('✅ [handleGuardarConPayload] Respuesta exitosa del backend:', reciboCreado.codigo_recibo);
-    
-    // ← ← ← MANEJAR RESPUESTA DE ABONO PARCIAL ← ← ←
+
     if (reciboCreado.nuevo_borrador_id) {
       alert(`✅ Abono registrado\nSaldo restante: ${formatMoney(parseFloat(reciboCreado.saldo_restante))}`);
       setReciboId(reciboCreado.nuevo_borrador_id);
       await cargarReciboParaEditar();
-      return;
+      return reciboCreado; // ← ← ← RETORNAR
     }
-    
-    // Distribuir propina si aplica
+
     if (propinaTotal > 0) {
       const distribucionActual = calcularDistribucionPropina;
       if (distribucionActual.length > 0) {
@@ -3127,14 +3222,18 @@ const handleGuardarConPayload = async (payloadBase: any) => {
         });
       }
     }
-
-    alert(`✅ Recibo ${reciboCreado.codigo_recibo} publicado`);
-    onReciboCreado?.(reciboCreado);
-    handleClose();
     
+    if (!skipClose) {
+      alert(`✅ Recibo ${reciboCreado.codigo_recibo} publicado`);
+      onReciboCreado?.(reciboCreado);
+      handleClose();
+    }
+    
+    return reciboCreado; // ← ← ← RETORNAR EL RECIBO CREADO
   } catch (err: any) {
     console.error('❌ [handleGuardarConPayload] Error guardando:', err);
     alert(`❌ Error: ${err.message}`);
+    throw err; // ← ← ← PROPAGAR ERROR
   } finally {
     setLoading(false);
   }
@@ -3355,18 +3454,61 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
         };
 
   const handleClose = async () => {
-    console.log('🔒 [handleClose] Cerrando modal...');
+  console.log('🔒 [handleClose] Cerrando modal...');
+  if (loading) {
+    console.log('⏳ [handleClose] Modal está cargando, no se puede cerrar aún');
+    alert('⏳ Por favor espera a que termine de cargar las citas...');
+    return; // No hacer nada
+  }
 
-        if (loading) {
-            console.log('⏳ [handleClose] Modal está cargando, no se puede cerrar aún');
-            alert('⏳ Por favor espera a que termine de cargar las citas...');
-            return; // No hacer nada
+  // ← ← ← NUEVO: VALIDACIÓN DE VALES PENDIENTES AL CERRAR ← ← ←
+  const itemsNomina = items.filter(
+    item => item.tipo === 'otro' && item.tipo_beneficiario === 'profesional' && item.profesional_id
+  );
+  
+  if (itemsNomina.length > 0 && tipoRecibo === 'salida') {
+    for (const item of itemsNomina) {
+      const profId = item.profesional_id;
+      try {
+        const res = await fetch(
+          `${apiUrl}/caja/vales/pendientes-por-profesional/?profesional_id=${profId}`,
+          {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+          }
+        );
+        
+        if (res.ok) {
+          const data = await res.json();
+          if (data.cantidad_vales > 0) {
+            const confirmar = window.confirm(
+              `⚠️ Existen vales pendientes que se pueden descontar\n\n` +
+              `Profesional: ${item.profesionalNombre}\n` +
+              `Vales pendientes: ${data.cantidad_vales}\n` +
+              `Total pendiente: ${formatMoney(data.total_pendiente)}\n\n` +
+              `¿Deseas seleccionar los vales antes de cerrar?\n\n` +
+              `• Aceptar: Abrir selector de vales\n` +
+              `• Cancelar: Cerrar sin descontar vales`
+            );
+            
+            if (confirmar) {
+              setProfesionalParaVales({
+                id: profId as number,
+                nombre: item.profesionalNombre || '',
+                montoCostoFijo: Number(item.subtotal) || 0 
+              });
+              setModalValesPendientesOpen(true);
+              return; // ← ← ← NO cerrar el modal
+            }
+          }
         }
+      } catch (err) {
+        console.error('❌ Error verificando vales pendientes:', err);
+      }
+    }
+  }
 
-
-
-    // ← ← ← NUEVO: Si el movimiento operativo ya fue registrado, limpiar y cerrar sin lógica adicional ← ← ←
-    if (movimientoOperativoRegistrado) {
+  // ← ← ← NUEVO: Si el movimiento operativo ya fue registrado, limpiar y cerrar sin lógica adicional ← ← ←
+  if (movimientoOperativoRegistrado) {
       console.log('⏭️ [handleClose] Movimiento operativo ya registrado, limpiando estados y cerrando...');
       setMovimientoOperativoRegistrado(false); // Resetear bandera
       
@@ -4523,7 +4665,29 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                       </div>
                     )}
                     
-                    {/* ← ← ← TOTAL CORREGIDO (incluye propina) ← ← ← */}
+                    {/* ← ← ← INFO: Vales descontados (ya incluidos en el precio del item) ← ← ← */}
+                    {valesParaDescontar.length > 0 && (
+                      <div className="mt-3 p-3 bg-blue-900/20 rounded-lg border border-blue-700/50">
+                        <p className="text-xs font-semibold text-blue-400 mb-2 flex items-center gap-1">
+                          🎫 Vales descontados del costo fijo ({valesParaDescontar.length})
+                        </p>
+                        <div className="space-y-1">
+                          {valesParaDescontar.map((vale) => (
+                            <div key={vale.id} className="flex justify-between text-xs">
+                              <span className="text-gray-300 font-mono">{vale.codigo_vale}</span>
+                              <span className="text-blue-400">-${formatMoney(vale.monto)}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="border-t border-blue-700/50 mt-2 pt-2">
+                          <p className="text-[10px] text-blue-300 italic">
+                            ✓ Ya descontado del precio del item. Al publicar, los vales pasarán a estado "pagado".
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ← ← ← TOTAL CORREGIDO (incluye propina y vales) ← ← ← */}
                     <div className="border-t border-gray-600 pt-2 mt-2">
                       <div className="flex justify-between font-bold text-lg">
                         <span className="text-gray-300">TOTAL:</span>
@@ -4771,7 +4935,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                 </button>
               )}
               
-              {/* Botón Publicar para ventas (con validación de abonos) */}
+              {/* Botón Publicar para ventas (con validación de abonos y vales) */}
               <button
                 onClick={async () => {
                   if (!resumenAbonos?.puede_publicar) {
@@ -4783,26 +4947,68 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                     mostrarAlertaServiciosSinProfesional(validacion.serviciosSinProfesional);
                     return;
                   }
-                  setEstadoRecibo('publicado');
-                  const payloadBase = {
-                    tipo: tipoRecibo,
-                    estado: 'publicado',
-                    subtotal: subtotal,
-                    descuento: descuento,
-                    total: total,
-                    propina_total: tipoRecibo === 'venta' ? propinaTotal : 0,
-                    propina_metodo_distribucion: tipoRecibo === 'venta' && propinaTotal > 0 ? propinaMetodo : null,
-                    metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
-                    session_caja: sessionCajaId,
-                    cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : '',
-                    cliente_telefono: tipoRecibo === 'venta' ? (clienteTelefono?.trim() || 'No proporcionado') : '',
-                    cliente_email: tipoRecibo === 'venta' ? (clienteEmail?.trim() || 'No@proporcionado.com') : '',
-                    notas: notas || '',
-                  };
-                  if (modoEdicion && reciboId) {
-                    await handleActualizarReciboConPayload(payloadBase);
-                  } else {
-                    await handleGuardarConPayload(payloadBase);
+                  
+                  setLoading(true);
+                  try {
+                    const payloadBase = {
+                      tipo: tipoRecibo,
+                      estado: 'borrador', // Primero guardamos como borrador para asegurar consistencia de datos
+                      subtotal: subtotal,
+                      descuento: descuento,
+                      total: total,
+                      propina_total: tipoRecibo === 'venta' ? propinaTotal : 0,
+                      propina_metodo_distribucion: tipoRecibo === 'venta' && propinaTotal > 0 ? propinaMetodo : null,
+                      metodo_pago: tipoRecibo === 'venta' ? metodoPago : null,
+                      session_caja: sessionCajaId,
+                      cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : '',
+                      cliente_telefono: tipoRecibo === 'venta' ? (clienteTelefono?.trim() || 'No proporcionado') : '',
+                      cliente_email: tipoRecibo === 'venta' ? (clienteEmail?.trim() || 'No@proporcionado.com') : '',
+                      notas: notas || '',
+                    };
+
+                    let reciboFinalId = reciboId;
+
+                    if (modoEdicion && reciboId) {
+                      await handleActualizarReciboConPayload(payloadBase, true); // true = silentMode
+                    } else {
+                      const nuevoRecibo = await handleGuardarConPayload(payloadBase, true);
+                      reciboFinalId = nuevoRecibo.id;
+                    }
+
+                    // 2. Llamar al endpoint de publicar para procesar vales
+                    if (reciboFinalId) {
+                      const payloadPublicar: any = {};
+                      if (valesParaDescontar.length > 0) {
+                        payloadPublicar.vales_ids = valesParaDescontar.map(v => v.id);
+                      }
+                      
+                      const resPublicar = await fetch(`${apiUrl}/caja/recibos/${reciboFinalId}/publicar/`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                        },
+                        body: JSON.stringify(payloadPublicar)
+                      });
+
+                      if (!resPublicar.ok) {
+                        const errorPub = await resPublicar.json();
+                        throw new Error(errorPub.error || errorPub.detail || 'Error al publicar el recibo');
+                      }
+                      
+                      const dataPub = await resPublicar.json();
+                      if (dataPub.vales_procesados && dataPub.vales_procesados.total > 0) {
+                        console.log('✅ Vales procesados:', dataPub.vales_procesados);
+                      }
+                    }
+                    
+                    alert('✅ Recibo publicado exitosamente');
+                    handleClose();
+                  } catch (err: any) {
+                    console.error('❌ Error publicando:', err);
+                    alert(`❌ Error: ${err.message}`);
+                  } finally {
+                    setLoading(false);
                   }
                 }}
                 disabled={
@@ -6241,6 +6447,69 @@ Falta: ${formatMoney(resumenAbonos?.saldo_pendiente || 0)}`);
     </div>
   </div>
 )}
+      
+      {/* ← ← ← NUEVO: Modal de Vales Pendientes para Nómina ← ← ← */}
+      <ModalValesPendientes
+        isOpen={modalValesPendientesOpen}
+        onClose={() => setModalValesPendientesOpen(false)}
+        onAccept={(valesSeleccionados, totalSeleccionado) => {
+          // 1. Guardar vales para enviar al publicar (que marquen estado "pagado")
+          setValesParaDescontar(valesSeleccionados);
+          setTotalValesDescontados(totalSeleccionado);
+          setModalValesPendientesOpen(false);
+
+          // 2. ✅ NUEVA LÓGICA: Descontar el vale del item del costo fijo (no crear item negativo)
+          if (profesionalParaVales?.id) {
+            setItems(prev => {
+              const updated = [...prev];
+              // Buscar el item del costo fijo del profesional (el último item 'otro' con ese profesional)
+              for (let i = updated.length - 1; i >= 0; i--) {
+                const item = updated[i];
+                if (
+                  item.tipo === 'otro' &&
+                  item.costoFijoId &&
+                  (item as any).profesional_id === profesionalParaVales.id
+                ) {
+                  // Restar el total de vales del precio unitario y subtotal
+                  const nuevoPrecio = Math.max(0, item.precioUnitario - totalSeleccionado);
+                  updated[i] = {
+                    ...item,
+                    precioUnitario: nuevoPrecio,
+                    subtotal: nuevoPrecio * item.cantidad,
+                  };
+                  console.log(
+                    `✅ Vale descontado del item "${item.descripcion}": ` +
+                    `$${item.precioUnitario} → $${nuevoPrecio} (vale: $${totalSeleccionado})`
+                  );
+                  break;
+                }
+              }
+              return updated;
+            });
+          }
+
+          // 3. Agregar nota detallada al recibo
+          const listaVales = valesSeleccionados
+            .map(v => `• ${v.codigo_vale}: $${v.monto.toLocaleString('es-CO')}`)
+            .join('\n');
+          const notaVales =
+            `\n\n--- VALES DESCONTADOS DE NÓMINA ---\n` +
+            `Profesional: ${profesionalParaVales?.nombre || 'N/A'}\n` +
+            `${listaVales}\n` +
+            `Total descontado: $${totalSeleccionado.toLocaleString('es-CO')}\n` +
+            `Los vales pasarán a estado "pagado" al publicar este recibo.`;
+          setNotas(prev => (prev || '') + notaVales);
+
+          console.log(
+            `🎫 Vales aplicados: ${valesSeleccionados.length} vale(s) por $${totalSeleccionado.toLocaleString('es-CO')}`
+          );
+        }}
+        profesionalId={profesionalParaVales?.id || 0}
+        profesionalNombre={profesionalParaVales?.nombre || ''}
+        montoCostoFijo={profesionalParaVales?.montoCostoFijo || 0}
+        apiUrl={apiUrl}
+        token={token}
+      />
 
       {/* ← ← ← MODAL DE COSTOS FIJOS SELECCIONAR ← ← ← NUEVO ← ← ← */}
       {showCostosFijosModal && (
