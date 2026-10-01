@@ -561,7 +561,82 @@ useEffect(() => {
       month: 'short' 
     });
   };
+// ← ← ← NUEVO: Funciones para el selector de días de la semana actual ← ← ←
+  const getCurrentWeekDays = () => {
+    const now = new Date();
+    const currentDay = now.getDay(); // 0 es domingo, 6 es sábado
+    const diff = now.getDate() - currentDay;
+    const sunday = new Date(now.getFullYear(), now.getMonth(), diff);
+    
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(sunday);
+      day.setDate(sunday.getDate() + i);
+      days.push({
+        date: day,
+        dateStr: `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`,
+        dayName: day.toLocaleDateString('es-CO', { weekday: 'short' }),
+        dayNumber: day.getDate()
+      });
+    }
+    return days;
+  };
 
+   // ← ← ← NUEVO: Función auxiliar segura para sumar/restar días sin errores de zona horaria ← ← ←
+  const addDays = (dateStr: string, days: number) => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    date.setDate(date.getDate() + days);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+
+  const handleDayClick = (clickedDateStr: string) => {
+    const start = new Date(fechaInicio);
+    const end = new Date(fechaFin);
+    const clicked = new Date(clickedDateStr);
+
+    // CASO 1: Ya es un solo día y se hace clic en él -> No hacer nada (evita deseleccionar todo)
+    if (fechaInicio === fechaFin && fechaInicio === clickedDateStr) {
+      return;
+    }
+
+    // CASO 2: Se hace clic en la FECHA DE INICIO actual (y hay un rango de 2+ días)
+    // Se desmarca este día y los anteriores -> El nuevo inicio es el día siguiente
+    if (clickedDateStr === fechaInicio && fechaInicio !== fechaFin) {
+      setFechaInicio(addDays(fechaInicio, 1));
+      return;
+    }
+
+    // CASO 3: Se hace clic en la FECHA FINAL actual (y hay un rango de 2+ días)
+    // Se desmarca este día y los posteriores -> El nuevo fin es el día anterior
+    if (clickedDateStr === fechaFin && fechaInicio !== fechaFin) {
+      setFechaFin(addDays(fechaFin, -1));
+      return;
+    }
+
+    // CASO 4: Se hace clic ANTES del inicio actual -> Expandir el rango hacia la izquierda
+    if (clicked < start) {
+      setFechaInicio(clickedDateStr);
+      return;
+    }
+
+    // CASO 5: Se hace clic DESPUÉS del fin actual -> Expandir el rango hacia la derecha
+    if (clicked > end) {
+      setFechaFin(clickedDateStr);
+      return;
+    }
+
+    // CASO 6: Se hace clic DENTRO del rango (no es ni inicio ni fin)
+    // Contraemos el rango hacia el lado que esté más cerca del clic
+    const distToStart = Math.abs(clicked.getTime() - start.getTime());
+    const distToEnd = Math.abs(end.getTime() - clicked.getTime());
+
+    if (distToStart <= distToEnd) {
+      setFechaInicio(clickedDateStr); // Descarta lo anterior, este día se vuelve el nuevo inicio
+    } else {
+      setFechaFin(clickedDateStr); // Descarta lo posterior, este día se vuelve el nuevo fin
+    }
+  };
   const formatHora = (horaStr: string): string => horaStr;
 
   const formatMoney = (value: number): string => {
@@ -765,11 +840,45 @@ useEffect(() => {
         </button>
       </div>
 
-      {/* ========== FILTROS DE FECHA Y TOTALES ========== */}
+            {/* ========== FILTROS DE FECHA Y TOTALES ========== */}
       <div className="bg-gray-800 rounded-xl p-3 border border-gray-700">
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-2">
+        
+        
+
+        <div className="grid grid-cols-4 lg:grid-cols-4 gap-2">
+          {/* ← ← ← NUEVO: Selector de días de la semana actual ← ← ← */}
+        <div className="mb-3 pb-3 border-b border-gray-700">
+          <label className="block text-xs font-semibold text-gray-300 mb-2">📅 Seleccionar días de la semana actual</label>
+          <div className="flex flex-wrap gap-2">
+            {getCurrentWeekDays().map((day) => {
+              const isSelected = day.dateStr >= fechaInicio && day.dateStr <= fechaFin;
+              const isBoundary = day.dateStr === fechaInicio || day.dateStr === fechaFin;
+              
+              return (
+                <button
+                  key={day.dateStr}
+                  onClick={() => handleDayClick(day.dateStr)}
+                  className={`
+                    flex-1 min-w-[30px] py-2 px-1 rounded-lg text-xs font-medium transition-all
+                    flex flex-col items-center justify-center gap-1
+                    ${isSelected 
+                      ? isBoundary 
+                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30 ring-2 ring-blue-400' 
+                        : 'bg-blue-600/40 text-blue-100 border border-blue-500/50'
+                      : 'bg-gray-900 text-gray-400 border border-gray-700 hover:bg-gray-700 hover:text-gray-200'
+                    }
+                  `}
+                  title={`${day.dayName} ${day.dayNumber}`}
+                >
+                  <span className="text-[10px] uppercase opacity-80">{day.dayName}</span>
+                  <span className="text-sm font-bold">{day.dayNumber}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
           {/* Fecha Inicio */}
-          <div className="col-span-2 lg:col-span-1">
+          <div className="hidden col-span-2 lg:col-span-1">
             <label className="block text-xs font-semibold text-gray-300 mb-1">📅 Inicio</label>
             <input
               type="date"
@@ -780,7 +889,7 @@ useEffect(() => {
           </div>
 
           {/* Fecha Fin */}
-          <div className="col-span-2 lg:col-span-1">
+          <div className="hidden col-span-2 lg:col-span-1">
             <label className="block text-xs font-semibold text-gray-300 mb-1">📅 Fin</label>
             <input
               type="date"
