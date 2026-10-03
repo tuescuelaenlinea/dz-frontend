@@ -85,6 +85,32 @@ const calcularAltura = (horaInicio: string, horaFin: string): number => {
   return filas * ALTURA_FILA;
 };
 
+// ← ← ← NUEVO: Helper para identificar el origen de la cita por su código ← ← ←
+const obtenerOrigenCita = (codigo_reserva: string | undefined) => {
+  if (!codigo_reserva) {
+    return { tipo: 'desconocido', icono: '📌', color: 'bg-gray-500/20 text-gray-300 border-gray-500/30', label: 'Sistema' };
+  }
+
+  const codigo = codigo_reserva.toUpperCase();
+
+  if (codigo.startsWith('DZ-')) {
+    return { tipo: 'web', icono: '🌐', color: 'bg-green-500/20 text-green-300 border-green-500/30', label: 'Web' };
+  }
+  if (codigo.startsWith('RC-')) {
+    return { tipo: 'caja', icono: '🏪', color: 'bg-orange-500/20 text-orange-300 border-orange-500/30', label: 'Caja' };
+  }
+  if (codigo.startsWith('ADM-')) {
+    return { tipo: 'admin', icono: '👨‍💻', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30', label: 'Admin' };
+  }
+  if (codigo.startsWith('PRO-')) {
+    return { tipo: 'profesional', icono: '👨‍⚕️', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30', label: 'Prof' };
+  }
+
+  // Fallback para códigos legacy o sin formato conocido
+  return { tipo: 'desconocido', icono: '📌', color: 'bg-gray-500/20 text-gray-300 border-gray-500/30', label: 'Sistema' };
+};
+
+
 // Colores por estado
 const getEstadoColor = (estado: string, esSuperpuesta: boolean = false) => {
   // ← ← ← SI ES SUPERPUESTA, USAR ESTILO PÚRPURA DISTINTIVO ← ← ←
@@ -396,9 +422,11 @@ export default function AgendaDayView({
                   const top = calcularPosY(cita.hora_inicio);
                   const height = calcularAltura(cita.hora_inicio, cita.hora_fin);
                   
-                  // ← ← ← DETECTAR SI ESTA CITA SE SUPERPONE CON OTRA ← ← ←
                   const grupoSuperpuesto = obtenerGrupoSuperpuesto(cita, citasDelProf);
                   const esSuperpuesta = grupoSuperpuesto.length > 1;
+                  
+                  // ← ← ← NUEVO: Obtener datos del origen ← ← ←
+                  const origen = obtenerOrigenCita(cita.codigo_reserva);
                   
                   return (
                     <div
@@ -414,7 +442,13 @@ export default function AgendaDayView({
                       }}
                       title={`${cita.cliente_nombre} - ${cita.servicio_nombre} (${cita.hora_inicio.substring(0,5)} - ${cita.hora_fin.substring(0,5)})${esSuperpuesta ? ' ⚠️ SUPERPUESTA' : ''}`}
                     >
-                      {/* ← ← ← BADGE DE SUPERPOSICIÓN ← ← ← */}
+                      {/* ← ← ← NUEVO: BADGE DE ORIGEN (Esquina Superior Izquierda) ← ← ← */}
+                      <div className={`absolute top-1 left-1 flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold border backdrop-blur-sm ${origen.color}`}>
+                        <span>{origen.icono}</span>
+                        <span>{origen.label}</span>
+                      </div>
+
+                      {/* ← ← ← EXISTENTE: BADGE DE SUPERPOSICIÓN (Esquina Superior Derecha) ← ← ← */}
                       {esSuperpuesta && (
                         <div className="absolute top-1 right-1 bg-purple-600 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold flex items-center gap-1 shadow-sm">
                           <span>⚠️</span>
@@ -422,14 +456,13 @@ export default function AgendaDayView({
                         </div>
                       )}
                       
-                      <p className="font-semibold text-[10px] md:text-xs leading-tight break-words pr-6">
+                      <p className="font-semibold text-[10px] md:text-xs leading-tight break-words pr-6 mt-4 md:mt-5">
                         {cita.cliente_nombre}
                       </p>
                       <p className="text-[9px] md:text-[10px] leading-tight break-words opacity-90">
                         {cita.servicio_nombre}
                       </p>
                       
-                      {/* Indicador visual extra si hay poco espacio */}
                       {height < 40 && (
                         <div className="absolute bottom-1 right-1 text-[8px] opacity-75">
                           {cita.hora_inicio.substring(0,5)}

@@ -6,6 +6,7 @@ import AgendaDayView from './agenda/AgendaDayView';
 import CitaDetailPanel from './agenda/CitaDetailPanel';
 import ModalCrearCitaRapida from './agenda/ModalCrearCitaRapida';
 import { Cita, ProfesionalConHorario, VistaAgenda, ModalCrearCitaData } from './agenda/types';
+import PanelAdministrativo from '@/components/admin/agenda/PanelAdministrativo';
 
 interface AgendaTabProps {
   apiUrl: string;
@@ -132,10 +133,17 @@ export default function AgendaTab({ apiUrl, token }: AgendaTabProps) {
 
   return (
     <div className="flex h-[calc(100vh-200px)] bg-gray-900 rounded-xl overflow-hidden">
+       
       
       {/* ========== ÁREA DE AGENDA (FLEXIBLE - SE REDUCE) ========== */}
       <div className="flex-1 min-w-0 flex flex-col">
-        
+        {/* Panel Administrativo - Nueva línea superior */}
+ {/* Panel Administrativo - Nueva línea superior */}
+<PanelAdministrativo 
+  fechaActual={fechaSeleccionada}  // ← CAMBIAR: fechaActual → fechaSeleccionada
+  apiUrl={apiUrl}
+  token={token}
+/>
         {/* Header de navegación */}
         <div className="bg-gray-800 border-b border-gray-700 p-3 md:p-4">
           <div className="flex items-center justify-between gap-2 flex-wrap">

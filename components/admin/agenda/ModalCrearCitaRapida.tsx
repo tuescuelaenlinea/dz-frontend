@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { ModalCrearCitaData, Cita } from './types';
+import { generarCodigoReservaFrontend } from './utils';
 
 interface ModalCrearCitaRapidaProps {
   data: ModalCrearCitaData;
@@ -114,8 +115,12 @@ export default function ModalCrearCitaRapida({
 
     try {
       setCreando(true);
-      
+      // ← ← ← CLAVE: Generar código ADM- si el profesionalId es 0 (Sin Asignar) o ADM- normal
+      const esSinAsignar = data.profesionalId === 0;
+      const codigoReserva = generarCodigoReservaFrontend('ADM'); 
+
       const payload = {
+        codigo_reserva: codigoReserva,
         profesional: data.profesionalId,
         fecha: data.fecha,
         hora_inicio: data.hora,
