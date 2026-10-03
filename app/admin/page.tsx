@@ -10,6 +10,7 @@ import ProfesionalesTab from '@/components/admin/ProfesionalesTab';
 import CajaPage from '@/app/admin/caja/page';
 import HorarioSemanalModal from '@/components/admin/HorarioSemanalModal';
 import FullScreenButton from '@/components/ui/FullScreenButton';
+import AgendaTab from '@/components/admin/AgendaTab';
 
 
 // ← ← ← CSS PARA OCULTAR SPINNERS DE INPUTS NUMBER ← ← ←
@@ -126,7 +127,7 @@ interface PropinaDistribucion {
   porcentaje: number;
 }
 
-type TabType = 'control' | 'citas' | 'profesionales' | 'caja';
+type TabType = 'control' | 'agenda' | 'citas' | 'profesionales' | 'caja';
 
 // ← ← ← FUNCIONES AUXILIARES ← ← ←
 
@@ -979,8 +980,8 @@ const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
       {/* ========== HEADER CON TABS ========== */}
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 shadow-xl border-b border-gray-700">
         <div className="px-6">
-          <div className="flex gap-0 overflow-x-auto">
-            {(['control', 'citas', 'profesionales', 'caja'] as TabType[]).map((tab) => (
+          <div className="flex gap-0 overflow-x-auto">            
+            {(['control', 'agenda', 'citas', 'profesionales', 'caja'] as TabType[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -991,7 +992,8 @@ const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
                 }`}
               >
                 {tab === 'control' && '📋 Control de Citas'}
-                {tab === 'citas' && '📅 Citas'}
+                {tab === 'agenda' && ' 📅 Agenda'}
+                {tab === 'citas' && '⏱️ Citas'}
                 {tab === 'profesionales' && '👨‍️ Profesionales'}
                 {tab === 'caja' && '🏦 Caja'}
               </button>
@@ -1661,6 +1663,11 @@ const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
               </div>
             </div>
           </div>
+        )}
+        
+        {/* TAB: AGENDA */}
+        {activeTab === 'agenda' && (
+          <AgendaTab apiUrl={apiUrl} token={token} />
         )}
 
         {/* TAB: CITAS */}

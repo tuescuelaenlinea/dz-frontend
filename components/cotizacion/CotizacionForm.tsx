@@ -111,13 +111,14 @@ export default function CotizacionForm({
     }
   }, [modalServiciosOpen]);
 
-  const cargarServiciosYcategorias = async () => {
+    const cargarServiciosYcategorias = async () => {
     setLoadingServicios(true);
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
       
       const [serviciosRes, categoriasData] = await Promise.all([
-        fetch(`${apiUrl}/servicios/?disponible=true`),
+        // ← ← ← CORRECCIÓN: Agregar page_size=5000 para desactivar paginación y traer TODOS los servicios
+        fetch(`${apiUrl}/servicios/?disponible=true&page_size=5000`),
         api.getCategorias(),
       ]);
       
@@ -125,9 +126,11 @@ export default function CotizacionForm({
       
       const serviciosData = await serviciosRes.json();
       
+      // El backend devolverá la lista plana (no paginada) gracias al page_size > 500
       setServiciosDisponibles(serviciosData.results || serviciosData);
       setCategorias(categoriasData.results || categoriasData);
     } catch (err) {
+      console.error('Error cargando servicios/categorías:', err);
       setError('Error al cargar los servicios disponibles');
     } finally {
       setLoadingServicios(false);
