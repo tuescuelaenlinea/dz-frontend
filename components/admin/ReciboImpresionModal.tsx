@@ -125,7 +125,7 @@ export default function ReciboImpresionModal({
     { value: 'caja_menor', label: '📦 Caja menor' },  
   ] as const;
 
-  const cargarPagosRelacionados = async (reciboId: number) => {
+      const cargarPagosRelacionados = async (reciboId: number) => {
     if (!reciboId) return;
     setLoadingPagos(true);
     try {
@@ -136,7 +136,8 @@ export default function ReciboImpresionModal({
       if (res.ok) {
         const data = await res.json();
         
-        // ← ← ← CORRECCIÓN: Solo mapear y mostrar los ABONOS para evitar duplicados ← ← ←
+        // ← ← ← SOLO MAPEAR ABONOS (Centralización del método de pago) ← ← ←
+        // Eliminamos el mapeo de 'pagos' para evitar duplicados en la UI de impresión
         const abonosMapeados = (data.abonos || []).map((a: any) => ({ 
           ...a, 
           tipo: 'abono' as const, 
@@ -144,8 +145,9 @@ export default function ReciboImpresionModal({
         }));
         
         // Ordenar por fecha descendente
-        const todos = [...abonosMapeados]
-          .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+        const todos = [...abonosMapeados].sort(
+          (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
+        );
         
         setPagosRelacionados(todos);
       }

@@ -167,6 +167,7 @@ export default function EliminarReciboModal({
   // VISTA 3: REPORTE FINAL (POST-ELIMINACIÓN)
   // ==========================================
   if (reporte) {
+    const valesRevertidosNomina = reporte?.vales_revertidos_nomina?.length ?? 0;
     return (
       <div className="fixed inset-0 z-[100] bg-black/70 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6">
@@ -195,6 +196,19 @@ export default function EliminarReciboModal({
                 <p className="text-xs text-green-600 font-semibold">🔄 Costos Fijos Revertidos</p>
                 <p className="text-lg font-bold text-green-800">{reporte.costos_fijos_revertidos || 0}</p>
               </div>
+
+              <div className="bg-orange-50 p-2 rounded border border-orange-100">
+                <p className="text-xs text-orange-600 font-semibold">🎫 Vales Eliminados</p>
+                <p className="text-lg font-bold text-orange-800">{reporte.vales_eliminados?.length || 0}</p>
+              </div>
+
+              {/* ← ← ← NUEVO: Tarjeta de vales revertidos */}
+              {valesRevertidosNomina > 0 && (
+                <div className="bg-blue-50 p-2 rounded border border-blue-100">
+                  <p className="text-xs text-blue-600 font-semibold">🔄 Vales Revertidos</p>
+                  <p className="text-lg font-bold text-blue-800">{valesRevertidosNomina}</p>
+                </div>
+              )}
             </div>
 
             {reporte.citas_afectadas?.length > 0 && (
@@ -233,6 +247,7 @@ export default function EliminarReciboModal({
   const comisionesCount = previewData?.afectaciones?.comisiones?.count ?? 0;
   const comisionesAccion = previewData?.afectaciones?.comisiones?.accion ?? '';
   const valesEliminadosLength = previewData?.afectaciones?.vales?.eliminados?.length ?? 0;
+  const valesRevertidosNomina = previewData?.afectaciones?.vales?.revertidos_nomina ?? 0; 
   const costosFijosRevertidosLength = previewData?.afectaciones?.costos_fijos?.revertidos?.length ?? 0;
   const citasCompletadasConStock = previewData?.afectaciones?.inventario?.citas_completadas_con_stock ?? 0;
   const accionCitaDisponible = previewData?.opciones_disponibles?.accion_cita?.disponible ?? false;
@@ -310,8 +325,15 @@ export default function EliminarReciboModal({
             )}
             {valesEliminadosLength > 0 && (
               <div className="flex justify-between">
-                <span className="text-gray-600">🎫 Vales:</span>
+                <span className="text-gray-600">🎫 Vales eliminados:</span>
                 <span className="font-semibold text-gray-900">{valesEliminadosLength} eliminados</span>
+              </div>
+            )}
+            {/* ← ← ← NUEVO: Mostrar vales que solo se revertirán */}
+            {valesRevertidosNomina > 0 && (
+              <div className="flex justify-between">
+                <span className="text-gray-600">🔄 Vales revertidos a pendiente:</span>
+                <span className="font-semibold text-blue-600">{valesRevertidosNomina}</span>
               </div>
             )}
             {costosFijosRevertidosLength > 0 && (

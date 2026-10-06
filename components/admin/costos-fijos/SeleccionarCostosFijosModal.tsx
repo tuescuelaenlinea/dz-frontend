@@ -1,4 +1,3 @@
-// components/admin/costos-fijos/SeleccionarCostosFijosModal.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -11,7 +10,8 @@ interface CostoFijo {
   monto: string;
   dia_pago: number;
   mes_referencia: number;
-  anio_referencia: number;
+  mes_nombre: string;       // ← ← ← NUEVO: Nombre del mes (ej: "Septiembre")
+  anio_referencia: number;  // ← ← ← NUEVO: Año (ej: 2026)
   estado: string;
   es_vencido: boolean;
   dias_para_vencer: number | null;
@@ -47,12 +47,9 @@ export default function SeleccionarCostosFijosModal({
   const cargarCostosPendientes = async () => {
     setLoading(true);
     try {
-      const hoy = new Date();
-      const mesActual = hoy.getMonth() + 1;
-      const anioActual = hoy.getFullYear();
-
+      // ← ← ← CAMBIO: URL sin parámetros de mes/año para traer TODOS los pendientes
       const res = await fetch(
-        `${apiUrl}/costos-fijos/?estado=pendiente&mes=${mesActual}&anio=${anioActual}`,
+        `${apiUrl}/costos-fijos/pendientes-para-pagar/`,
         {
           headers: token ? { 'Authorization': `Bearer ${token}` } : {}
         }
@@ -60,7 +57,7 @@ export default function SeleccionarCostosFijosModal({
 
       if (res.ok) {
         const data = await res.json();
-        const costos = Array.isArray(data) ? data : (data.results || []);
+        const costos = data.costos || [];
         setCostosPendientes(costos);
       }
     } catch (err) {
@@ -118,7 +115,7 @@ export default function SeleccionarCostosFijosModal({
     if (costo.dias_para_vencer !== null && costo.dias_para_vencer <= 7) {
       return `⚠️ ${costo.dias_para_vencer}d`;
     }
-    return `${costo.dia_pago}/${costo.mes_referencia}`;
+    return `📅 Día ${costo.dia_pago}`;
   };
 
   // Filtrar por categoría
@@ -171,12 +168,12 @@ export default function SeleccionarCostosFijosModal({
                 <option value="">Todas las categorías</option>
                 <option value="arriendo">🏢 Arriendo</option>
                 <option value="servicios">💡 Servicios Públicos</option>
-                <option value="internet"> Internet</option>
+                <option value="internet">🌐 Internet</option>
                 <option value="software">💻 Software</option>
                 <option value="marketing">📢 Marketing</option>
-                <option value="insumos"> Insumos</option>
+                <option value="insumos">🧴 Insumos</option>
                 <option value="mantenimiento">🔧 Mantenimiento</option>
-                <option value="seguros">️ Seguros</option>
+                <option value="seguros">🛡️ Seguros</option>
                 <option value="impuestos">📋 Impuestos</option>
                 <option value="nomina_fija">💼 Nómina</option>
                 <option value="contabilidad">📊 Contabilidad</option>
@@ -205,7 +202,7 @@ export default function SeleccionarCostosFijosModal({
               <p className="text-gray-400 font-medium">
                 {filtroCategoria
                   ? 'No hay costos pendientes en esta categoría'
-                  : 'No hay costos fijos pendientes para este mes'}
+                  : 'No hay costos fijos pendientes'}
               </p>
             </div>
           ) : (
@@ -244,12 +241,22 @@ export default function SeleccionarCostosFijosModal({
                             {costo.nombre}
                           </h4>
                         </div>
-                        <p className="text-xs text-gray-400">
+                        
+                        {/* ← ← ← NUEVO: Mostrar periodo (Mes y Año) claramente ← ← ← */}
+                        <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
+                          <span className="bg-gray-700 px-2 py-0.5 rounded text-gray-300 font-medium">
+                            📅 {costo.mes_nombre} {costo.anio_referencia}
+                          </span>
+                          <span className="text-gray-500">•</span>
+                          <span>Vence el día {costo.dia_pago}</span>
+                        </div>
+
+                        <p className="text-xs text-gray-500">
                           {costo.categoria_display.split(' ').slice(1).join(' ')}
                         </p>
                       </div>
 
-                      {/* Monto */}
+                      {/* Monto y Estado */}
                       <div className="text-right">
                         <p className="text-lg font-bold text-white">
                           {formatMoney(costo.monto)}
