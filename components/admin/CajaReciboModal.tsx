@@ -7,6 +7,7 @@ import CitasPendientesModal from '@/components/admin/CitasPendientesModal';
 import CalcularComisionesModal from '@/components/admin/CalcularComisionesModal'; // ← AGREGAR
 import SeleccionarCostosFijosModal from '@/components/admin/costos-fijos/SeleccionarCostosFijosModal';
 import ModalValesPendientes from '@/components/admin/caja/ModalValesPendientes';
+import ProximaCitaSugeridaModal from '@/components/fidelizacion/ProximaCitaSugeridaModal';
 
 
 // ← ← ← INTERFACES ← ← ←
@@ -320,6 +321,10 @@ const subtotal = useMemo(() => {
 const [abonos, setAbonos] = useState<AbonoRecibo[]>([]);
 
 
+// ← ← ← ESTADOS PARA MODAL DE PRÓXIMAS CITAS SUGERIDAS ← ← ←
+const [showProximaCitaModal, setShowProximaCitaModal] = useState(false);
+const [citasParaSugerir, setCitasParaSugerir] = useState<number[]>([]);
+
 // ← ← ← AGREGAR ESTOS ESTADOS junto a tus otros useState ← ← ←
 const [infoAliado, setInfoAliado] = useState<InfoAliado>({
   es_aliado: false,
@@ -532,8 +537,14 @@ const handleAgregarCostosFijos = (costosSeleccionados: any[]) => {
     }
   });
 
-  // 4. Mostrar confirmación
-  alert(`✅ ${costosSeleccionados.length} costo(s) fijo(s) agregado(s) al recibo`);
+  // 4. 🔒 NUEVO: Resetear método de pago para FORZAR selección manual
+  // (evita que se publique con el default 'bold' por olvido)
+  setMetodoPago('');
+  console.log('🔒 [handleAgregarCostosFijos] Método de pago reseteado → usuario debe seleccionarlo');
+
+  // 5. Mostrar confirmación
+  alert(`✅ ${costosSeleccionados.length} costo(s) fijo(s) agregado(s) al recibo
+⚠️ Recuerda seleccionar el método de pago antes de registrar el gasto.`);
 };
 
 // ← ← ← NUEVA FUNCIÓN: Cargar clientes desde backend ← ← ←
@@ -1159,14 +1170,24 @@ const handleRegistrarMovimientoOperativo = async () => {
             cliente_telefono: '',
             cliente_email: '',
             notas: notas || `${tipoRecibo === 'entrada' ? 'Ingreso' : 'Gasto'} operativo registrado desde caja`,
-            items_data: items.map(item => ({
-                tipo_item: 'otro',
-                descripcion: item.descripcion,
-                cantidad: item.cantidad,
-                precio_unitario: item.precioUnitario,
-                subtotal: item.subtotal,
-                ...(item.costoFijoId && { costo_fijo_id: item.costoFijoId }),
-            })),
+            cliente_id: clienteSeleccionadoId || null,
+            // ✅ CÓDIGO CORREGIDO (EVITA DUPLICACIÓN)
+          items_data: items.map(item => {
+              // 1. Detectar si el item ya tiene un ID numérico real de la base de datos
+              const itemIdNum = item.id && !isNaN(Number(item.id)) ? Number(item.id) : null;
+              
+              return {
+                  // 2. Si tiene ID real, enviarlo. El backend sabrá que debe UPDATEAR, no CREATEAR
+                  ...(itemIdNum && { id: itemIdNum }),
+                  
+                  tipo_item: 'otro',
+                  descripcion: item.descripcion,
+                  cantidad: item.cantidad,
+                  precio_unitario: item.precioUnitario,
+                  subtotal: item.subtotal,
+                  ...(item.costoFijoId && { costo_fijo_id: Number(item.costoFijoId) }),
+              };
+          }),
              // ← ← ← AGREGAR vales_ids AL PAYLOAD ← ← ←
               ...(valesIds.length > 0 && { vales_ids: valesIds })
         };
@@ -1601,7 +1622,7 @@ setDescuento(descuentoManualCalculado);
 
       setPropinaTotal(parseFloat(recibo.propina_total) || 0);
       setPropinaEditable(String(recibo.propina_total || 0));
-      setMetodoPago(recibo.metodo_pago || 'bold');
+      setMetodoPago(recibo.metodo_pago || (recibo.tipo === 'venta' ? 'bold' : ''));
       setClienteNombre(recibo.cliente_nombre || 'No proporcionado com');
       setClienteTelefono(recibo.cliente_telefono || 'No proporcionado com');
       setClienteEmail(recibo.cliente_email || 'No@proporcionado.com');
@@ -2693,6 +2714,7 @@ const handleAbrirModalAbono = async () => {
         cliente_email: tipoRecibo === 'venta' 
           ? (clienteEmail?.trim() || 'No@proporcionado.com')     // ← CAMBIO CLAVE: '' en lugar de null
           : '',
+          cliente_id: clienteSeleccionadoId || null,
           notas: notas || '',
           
           // ← ← ← items_data: lista de items a mantener/actualizar ← ← ←
@@ -3351,6 +3373,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
           cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : (clienteNombre?.trim() || 'Movimiento Operativo'),
           cliente_telefono: tipoRecibo === 'venta' ? (clienteTelefono?.trim() || 'No proporcionado') : '',
           cliente_email: tipoRecibo === 'venta' ? (clienteEmail?.trim() || 'No@proporcionado.com') : '',
+          cliente_id: clienteSeleccionadoId || null,
           notas: notas?.trim() || '',
           items_data: itemsData,
           ...(modoEdicion && itemsQuitados.length > 0 && {
@@ -4255,24 +4278,50 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
 
               {/* ← ← ← MÉTODO DE PAGO: SOLO PARA ENTRADAS Y SALIDAS ← ← ← */}
               {tipoRecibo === 'salida' && (
-              <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
+                <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
                   <label className="block text-sm font-semibold text-gray-300 mb-3">
-                      💳 Método de Pago
+                    💳 Método de Pago
+                    {/* 🔒 Indicador visual si está vacío */}
+                    {!metodoPago && items.length > 0 && (
+                      <span className="ml-2 text-xs text-red-400 font-normal">
+                        * Requerido
+                      </span>
+                    )}
                   </label>
                   <select
-                      value={metodoPago}
-                      onChange={(e) => setMetodoPago(e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                    value={metodoPago}
+                    onChange={(e) => setMetodoPago(e.target.value)}
+                    className={`w-full px-3 py-2 bg-gray-800 border rounded-lg text-white text-sm focus:outline-none ${
+                      !metodoPago && items.length > 0
+                        ? 'border-red-500 focus:border-red-500 animate-pulse'
+                        : 'border-gray-600 focus:border-blue-500'
+                    }`}
                   >
-                      <option value="efectivo">💵 Efectivo</option>
-                      <option value="transferencia">🏦 Transferencia</option>
-                      <option value="nequi">📱 Nequi</option>
-                      <option value="daviplata">📱 Daviplata</option>
-                      <option value="bold">💳 Bold</option>
-                      <option value="tarjeta">💳 Tarjeta en sitio</option>
+                    {/* 🔒 NUEVA OPCIÓN VACÍA (forzar selección) */}
+                    <option value="" disabled>
+                      {items.length > 0
+                        ? '⚠️ Selecciona un método de pago...'
+                        : 'Seleccionar método de pago...'}
+                    </option>
+                    <option value="efectivo">💵 Efectivo</option>
+                    <option value="transferencia">🏦 Transferencia</option>
+                    <option value="nequi">📱 Nequi</option>
+                    <option value="daviplata">📱 Daviplata</option>
+                    <option value="bold">💳 Bold</option>
+                    <option value="tarjeta">💳 Tarjeta en sitio</option>
                   </select>
-              </div>
-          )}
+
+                  {/* 🔒 NUEVA ALERTA VISUAL */}
+                  {!metodoPago && items.length > 0 && (
+                    <div className="mt-2 text-xs text-orange-400 bg-orange-900/30 px-3 py-2 rounded border border-orange-700/50 flex items-start gap-2">
+                      <span>⚠️</span>
+                      <span>
+                        Debes seleccionar un método de pago antes de poder registrar el gasto.
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
           {/* ← ← ← NUEVO: Método de recepción por DEFECTO para ingresos (se define en cada abono) ← ← ← 
           {tipoRecibo === 'entrada' && (
@@ -4924,6 +4973,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                       cliente_nombre: tipoRecibo === 'venta' ? (clienteNombre?.trim() || 'No proporcionado') : '',
                       cliente_telefono: tipoRecibo === 'venta' ? (clienteTelefono?.trim() || 'No proporcionado') : '',
                       cliente_email: tipoRecibo === 'venta' ? (clienteEmail?.trim() || 'No@proporcionado.com') : '',
+                      cliente_id: clienteSeleccionadoId || null,
                       notas: notas || '',
                     };
                     handleActualizarReciboConPayload(payloadBase);
@@ -4935,7 +4985,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                 </button>
               )}
               
-              {/* Botón Publicar para ventas (con validación de abonos y vales) */}
+              {/* Botón Publicar para ventas (con validación de abonos y vales) */}              
               <button
                 onClick={async () => {
                   if (!resumenAbonos?.puede_publicar) {
@@ -4952,7 +5002,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                   try {
                     const payloadBase = {
                       tipo: tipoRecibo,
-                      estado: 'borrador', // Primero guardamos como borrador para asegurar consistencia de datos
+                      estado: 'borrador',
                       subtotal: subtotal,
                       descuento: descuento,
                       total: total,
@@ -4965,17 +5015,16 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                       cliente_email: tipoRecibo === 'venta' ? (clienteEmail?.trim() || 'No@proporcionado.com') : '',
                       notas: notas || '',
                     };
-
+                    
                     let reciboFinalId = reciboId;
-
                     if (modoEdicion && reciboId) {
                       await handleActualizarReciboConPayload(payloadBase, true); // true = silentMode
                     } else {
                       const nuevoRecibo = await handleGuardarConPayload(payloadBase, true);
                       reciboFinalId = nuevoRecibo.id;
                     }
-
-                    // 2. Llamar al endpoint de publicar para procesar vales
+                    
+                    // 2. Llamar al endpoint de publicar para procesar vales y cerrar el recibo
                     if (reciboFinalId) {
                       const payloadPublicar: any = {};
                       if (valesParaDescontar.length > 0) {
@@ -4990,7 +5039,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                         },
                         body: JSON.stringify(payloadPublicar)
                       });
-
+                      
                       if (!resPublicar.ok) {
                         const errorPub = await resPublicar.json();
                         throw new Error(errorPub.error || errorPub.detail || 'Error al publicar el recibo');
@@ -5003,7 +5052,21 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                     }
                     
                     alert('✅ Recibo publicado exitosamente');
-                    handleClose();
+                    
+                    // ← ← ← NUEVO: Abrir modal de Próximas Citas Sugeridas si hay citas vinculadas ← ← ←
+                    const citaIds = items
+                      .filter(item => item.tipo === 'servicio' && item.citaId)
+                      .map(item => Number(item.citaId))
+                      .filter((id, index, self) => self.indexOf(id) === index); // Obtener IDs únicos
+
+                    if (citaIds.length > 0) {
+                      setCitasParaSugerir(citaIds);
+                      setShowProximaCitaModal(true);
+                      // NOTA: No llamamos a handleClose() aquí, lo haremos cuando se cierre el modal de sugerencias
+                    } else {
+                      handleClose(); // Si no hay citas, cerramos el modal de caja normalmente
+                    }
+                    
                   } catch (err: any) {
                     console.error('❌ Error publicando:', err);
                     alert(`❌ Error: ${err.message}`);
@@ -5028,7 +5091,7 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                     Procesando...
                   </>
                 ) : !resumenAbonos ? (
-                  ' Cargando abonos...'
+                  '⏳ Cargando abonos...'
                 ) : !resumenAbonos.puede_publicar ? (
                   `⏳ ${Math.round(resumenAbonos.porcentaje_abonado)}% - Faltan ${formatMoney(resumenAbonos.saldo_pendiente)}`
                 ) : (
@@ -6447,7 +6510,25 @@ Falta: ${formatMoney(resumenAbonos?.saldo_pendiente || 0)}`);
     </div>
   </div>
 )}
-      
+            {/* ← ← ← MODAL DE PRÓXIMAS CITAS SUGERIDAS ← ← ← */}
+            <ProximaCitaSugeridaModal
+              isOpen={showProximaCitaModal}
+              onClose={() => {
+                setShowProximaCitaModal(false);
+                setCitasParaSugerir([]);
+                handleClose(); // Cierra el modal principal de caja después de gestionar las sugerencias
+              }}
+              citaIds={citasParaSugerir}
+              apiUrl={apiUrl}
+              token={token}
+              onSuccess={() => {
+                setShowProximaCitaModal(false);
+                setCitasParaSugerir([]);
+                handleClose(); // Cierra el modal principal de caja tras guardar exitosamente
+              }}
+            />
+       
+       
       {/* ← ← ← NUEVO: Modal de Vales Pendientes para Nómina ← ← ← */}
       <ModalValesPendientes
         isOpen={modalValesPendientesOpen}

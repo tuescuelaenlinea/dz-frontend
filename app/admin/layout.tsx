@@ -22,9 +22,10 @@ const TODOS_LOS_MENU_ITEMS: MenuItem[] = [
   { href: '/admin/publicidad', label: 'Publicidades', icon: '📢', moduloCodigo: 'publicidad' },
   { href: '/admin/experiencia', label: 'Experiencia / PQRs', icon: '⭐', moduloCodigo: 'exp'},
   { href: '/admin/citas', label: 'Citas', icon: '📅', moduloCodigo: 'citas' },
-   { href: '/admin/cotizaciones', label: 'Cotizaciones', icon: '📄', moduloCodigo: 'cotizaciones' },
+  { href: '/admin/cotizaciones', label: 'Cotizaciones', icon: '📄', moduloCodigo: 'cotizaciones' },
   { href: '/admin/aliados', label: 'Aliados', icon: '🤝', moduloCodigo: 'aliados' },
   { href: '/admin/clientes', label: 'Clientes', icon: '👥', moduloCodigo: 'clientes' },
+  /*{ href: '/admin/fidelizacion', label: 'Fidelización', icon: '💝', moduloCodigo: 'fidelizacion' },  */
   { href: '/admin/categorias', label: 'Categorías', icon: '📁', moduloCodigo: 'categorias' },
   { href: '/admin/servicios', label: 'Servicios', icon: '🛠️', moduloCodigo: 'servicios' },
   { href: '/admin/productos', label: 'Productos', icon: '📦', moduloCodigo: 'productos' },

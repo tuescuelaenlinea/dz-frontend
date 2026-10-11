@@ -11,6 +11,8 @@ import CajaPage from '@/app/admin/caja/page';
 import HorarioSemanalModal from '@/components/admin/HorarioSemanalModal';
 import FullScreenButton from '@/components/ui/FullScreenButton';
 import AgendaTab from '@/components/admin/AgendaTab';
+import { MessageCircle, AlertTriangle, History, Plus, Send, X, Calendar } from 'lucide-react';
+import FidelizacionTab from '@/components/admin/FidelizacionTab';
 
 
 // ← ← ← CSS PARA OCULTAR SPINNERS DE INPUTS NUMBER ← ← ←
@@ -127,7 +129,8 @@ interface PropinaDistribucion {
   porcentaje: number;
 }
 
-type TabType = 'control' | 'agenda' | 'citas' | 'profesionales' | 'caja';
+type TabType = 'control' | 'agenda' | 'fidelizacion' | 'citas' | 'profesionales' | 'caja';
+
 
 // ← ← ← FUNCIONES AUXILIARES ← ← ←
 
@@ -185,7 +188,6 @@ const getImageUrl = (imagenPath: string | null, imagenUrl?: string | null): stri
 };
 
 // ← ← ← COMPONENTE PRINCIPAL ← ← ←
-
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<TabType>('control');
   
@@ -981,7 +983,7 @@ const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 shadow-xl border-b border-gray-700">
         <div className="px-6">
           <div className="flex gap-0 overflow-x-auto">            
-            {(['control', 'agenda', 'citas', 'profesionales', 'caja'] as TabType[]).map((tab) => (
+            {(['control', 'agenda', 'citas', 'profesionales', 'caja', 'fidelizacion'] as TabType[]).map((tab) => (            
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -993,6 +995,7 @@ const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
               >
                 {tab === 'control' && '📋 Control de Citas'}
                 {tab === 'agenda' && ' 📅 Agenda'}
+                {tab === 'fidelizacion' && '💝 Fidelización'} 
                 {tab === 'citas' && '⏱️ Citas'}
                 {tab === 'profesionales' && '👨‍️ Profesionales'}
                 {tab === 'caja' && '🏦 Caja'}
@@ -1670,6 +1673,14 @@ const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
           <AgendaTab apiUrl={apiUrl} token={token} />
         )}
 
+       
+        {/* TAB: FIDELIZACIÓN */}
+        {activeTab === 'fidelizacion' && (
+          <div className="bg-gray-800 rounded-xl shadow-2xl p-4 lg:p-6 border-2 border-gray-700">
+            <FidelizacionTab />
+          </div>
+        )}
+
         {/* TAB: CITAS */}
         {activeTab === 'citas' && (
           <div className="bg-gray-800 rounded-xl shadow-2xl p-6 border-2 border-gray-700">
@@ -1693,6 +1704,8 @@ const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
       </div>
 
       {/* ← ← ← MODALES ← ← ← */}
+
+
       
       {/* Modal Clientes */}
       {showClientModal && (
@@ -1838,6 +1851,8 @@ const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
         />
       )}
 
+    
+
       {/* Modal Método de Pago */}
       {showPaymentMethodModal && (
         <PaymentMethodModal
@@ -1897,8 +1912,11 @@ const handlePrecioFocus = (e: React.FocusEvent<HTMLInputElement>) => {
           }))}
         />
       )}
+
+
     </div>
   
   );
+  
 }
 
