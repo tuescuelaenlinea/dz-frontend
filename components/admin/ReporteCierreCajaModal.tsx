@@ -1,6 +1,7 @@
 // components/admin/ReporteCierreCajaModal.tsx
 'use client';
 import { useState, useEffect } from 'react';
+import React from 'react'; 
 import { useRouter } from 'next/navigation';
 
 interface ReporteData {
@@ -244,31 +245,70 @@ const handlePrint = () => {
             </div>
 
             {/* 3. LISTADO DE VENTAS DEL DÍA */}
-            <div className="print-break">
-              <h3 className="text-lg font-bold text-gray-800 mb-3 border-b pb-2">🛍️ Listado de Ventas (Recibos)</h3>
-              <div className="overflow-x-auto border rounded-lg">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-gray-100 text-gray-700">
-                    <tr>
-                      <th className="p-3">Código</th>
-                      <th className="p-3">Cliente</th>
-                      <th className="p-3">Método</th>
-                      <th className="p-3 text-right">Monto</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {data.detalles.ventas.map((venta: any, idx: number) => (
-                      <tr key={idx} className="hover:bg-gray-50">
-                        <td className="p-3 font-mono text-xs">{venta.codigo}</td>
-                        <td className="p-3">{venta.cliente}</td>
-                        <td className="p-3 capitalize">{venta.metodo}</td>
-                        <td className="p-3 text-right font-semibold">{formatMoney(venta.monto)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+<div className="print-break">
+  <h3 className="text-lg font-bold text-gray-800 mb-3 border-b pb-2">🛍️ Listado de Ventas (Recibos)</h3>
+  <div className="overflow-x-auto border rounded-lg">
+    <table className="w-full text-sm text-left">
+      <thead className="bg-gray-100 text-gray-700">
+        <tr>
+          <th className="p-3">Código / Fecha</th>
+          <th className="p-3">Cliente</th>
+          <th className="p-3">Detalle de Pago</th>
+          <th className="p-3 text-right">Monto</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-100">
+        {data.detalles.ventas.length === 0 ? (
+          <tr><td colSpan={4} className="p-4 text-center text-gray-500">Sin ventas registradas</td></tr>
+        ) : (
+          data.detalles.ventas.map((venta: any, idx: number) => (
+            // ← ← ← CLAVE: Agregar key al Fragment
+            <React.Fragment key={`venta-group-${venta.codigo || idx}`}>
+              
+              {/* Fila principal del recibo (Encabezado de grupo) */}
+              <tr className="bg-gray-50 font-semibold border-b border-gray-200">
+                <td className="p-3 font-mono text-xs" colSpan={2}>
+                  {venta.codigo} 
+                  <span className="text-gray-500 font-normal ml-2">({venta.fecha})</span>
+                </td>
+                <td className="p-3 text-gray-600 text-xs">
+                  {venta.cliente}
+                </td>
+                <td className="p-3 text-right font-bold text-gray-900">
+                  {formatMoney(venta.monto_total)}
+                </td>
+              </tr>
+              
+              {/* Filas de abonos reales */}
+              {venta.abonos && venta.abonos.length > 0 ? (
+                venta.abonos.map((abono: any, aIdx: number) => (
+                  <tr key={`abono-${idx}-${aIdx}`} className="bg-white text-gray-600 hover:bg-gray-50">
+                    <td className="p-3 pl-8 text-xs text-gray-500">↳ Abono</td>
+                    <td className="p-3 text-xs capitalize font-medium text-blue-700">
+                      {abono.metodo} {formatMoney(abono.monto)}
+                    </td>
+                    <td className="p-3 text-xs text-gray-500">
+                      {abono.referencia || 'Sin ref.'} <span className="text-gray-400">({abono.fecha})</span>
+                    </td>
+                    <td className="p-3 text-right text-sm font-semibold text-gray-800">
+                      
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr className="bg-white">
+                  <td colSpan={4} className="p-3 pl-8 text-xs text-red-500 italic">
+                    ⚠️ Sin abonos registrados (Recibo incompleto o error de datos)
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          ))
+        )}
+      </tbody>
+    </table>
+  </div>
+</div>
 
             {/* 4. COMISIONES Y CITAS ATENDIDAS */}
             <div className="grid md:grid-cols-2 gap-6">
