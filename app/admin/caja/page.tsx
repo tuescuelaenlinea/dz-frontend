@@ -320,6 +320,86 @@ export default function CajaPage() {
   const [loadingAlertas, setLoadingAlertas] = useState(false);
   const [modalAlertasOpen, setModalAlertasOpen] = useState(false);
 
+  // ← ← ← NUEVO: Estado para configuración del modal de próxima cita ← ← ←
+  const [modalProximaCitaConfig, setModalProximaCitaConfig] = useState<'siempre' | 'solo_registrados' | 'nunca'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('modal_proxima_cita_config') as any) || 'solo_registrados';
+    }
+    return 'solo_registrados';
+  });
+
+  // ← ← ← NUEVO: Cargar configuración desde backend al montar ← ← ←
+  useEffect(() => {
+    const cargarConfigFidelizacion = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/fidelizacion/config/`, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const configBackend = data.mostrar_modal_proxima_cita || 'solo_registrados';
+          setModalProximaCitaConfig(configBackend);
+          localStorage.setItem('modal_proxima_cita_config', configBackend);
+        }
+      } catch (err) {
+        console.warn('⚠️ No se pudo cargar config fidelización:', err);
+      }
+    };
+    cargarConfigFidelizacion();
+  }, []);
+
+  // ← ← ← NUEVO: Función para ciclar entre opciones ← ← ←
+  const handleToggleModalProximaCita = async () => {
+    const opciones: Array<'siempre' | 'solo_registrados' | 'nunca'> = ['siempre', 'solo_registrados', 'nunca'];
+    const indiceActual = opciones.indexOf(modalProximaCitaConfig);
+    const siguienteIndice = (indiceActual + 1) % opciones.length;
+    const nuevaConfig = opciones[siguienteIndice];
+    
+    setModalProximaCitaConfig(nuevaConfig);
+    localStorage.setItem('modal_proxima_cita_config', nuevaConfig);
+    
+    // Guardar en backend
+    try {
+      await fetch(`${apiUrl}/fidelizacion/config/`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ mostrar_modal_proxima_cita: nuevaConfig })
+      });
+    } catch (err) {
+      console.warn('⚠️ No se pudo guardar config en backend:', err);
+    }
+  };
+
+  // ← ← ← NUEVO: Helper para obtener label e icono según configuración ← ← ←
+  const getModalConfigInfo = () => {
+    switch (modalProximaCitaConfig) {
+      case 'siempre':
+        return { 
+          icon: '🟢', 
+          label: 'Siempre', 
+          tooltip: 'Modal de próxima cita: SIEMPRE mostrar',
+          color: 'bg-green-600/20 border-green-500/50 text-green-400 hover:bg-green-600/30'
+        };
+      case 'solo_registrados':
+        return { 
+          icon: '🔵', 
+          label: 'Solo registrados', 
+          tooltip: 'Modal de próxima cita: Solo clientes registrados',
+          color: 'bg-blue-600/20 border-blue-500/50 text-blue-400 hover:bg-blue-600/30'
+        };
+      case 'nunca':
+        return { 
+          icon: '⚫', 
+          label: 'Nunca', 
+          tooltip: 'Modal de próxima cita: NO mostrar',
+          color: 'bg-gray-600/20 border-gray-500/50 text-gray-400 hover:bg-gray-600/30'
+        };
+    }
+  };
+
   // ← ← ← CONSTANTE: Opciones de método de pago para vales ← ← ←
   const METODOS_PAGO_VALE = [
     { value: 'efectivo', label: '💵 Efectivo' },
@@ -3255,7 +3335,22 @@ const formatDate = (dateStr: string): string => {
                   {recibosVentas.length}
                 </span>
               </h3>
-              <button                
+              <div className="flex items-center gap-2">
+                {/* ← ← ← NUEVO: Chip toggle para configuración del modal ← ← ← */}
+                <button
+                  onClick={handleToggleModalProximaCita}
+                  disabled={!sessionActiva}
+                  className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed ${getModalConfigInfo().color}`}
+                  title={getModalConfigInfo().tooltip}
+                >
+                  <span className="text-sm">{getModalConfigInfo().icon}</span>
+                  <span className="hidden sm:inline">{getModalConfigInfo().label}</span>
+                  <svg className="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+                {/* Botón Nuevo Recibo existente */}
+                <button
                   onClick={handleAbrirSeleccionTipo}
                   disabled={!sessionActiva}
                   className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50 flex items-center gap-1"
@@ -3265,6 +3360,7 @@ const formatDate = (dateStr: string): string => {
                   </svg>
                   Nuevo Recibo
                 </button>
+              </div>
             </div>
             
             <div className="p-4 max-h-[600px] overflow-y-auto space-y-2">
@@ -4186,9 +4282,11 @@ const formatDate = (dateStr: string): string => {
             setReciboEditarId(null);
           }}
           sessionCajaId={sessionActiva?.id}
-          reciboParaEditarId={reciboEditarId}  // ← ← ← PARA EDICIÓN: ID del recibo
+          reciboParaEditarId={reciboEditarId}
           apiUrl={apiUrl}
           token={token}
+          // ← ← ← NUEVA PROP ← ← ←
+          modalProximaCitaConfig={modalProximaCitaConfig}
           onReciboActualizado={(recibo) => {
             console.log('🔄 [CajaPage] Recibo actualizado, recargando datos...', {
               reciboId: recibo.id,
@@ -4741,21 +4839,23 @@ const formatDate = (dateStr: string): string => {
   </div>
 )}
 
-      {modalNuevoReciboOpen && sessionActiva && (
+{modalNuevoReciboOpen && sessionActiva && (
   <CajaReciboModal
     isOpen={modalNuevoReciboOpen}
     onClose={() => {
       setModalNuevoReciboOpen(false);
-      setNuevoReciboDraftId(null); // ← ← ← LIMPIAR ID AL CERRAR
+      setNuevoReciboDraftId(null);
     }}
     sessionCajaId={sessionActiva?.id}
-    reciboParaEditarId={nuevoReciboDraftId}  // ← ← ← USAR ID REAL DEL BORRADOR
+    reciboParaEditarId={nuevoReciboDraftId}
     apiUrl={apiUrl}
     token={token}
+    // ← ← ← NUEVA PROP ← ← ←
+    modalProximaCitaConfig={modalProximaCitaConfig}
     onReciboCreado={(recibo) => {
       cargarDatosCaja();
       setModalNuevoReciboOpen(false);
-      setNuevoReciboDraftId(null); // ← ← ← LIMPIAR ID AL CREAR
+      setNuevoReciboDraftId(null);
     }}
     onReciboActualizado={(recibo) => {
       console.log('🔄 [CajaPage] Recibo actualizado, recargando datos...', {
@@ -4767,9 +4867,8 @@ const formatDate = (dateStr: string): string => {
       const cacheBuster = Date.now();
       cargarDatosCaja(cacheBuster);
       setModalNuevoReciboOpen(false);
-      setNuevoReciboDraftId(null); // ← ← ← LIMPIAR ID AL ACTUALIZAR
+      setNuevoReciboDraftId(null);
     }}
-    // ← ← ← AGREGAR ESTE CALLBACK SI NO LO TENÍAS:
     onComisionesPagadas={() => {
       console.log('💰 Comisiones pagadas, actualizando caja...');
       cargarDatosCaja();

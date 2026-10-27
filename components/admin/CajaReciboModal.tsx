@@ -72,6 +72,7 @@ interface CajaReciboModalProps {
   onComisionesPagadas?: () => void;
   modalComisionesOpen?: boolean;
   onModalComisionesClose?: () => void;
+  modalProximaCitaConfig?: 'siempre' | 'solo_registrados' | 'nunca';
 }
 interface AbonoRecibo {
   id: number;
@@ -205,6 +206,7 @@ export default function CajaReciboModal({
   onComisionesPagadas,
   modalComisionesOpen = false,
   onModalComisionesClose,
+  modalProximaCitaConfig = 'solo_registrados',
 }: CajaReciboModalProps) {
   
   // ← Estados principales
@@ -239,6 +241,11 @@ export default function CajaReciboModal({
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [clienteSearchTerm, setClienteSearchTerm] = useState('');
   const [clienteSeleccionadoId, setClienteSeleccionadoId] = useState<number | null>(null);
+  // ← ← ← NUEVOS ESTADOS PARA BÚSQUEDA EN TIEMPO REAL ← ← ←
+  const [resultadosBusquedaCliente, setResultadosBusquedaCliente] = useState<Cliente[]>([]);
+  const [mostrarResultadosBusqueda, setMostrarResultadosBusqueda] = useState(false);
+  const [busquedaClienteLoading, setBusquedaClienteLoading] = useState(false);
+  const contenedorBusquedaRef = useRef<HTMLDivElement>(null);
   // ← ← ← NUEVO: Bandera para diferenciar búsqueda de cliente referente vs cliente del recibo ← ← ←
   const [buscandoClienteReferente, setBuscandoClienteReferente] = useState(false);
   const [nuevoClienteData, setNuevoClienteData] = useState<NuevoClienteData>({
@@ -626,6 +633,72 @@ useEffect(() => {
     loadClientes();
   }
 }, [showClientModal]);
+
+// ← ← ← NUEVO useEffect: Búsqueda en tiempo real de clientes registrados ← ← ←
+useEffect(() => {
+  // Solo buscar si hay texto y el dropdown debe mostrarse
+  if (!mostrarResultadosBusqueda) {
+    setResultadosBusquedaCliente([]);
+    return;
+  }
+
+  const termino = clienteNombre.trim();
+  if (termino.length < 2) {
+    setResultadosBusquedaCliente([]);
+    setBusquedaClienteLoading(false);
+    return;
+  }
+
+  // Debounce de 300ms para no saturar el backend
+  const timer = setTimeout(async () => {
+    setBusquedaClienteLoading(true);
+    try {
+      const res = await fetch(
+        `${apiUrl}/usuarios/?search=${encodeURIComponent(termino)}&limit=10`,
+        {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const usuariosList = Array.isArray(data) ? data : (data.results || []);
+        const clientesMapeados: Cliente[] = usuariosList.map((u: any) => ({
+          id: u.id,
+          nombre: [u.first_name, u.last_name].filter(Boolean).join(' ').trim() || u.username || u.email?.split('@')[0] || 'Usuario',
+          telefono: u.perfil?.telefono || u.telefono || '',
+          email: u.email || '',
+          esRegistrado: true,
+          userId: u.id
+        }));
+        setResultadosBusquedaCliente(clientesMapeados);
+      } else {
+        setResultadosBusquedaCliente([]);
+      }
+    } catch (err) {
+      console.error('❌ Error en búsqueda en tiempo real:', err);
+      setResultadosBusquedaCliente([]);
+    } finally {
+      setBusquedaClienteLoading(false);
+    }
+  }, 300);
+
+  return () => clearTimeout(timer);
+}, [clienteNombre, mostrarResultadosBusqueda, apiUrl, token]);
+
+// ← ← ← NUEVO useEffect: Cerrar dropdown al hacer clic fuera ← ← ←
+useEffect(() => {
+  const handleClickOutside = (event: MouseEvent) => {
+    if (
+      contenedorBusquedaRef.current &&
+      !contenedorBusquedaRef.current.contains(event.target as Node)
+    ) {
+      setMostrarResultadosBusqueda(false);
+    }
+  };
+
+  document.addEventListener('mousedown', handleClickOutside);
+  return () => document.removeEventListener('mousedown', handleClickOutside);
+}, []);
 
 // ← ← ← NUEVO useMemo: Filtrar clientes ← ← ←
 const clientesFiltrados = useMemo(() => {
@@ -4026,66 +4099,171 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                 </div>*/}
              
 
-               {/* ← ← ← DATOS DEL CLIENTE: GRID COMPACTO EN UNA FILA ← ← ← */}
-              {tipoRecibo === 'venta' && (
-                <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
-                  <label className="block text-sm font-semibold text-gray-300 mb-3 flex items-center justify-between">
-                    <span>👤 Datos del Cliente</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowClientModal(true)}
-                      className="text-blue-400 hover:text-blue-300 text-xs flex items-center gap-1"
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                      </svg>
-                      Buscar
-                    </button>
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-1 gap-2">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={clienteNombre}
-                        onChange={(e) => setClienteNombre(e.target.value)}
-                        placeholder="👤 Nombre del cliente"
-                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none pr-8"
-                      />
-                      {clienteSeleccionadoId && (
-                        <button
-                          onClick={() => {
-                            setClienteSeleccionadoId(null);
-                            setClienteNombre('');
-                            setClienteTelefono('');
-                            setClienteEmail('');
+                {/* ← ← ← DATOS DEL CLIENTE: GRID COMPACTO EN UNA FILA ← ← ← */}
+                {tipoRecibo === 'venta' && (
+                  <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
+                    <label className="block text-sm font-semibold text-gray-300 mb-3 flex items-center justify-between">
+                      <span>👤 Datos del Cliente</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNuevoClienteData({ nombre: '', telefono: '', email: '' });
+                          setShowRegisterModal(true);
+                        }}
+                        className="text-blue-400 hover:text-blue-300 text-xs flex items-center gap-1"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Nuevo
+                      </button>
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-1 gap-2">
+                      {/* ← ← ← Campo con búsqueda en tiempo real ← ← ← */}
+                      <div className="relative" ref={contenedorBusquedaRef}>
+                        <input
+                          type="text"
+                          value={clienteNombre}
+                          onChange={(e) => {
+                            setClienteNombre(e.target.value);
+                            if (e.target.value.trim().length >= 2) {
+                              setMostrarResultadosBusqueda(true);
+                            } else {
+                              setMostrarResultadosBusqueda(false);
+                            }
                           }}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-400"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      )}
+                          onFocus={(e) => {
+                            // ← ← ← NUEVO: Limpiar valores por defecto al hacer focus ← ← ←
+                            const valoresDefault = [
+                              'Cliente',
+                              'No proporcionado',
+                              'No proporcionado com',
+                              'No@proporcionado.com',
+                              'Ingreso Operativo',
+                              'Gasto Operativo',
+                              ''
+                            ];
+                            
+                            // Solo limpiar si:
+                            // 1. El valor actual es uno de los defaults
+                            // 2. NO hay un cliente seleccionado (clienteSeleccionadoId es null)
+                            if (!clienteSeleccionadoId && valoresDefault.includes(clienteNombre.trim())) {
+                              setClienteNombre('');
+                              setClienteTelefono('');
+                              setClienteEmail('');
+                            }
+                            
+                            // Mostrar resultados si hay texto suficiente
+                            if (clienteNombre.trim().length >= 2 && !valoresDefault.includes(clienteNombre.trim())) {
+                              setMostrarResultadosBusqueda(true);
+                            }
+                          }}
+                          onBlur={() => {
+                            setTimeout(() => {
+                              setMostrarResultadosBusqueda(false);
+                            }, 200);
+                          }}
+                          placeholder="👤 Nombre del cliente (escribe para buscar...)"
+                          className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none pr-16"
+                          autoComplete="off"
+                        />
+                        {/* ← ← ← Indicadores visuales dentro del input ← ← ← */}
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                          {busquedaClienteLoading && (
+                            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-400"></div>
+                          )}
+                          {clienteSeleccionadoId && (
+                            <button
+                              onClick={() => {
+                                setClienteSeleccionadoId(null);
+                                setClienteNombre('');
+                                setClienteTelefono('');
+                                setClienteEmail('');
+                              }}
+                              className="text-gray-400 hover:text-red-400"
+                              title="Limpiar cliente"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          )}
+                          {clienteSeleccionadoId && !busquedaClienteLoading && (
+                            <span className="text-green-400 text-xs font-bold">✓</span>
+                          )}
+                        </div>
+
+                        {/* ← ← ← DROPDOWN DE RESULTADOS ← ← ← */}
+                        {mostrarResultadosBusqueda && (
+                          <div className="absolute z-50 w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-2xl max-h-60 overflow-y-auto">
+                            {busquedaClienteLoading ? (
+                              <div className="p-3 text-center text-gray-400 text-sm flex items-center justify-center gap-2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
+                                Buscando...
+                              </div>
+                            ) : resultadosBusquedaCliente.length === 0 ? (
+                              <div className="p-3 text-center text-gray-500 text-sm">
+                                {clienteNombre.trim().length < 2
+                                  ? 'Escribe al menos 2 caracteres para buscar'
+                                  : 'No se encontraron clientes registrados'}
+                              </div>
+                            ) : (
+                              <>
+                                <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-700 bg-gray-900/50 sticky top-0">
+                                  Usuarios registrados ({resultadosBusquedaCliente.length})
+                                </div>
+                                {resultadosBusquedaCliente.map((cliente) => (
+                                  <button
+                                    key={`busqueda-${cliente.userId || cliente.id}`}
+                                    type="button"
+                                    onMouseDown={(e) => {
+                                      // Usar onMouseDown para que se ejecute antes del onBlur
+                                      e.preventDefault();
+                                      handleClienteSelect(cliente);
+                                      setMostrarResultadosBusqueda(false);
+                                    }}
+                                    className="w-full px-3 py-2 text-left hover:bg-blue-900/40 transition-colors border-b border-gray-700 last:border-b-0 flex items-center gap-3"
+                                  >
+                                    <div className="w-8 h-8 bg-blue-900 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0">
+                                      {cliente.nombre.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm text-white font-medium truncate">
+                                        {cliente.nombre}
+                                      </p>
+                                      <div className="flex items-center gap-2 text-xs text-gray-400">
+                                        {cliente.telefono && <span>📱 {cliente.telefono}</span>}
+                                        {cliente.email && <span className="truncate">✉️ {cliente.email}</span>}
+                                      </div>
+                                    </div>
+                                    <span className="text-[10px] text-green-400 bg-green-900/30 px-1.5 py-0.5 rounded border border-green-700/50 shrink-0">
+                                      Registrado
+                                    </span>
+                                  </button>
+                                ))}
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <input
+                        type="tel"
+                        value={clienteTelefono}
+                        onChange={(e) => setClienteTelefono(e.target.value)}
+                        placeholder="📱 Teléfono"
+                        className="px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                      />
+                      <input
+                        type="email"
+                        value={clienteEmail}
+                        onChange={(e) => setClienteEmail(e.target.value)}
+                        placeholder="✉️ Email"
+                        className="px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                      />
                     </div>
-
-
-                    <input
-                      type="tel"
-                      value={clienteTelefono}
-                      onChange={(e) => setClienteTelefono(e.target.value)}
-                      placeholder="📱 Teléfono"
-                      className="px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
-                    />
-                    <input
-                      type="email"
-                      value={clienteEmail}
-                      onChange={(e) => setClienteEmail(e.target.value)}
-                      placeholder="✉️ Email"
-                      className="px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
-                    />
                   </div>
-                </div>
-              )}
+                )}
 
               {/* Búsqueda de Items - CONDICIONAL PARA VENTAS VS MOVIMIENTOS */}
               {tipoRecibo === 'venta' ? (
@@ -5053,18 +5231,32 @@ const handleActualizarReciboConPayload = async (payloadBase: any, silentMode: bo
                     
                     alert('✅ Recibo publicado exitosamente');
                     
-                    // ← ← ← NUEVO: Abrir modal de Próximas Citas Sugeridas si hay citas vinculadas ← ← ←
+                    // ← ← ← Abrir modal de Próximas Citas Sugeridas si hay citas vinculadas ← ← ←
+                    // ← ← ← NUEVO: Verificar configuración antes de mostrar modal de próxima cita ← ← ←
                     const citaIds = items
                       .filter(item => item.tipo === 'servicio' && item.citaId)
                       .map(item => Number(item.citaId))
-                      .filter((id, index, self) => self.indexOf(id) === index); // Obtener IDs únicos
+                      .filter((id, index, self) => self.indexOf(id) === index);
 
-                    if (citaIds.length > 0) {
+                    // ← ← ← LÓGICA CONDICIONAL SEGÚN CONFIGURACIÓN ← ← ←
+                    let debeMostrarModal = false;
+
+                    if (modalProximaCitaConfig === 'siempre') {
+                      // Mostrar siempre si hay citas
+                      debeMostrarModal = citaIds.length > 0;
+                    } else if (modalProximaCitaConfig === 'solo_registrados') {
+                      // Solo mostrar si el cliente está registrado (tiene clienteSeleccionadoId)
+                      debeMostrarModal = citaIds.length > 0 && clienteSeleccionadoId !== null;
+                    } else if (modalProximaCitaConfig === 'nunca') {
+                      // Nunca mostrar
+                      debeMostrarModal = false;
+                    }
+
+                    if (debeMostrarModal) {
                       setCitasParaSugerir(citaIds);
                       setShowProximaCitaModal(true);
-                      // NOTA: No llamamos a handleClose() aquí, lo haremos cuando se cierre el modal de sugerencias
                     } else {
-                      handleClose(); // Si no hay citas, cerramos el modal de caja normalmente
+                      handleClose();
                     }
                     
                   } catch (err: any) {
