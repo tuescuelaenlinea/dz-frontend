@@ -38,7 +38,16 @@ export default function ReporteCierreCajaModal({ isOpen, onClose, sessionId, api
       });
       if (res.ok) {
         const jsonData = await res.json();
+        // ← ← ← NUEVO: Log para depuración en consola del navegador ← ← ←
+        console.log('📊 [ReporteCierre] Datos recibidos del backend:', jsonData);
+        console.log('📊 [ReporteCierre] Primera venta de ejemplo:', jsonData.detalles?.ventas?.[0]);
+          // ← ← ← AGREGA ESTOS LOGS PARA DEBUGGING ← ← ←
+      console.log('📊 Datos completos del reporte:', jsonData);
+      console.log('📦 Primera venta:', jsonData.detalles?.ventas?.[0]);
+      console.log('💰 Abonos de la primera venta:', jsonData.detalles?.ventas?.[0]?.abonos);
         setData(jsonData);
+      } else {
+        console.error('❌ Error cargando reporte:', await res.text());
       }
     } catch (err) {
       console.error('Error cargando reporte:', err);
@@ -265,7 +274,7 @@ const handlePrint = () => {
             // ← ← ← CLAVE: Agregar key al Fragment
             <React.Fragment key={`venta-group-${venta.codigo || idx}`}>
               
-              {/* Fila principal del recibo (Encabezado de grupo) */}
+              {/* Fila principal del recibo (Encabezado de grupo) */}              
               <tr className="bg-gray-50 font-semibold border-b border-gray-200">
                 <td className="p-3 font-mono text-xs" colSpan={2}>
                   {venta.codigo} 
@@ -275,7 +284,8 @@ const handlePrint = () => {
                   {venta.cliente}
                 </td>
                 <td className="p-3 text-right font-bold text-gray-900">
-                  {formatMoney(venta.monto_total)}
+                  {/* ← ← ← NUEVO: Fallback para asegurar que se muestre el monto correcto ← ← ← */}
+                  {formatMoney(venta.monto_total ?? venta.total ?? 0)}
                 </td>
               </tr>
               
@@ -291,7 +301,8 @@ const handlePrint = () => {
                       {abono.referencia || 'Sin ref.'} <span className="text-gray-400">({abono.fecha})</span>
                     </td>
                     <td className="p-3 text-right text-sm font-semibold text-gray-800">
-                      
+                      {/* ← ← ← AGREGA ESTO: */}
+                      {formatMoney(abono.monto)}
                     </td>
                   </tr>
                 ))

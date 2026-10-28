@@ -1,7 +1,7 @@
 // app/admin/caja/reporte-cierre/[sessionId]/page.tsx
 'use client';
-import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import React, { useEffect, useState } from 'react';
 
 interface ReporteData {
   session: any;
@@ -282,12 +282,42 @@ export default function ReporteCierreImpresionPage() {
             </thead>
             <tbody>
               {data.detalles.ventas.map((venta: any, idx: number) => (
-                <tr key={idx} className="border-b">
-                  <td className="p-1.5 font-mono text-[8px] border-l">{venta.codigo}</td>
-                  <td className="p-1.5 border text-[9px]">{venta.cliente}</td>
-                  <td className="p-1.5 capitalize border text-[9px]">{venta.metodo}</td>
-                  <td className="p-1.5 text-right font-semibold border-r text-[9px]">{formatMoney(venta.monto)}</td>
-                </tr>
+                <React.Fragment key={`venta-print-${venta.codigo || idx}`}>
+                  {/* Fila principal del recibo */}
+                  <tr className="bg-gray-50 font-semibold border-b">
+                    <td className="p-1.5 font-mono text-[8px] border-l" colSpan={2}>
+                      {venta.codigo}
+                      <span className="text-gray-500 font-normal ml-1">({venta.fecha})</span>
+                    </td>
+                    <td className="p-1.5 border text-[9px]" colSpan={2}>
+                      {venta.cliente}
+                    </td>
+                  </tr>
+                  
+                  {/* Filas de abonos reales */}
+                  {venta.abonos && venta.abonos.length > 0 ? (
+                    venta.abonos.map((abono: any, aIdx: number) => (
+                      <tr key={`abono-print-${idx}-${aIdx}`} className="border-b">
+                        <td className="p-1.5 pl-4 text-[8px] text-gray-500 border-l">↳ Abono</td>
+                        <td className="p-1.5 text-[9px] capitalize font-medium text-blue-700 border">
+                          {abono.metodo} {formatMoney(abono.monto)}
+                        </td>
+                        <td className="p-1.5 text-[8px] text-gray-500 border">
+                          {abono.referencia || 'Sin ref.'} <span className="text-gray-400">({abono.fecha})</span>
+                        </td>
+                        <td className="p-1.5 text-right font-semibold border-r text-[9px]">
+                          {formatMoney(abono.monto)}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr className="border-b">
+                      <td colSpan={4} className="p-1.5 pl-4 text-[8px] text-red-500 italic border-l border-r">
+                        ⚠️ Sin abonos registrados
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>
